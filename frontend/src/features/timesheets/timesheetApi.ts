@@ -1,0 +1,126 @@
+import type { ApiResponse } from "@/types/api";
+import api from "@/api/client";
+
+function unwrap<T>(response: ApiResponse<T>, fallback = "Request failed"): T {
+  if (!response.data) {
+    throw new Error(response.message ?? fallback);
+  }
+  return response.data;
+}
+
+export interface TimeEntry {
+  id: string;
+  timesheetId: string;
+  projectId: string;
+  taskId: string | null;
+  workDate: string;
+  hours: number;
+  description: string | null;
+  billable: boolean;
+  billingRate: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Timesheet {
+  id: string;
+  organizationId: string;
+  resourceId: string;
+  regionId: string;
+  weekStartDate: string;
+  status: string;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  rejectionReason: string | null;
+  totalHours: number | null;
+  warning: string | null;
+  entries: TimeEntry[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateTimesheetBody {
+  organizationId?: string;
+  resourceId?: string;
+  weekStartDate: string;
+}
+
+export interface CreateTimeEntryBody {
+  projectId: string;
+  taskId?: string | null;
+  workDate: string;
+  hours: number;
+  description?: string;
+  billable?: boolean;
+  billingRate?: number | null;
+}
+
+export async function listTimesheets(params?: {
+  status?: string;
+  resourceId?: string;
+  weekStart?: string;
+  billableOnly?: boolean;
+}): Promise<Timesheet[]> {
+  const { data } = await api.get<ApiResponse<Timesheet[]>>("/timesheets", {
+    params: {
+      size: 100,
+      status: params?.status || undefined,
+      resourceId: params?.resourceId || undefined,
+      weekStart: params?.weekStart || undefined,
+      billableOnly: params?.billableOnly || undefined,
+    },
+  });
+  return unwrap(data, "Unable to load timesheets");
+}
+
+export async function getTimesheet(id: string): Promise<Timesheet> {
+  const { data } = await api.get<ApiResponse<Timesheet>>(`/timesheets/${id}`);
+  return unwrap(data, "Unable to load timesheet");
+}
+
+export async function createTimesheet(body: CreateTimesheetBody): Promise<Timesheet> {
+  const { data } = await api.post<ApiResponse<Timesheet>>("/timesheets", body);
+  return unwrap(data, "Unable to create timesheet");
+}
+
+export async function addTimeEntry(timesheetId: string, body: CreateTimeEntryBody): Promise<TimeEntry> {
+  const { data } = await api.post<ApiResponse<TimeEntry>>(`/timesheets/${timesheetId}/entries`, body);
+  return unwrap(data, "Unable to add time entry");
+}
+
+export async function deleteTimeEntry(id: string): Promise<void> {
+  await api.delete(`/time-entries/${id}`);
+}
+
+export async function submitTimesheet(id: string): Promise<Timesheet> {
+  const { data } = await api.post<ApiResponse<Timesheet>>(`/timesheets/${id}/submit`);
+  return unwrap(data, "Unable to submit timesheet");
+}
+
+export async function approveTimesheet(id: string): Promise<Timesheet> {
+  const { data } = await api.post<ApiResponse<Timesheet>>(`/timesheets/${id}/approve`);
+  return unwrap(data, "Unable to approve timesheet");
+}
+
+export async function rejectTimesheet(id: string, reason: string): Promise<Timesheet> {
+  const { data } = await api.post<ApiResponse<Timesheet>>(`/timesheets/${id}/reject`, { reason });
+  return unwrap(data, "Unable to reject timesheet");
+}
+
+export async function exportTimesheetsCsv(): Promise<Blob> {
+  const { data } = await api.get<Blob>("/timesheets/export", { responseType: "blob" });
+  return data;
+}
+
+/** ISO date (yyyy-mm-dd) for the Monday of the given local date. */
+export function mondayOf(date: Date = new Date()): string {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}

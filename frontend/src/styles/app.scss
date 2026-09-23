@@ -1,0 +1,34 @@
+@use "tokens" as *;
+@use "bootstrap/scss/bootstrap" with (
+  $primary: $primary,
+  $secondary: $secondary,
+  $body-bg: $body-bg,
+  $body-color: $body-color,
+  $border-radius: $border-radius,
+  $font-family-sans-serif: $font-family-sans-serif
+);
+@use "layout";
+
+:root {
+  --te-navy: #{$te-navy};
+  --te-accent: #{$te-accent};
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background: $te-surface;
+}
+
+a {
+  text-decoration: none;
+}
+
+.required::after {
+  content: " *";
+  color: #c0392b;
+}

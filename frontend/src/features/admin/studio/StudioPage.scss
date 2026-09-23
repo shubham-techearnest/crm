@@ -1,0 +1,127 @@
+.studio-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: calc(100vh - 6rem);
+}
+
+.studio-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+}
+
+.studio-header-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.studio-alert {
+  margin: 0;
+}
+
+.studio-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(240px, 300px);
+  gap: 0.75rem;
+  flex: 1;
+  min-height: 420px;
+}
+
+.studio-navigator,
+.studio-canvas,
+.studio-inspector {
+  background: #fff;
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  overflow: auto;
+}
+
+.studio-pane-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6c757d;
+  margin-bottom: 0.75rem;
+}
+
+.studio-table-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.studio-table-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.125rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.25rem;
+}
+
+.studio-table-list button:hover {
+  background: #f8f9fa;
+}
+
+.studio-table-list button.active {
+  background: #e7f1ff;
+  color: #0d47a1;
+}
+
+.studio-field-table tbody tr:hover {
+  background: #f8f9fa;
+}
+
+.studio-canvas-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.studio-order-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--bs-border-color, #dee2e6);
+  border-radius: 0.375rem;
+}
+
+.studio-order-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+}
+
+.studio-order-list li:last-child {
+  border-bottom: 0;
+}
+
+.studio-order-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.15rem;
+}
+
+.studio-section {
+  padding: 0.5rem;
+  background: #f8f9fa;
+  border-radius: 0.375rem;
+}
+
+@media (max-width: 992px) {
+  .studio-layout {
+    grid-template-columns: 1fr;
+  }
+}

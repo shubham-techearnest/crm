@@ -1,0 +1,51 @@
+package com.techearnest.crm.resource.domain;
+
+import java.util.Collection;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+public interface ResourceRepository extends JpaRepository<Resource, UUID> {
+
+    @Query(
+            """
+            select r from Resource r
+            where r.userId = :userId and r.deletedAt is null
+            """)
+    Optional<Resource> findActiveByUserId(@Param("userId") UUID userId);
+
+    @Query("select r from Resource r where r.id = :id and r.deletedAt is null")
+    Optional<Resource> findActiveById(@Param("id") UUID id);
+
+    @Query(
+            """
+            select r from Resource r
+            where r.organizationId = :organizationId
+              and r.deletedAt is null
+              and (:search is null
+                   or lower(r.employeeCode) like lower(concat('%', cast(:search as string), '%'))
+                   or lower(r.designation) like lower(concat('%', cast(:search as string), '%')))
+              and (:regionIds is null or r.regionId in :regionIds)
+              and (:ownerId is null or r.managerId = :ownerId or r.userId = :ownerId)
+              and (:status is null or r.status = :status)
+              and (:regionId is null or r.regionId = :regionId)
+              and (:skillId is null
+                   or exists (select 1 from ResourceSkill rs
+                              where rs.id.resourceId = r.id and rs.id.skillId = :skillId))
+            """)
+    Page<Resource> search(
+            @Param("organizationId") UUID organizationId,
+            @Param("search") String search,
+            @Param("regionIds") Collection<UUID> regionIds,
+            @Param("ownerId") UUID ownerId,
+            @Param("status") String status,
+            @Param("regionId") UUID regionId,
+            @Param("skillId") UUID skillId,
+            Pageable pageable);
+
+    boolean existsByOrganizationIdAndEmployeeCodeAndDeletedAtIsNull(UUID organizationId, String employeeCode);
+}

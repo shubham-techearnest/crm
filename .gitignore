@@ -1,0 +1,54 @@
+# Env and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.p12
+*.jks
+
+# Java / Maven
+backend/target/
+*.class
+*.jar
+*.war
+hs_err_pid*
+replay_pid*
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Logs and temp
+*.log
+tmp/
+temp/
+.cache/
+
+# Local document storage
+backend/data/
+data/
+
+# Docs tooling (xlsx generator)
+docs/node_modules/
+docs/package-lock.json
+

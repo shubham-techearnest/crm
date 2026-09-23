@@ -1,0 +1,472 @@
+@use "tokens" as *;
+
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  width: $te-sidebar-width;
+  background: $te-navy;
+  color: #d7e2ee;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.app-brand {
+  height: $te-topbar-height;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.app-brand-mark {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.4rem;
+  background: $te-accent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.nav-section-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8aa0b5;
+  padding: 1rem 1.25rem 0.35rem;
+}
+
+.app-sidebar .nav-link {
+  color: #c5d4e3;
+  border-radius: 0;
+  margin: 0;
+  padding: 0.55rem 1rem 0.55rem 1.15rem;
+  font-size: 0.9rem;
+  border-left: 3px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.app-sidebar .nav-link:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.app-sidebar .nav-link.active {
+  background: $te-navy-700;
+  color: #fff;
+  border-left-color: #fff;
+}
+
+.app-sidebar .nav-link.coming-soon {
+  opacity: 0.72;
+}
+
+.app-sidebar .nav-link .nav-badge {
+  margin-left: auto;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9eb0c4;
+}
+
+.module-search {
+  margin: 0.35rem 0.85rem 0.65rem;
+}
+
+.module-search input {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 0.82rem;
+}
+
+.module-search input::placeholder {
+  color: #8aa0b5;
+}
+
+.module-search input:focus {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #fff;
+  box-shadow: none;
+}
+
+.quick-create-menu {
+  min-width: 10rem;
+}
+
+.module-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.module-tile {
+  border: 1px solid $te-border;
+  border-radius: 0.5rem;
+  padding: 0.9rem 1rem;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.module-tile:hover,
+.module-tile.is-selected {
+  border-color: $te-accent;
+  box-shadow: 0 0 0 1px rgba(45, 108, 223, 0.25);
+}
+
+.module-tile .tile-title {
+  font-weight: 650;
+  color: $te-navy;
+  margin-bottom: 0.25rem;
+}
+
+.coming-soon-card {
+  max-width: 520px;
+  margin: 3rem auto;
+  text-align: center;
+  padding: 2.5rem 2rem;
+  background: #fff;
+  border: 1px solid $te-border;
+  border-radius: 0.75rem;
+}
+
+.coming-soon-card h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.app-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.app-topbar {
+  height: $te-topbar-height;
+  background: #fff;
+  border-bottom: 1px solid $te-border;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.25rem;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.app-content {
+  padding: 1.25rem 1.5rem 2rem;
+}
+
+.page-card {
+  background: #fff;
+  border: 1px solid $te-border;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+}
+
+.auth-shell {
+  min-height: 100vh;
+  background:
+    linear-gradient(160deg, $te-navy 0%, $te-navy-800 45%, #0b1c31 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border-radius: 1rem;
+  padding: 2rem;
+  box-shadow: 0 24px 60px rgba(8, 20, 36, 0.28);
+}
+
+.state-panel {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: $te-muted;
+}
+
+.state-panel h2,
+.state-panel h3 {
+  color: $te-text;
+}
+
+.breadcrumb {
+  background: transparent;
+  padding: 0;
+  margin-bottom: 1rem;
+}
+
+/* —— CRM module list (Zoho-inspired workspace) —— */
+
+.module-list-shell {
+  background: #fff;
+  border: 1px solid $te-border;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 10rem);
+}
+
+.module-list-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid $te-border;
+  background: #fafbfc;
+}
+
+.module-list-toolbar-left,
+.module-list-toolbar-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.module-list-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 650;
+  color: $te-text;
+  letter-spacing: -0.01em;
+}
+
+.module-view-select {
+  min-width: 10rem;
+  max-width: 16rem;
+  border: none;
+  background: transparent;
+  font-weight: 600;
+  color: $te-navy;
+  padding: 0.25rem 0.35rem;
+}
+
+.module-list-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  flex: 1;
+  min-height: 0;
+}
+
+.module-list-body.with-filter {
+  grid-template-columns: 260px 1fr;
+}
+
+.module-filter-panel {
+  border-right: 1px solid $te-border;
+  background: #fbfcfd;
+  padding: 1rem 0.9rem;
+  overflow-y: auto;
+}
+
+.module-filter-heading {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: $te-muted;
+  margin: 0 0 0.75rem;
+}
+
+.module-filter-section {
+  margin-bottom: 1.15rem;
+}
+
+.module-filter-section h3 {
+  font-size: 0.82rem;
+  font-weight: 650;
+  margin: 0 0 0.5rem;
+  color: $te-text;
+}
+
+.module-list-canvas {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.module-list-table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.module-list-table {
+  margin: 0;
+  width: 100%;
+}
+
+.module-list-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f5f7fa;
+  border-bottom: 1px solid $te-border;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: $te-muted;
+  white-space: nowrap;
+  padding: 0.7rem 0.85rem;
+}
+
+.module-list-table tbody td {
+  padding: 0.7rem 0.85rem;
+  vertical-align: middle;
+  border-bottom: 1px solid #eef1f5;
+  font-size: 0.92rem;
+}
+
+.module-list-table tbody tr {
+  cursor: pointer;
+}
+
+.module-list-table tbody tr:hover {
+  background: #f3f8f7;
+}
+
+.module-list-table tbody tr.is-selected {
+  background: #e7f3f0;
+}
+
+.module-list-table .lead-name {
+  font-weight: 600;
+  color: $te-navy;
+}
+
+.module-list-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.65rem 1.1rem;
+  border-top: 1px solid $te-border;
+  background: #fafbfc;
+  font-size: 0.85rem;
+  color: $te-muted;
+}
+
+.module-detail-drawer {
+  border-left: 1px solid $te-border;
+  background: #fff;
+  padding: 1rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 14rem);
+}
+
+.record-shell-header {
+  margin-bottom: 0.75rem;
+}
+
+.record-shell-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.record-shell-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem;
+  border-bottom: 1px solid $te-border;
+  margin: 0 -0.25rem;
+  padding: 0 0.25rem;
+}
+
+.record-shell-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: $te-muted;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.record-shell-tab:hover {
+  color: $te-text;
+}
+
+.record-shell-tab.is-active {
+  color: $te-text;
+  border-bottom-color: $te-accent;
+}
+
+.record-shell-body {
+  padding-top: 0.75rem;
+}
+
+.module-list-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 400px);
+  min-height: 0;
+  flex: 1;
+}
+
+@media (max-width: 991.98px) {
+  .module-list-body.with-filter {
+    grid-template-columns: 1fr;
+  }
+
+  .module-filter-panel {
+    border-right: none;
+    border-bottom: 1px solid $te-border;
+  }
+
+  .module-list-split {
+    grid-template-columns: 1fr;
+  }
+
+  .module-detail-drawer {
+    border-left: none;
+    border-top: 1px solid $te-border;
+    max-height: none;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .app-sidebar {
+    position: fixed;
+    z-index: 40;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .app-sidebar.open {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(12, 24, 38, 0.45);
+    z-index: 30;
+  }
+}

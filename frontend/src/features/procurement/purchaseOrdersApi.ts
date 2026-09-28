@@ -63,6 +63,31 @@ export type UpdatePurchaseOrderBody = {
   notes?: string | null;
 };
 
+export async function queryPurchaseOrders(body: {
+  search?: string;
+  filter?: { op: "AND" | "OR"; conditions: Array<{ field: string; operator: string; value?: unknown; valueTo?: unknown }> };
+  status?: string;
+  vendorId?: string;
+  projectId?: string;
+}): Promise<PurchaseOrder[]> {
+  const { data } = await api.post<ApiResponse<PurchaseOrder[]>>("/purchase-orders/query", {
+    ...body,
+    page: 0,
+    size: 100,
+  });
+  return unwrap(data);
+}
+
+export async function sendPurchaseOrder(id: string): Promise<PurchaseOrder> {
+  const { data } = await api.post<ApiResponse<PurchaseOrder>>(`/purchase-orders/${id}/send`);
+  return unwrap(data);
+}
+
+export async function closePurchaseOrder(id: string): Promise<PurchaseOrder> {
+  const { data } = await api.post<ApiResponse<PurchaseOrder>>(`/purchase-orders/${id}/close`);
+  return unwrap(data);
+}
+
 export async function listPurchaseOrders(params?: {
   search?: string;
   status?: string;

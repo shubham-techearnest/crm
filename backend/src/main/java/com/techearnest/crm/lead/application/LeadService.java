@@ -2,6 +2,7 @@ package com.techearnest.crm.lead.application;
 
 import com.techearnest.crm.account.domain.Account;
 import com.techearnest.crm.account.domain.AccountRepository;
+import com.techearnest.crm.audit.application.AuditFieldChanges;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
 import com.techearnest.crm.common.exception.BusinessException;
@@ -206,20 +207,51 @@ public class LeadService {
         CurrentUser user = tenantAccess.requirePermission("LEAD_UPDATE");
         tableAclEvaluator.requireTableAccess("lead", CrudOp.UPDATE);
         Lead lead = requireVisibleLead(id);
+        if ("CONVERTED".equals(lead.getStatus())) {
+            throw new BusinessException("LEAD_CONVERTED", "Converted leads cannot be edited.");
+        }
         if (request.regionId() != null) {
             Region region = requireRegionInOrg(request.regionId(), lead.getOrganizationId());
             tenantAccess.assertRegionVisible(region.getId());
         }
+        UUID oldOwnerId = lead.getOwnerId();
+        String oldStatus = lead.getStatus();
+        String oldPriority = lead.getPriority();
+        java.math.BigDecimal oldEstimatedValue = lead.getEstimatedValue();
+        String oldCompany = lead.getCompanyName();
+        String oldFirstName = lead.getFirstName();
+        String oldLastName = lead.getLastName();
+        String oldSource = lead.getSource();
+        java.time.LocalDate oldCloseDate = lead.getExpectedCloseDate();
+
         lead.update(
                 request.regionId(),
                 request.ownerId(),
+                trimToNull(request.salutation()),
                 trimToNull(request.firstName()),
                 trimToNull(request.lastName()),
                 trimToNull(request.companyName()),
                 trimToNull(request.email()),
                 trimToNull(request.phone()),
+                trimToNull(request.mobile()),
+                trimToNull(request.fax()),
                 trimToNull(request.website()),
                 trimToNull(request.source()),
+                request.emailOptOut(),
+                request.noOfEmployees(),
+                trimToNull(request.rating()),
+                trimToNull(request.skypeId()),
+                trimToNull(request.secondaryEmail()),
+                trimToNull(request.twitter()),
+                trimToNull(request.addressCountry()),
+                trimToNull(request.addressFlat()),
+                trimToNull(request.addressStreet()),
+                trimToNull(request.addressCity()),
+                trimToNull(request.addressState()),
+                trimToNull(request.addressZip()),
+                request.addressLatitude(),
+                request.addressLongitude(),
+                request.photoDocumentId(),
                 request.status(),
                 trimToNull(request.priority()),
                 trimToNull(request.industry()),
@@ -227,7 +259,22 @@ public class LeadService {
                 request.estimatedValue(),
                 request.expectedCloseDate(),
                 request.description());
-        auditService.record(lead.getOrganizationId(), user.userId(), "UPDATE", "LEAD", lead.getId());
+        AuditFieldChanges.Builder changes = AuditFieldChanges.builder()
+                .addIfChanged("status", "Status", oldStatus, lead.getStatus())
+                .addIfChanged("priority", "Priority", oldPriority, lead.getPriority())
+                .addIfChanged("estimatedValue", "Estimated Value", oldEstimatedValue, lead.getEstimatedValue())
+                .addIfChanged("companyName", "Company", oldCompany, lead.getCompanyName())
+                .addIfChanged("firstName", "First Name", oldFirstName, lead.getFirstName())
+                .addIfChanged("lastName", "Last Name", oldLastName, lead.getLastName())
+                .addIfChanged("source", "Lead Source", oldSource, lead.getSource())
+                .addIfChanged("expectedCloseDate", "Expected Close Date", oldCloseDate, lead.getExpectedCloseDate())
+                .addIfChanged("ownerId", "Lead Owner", oldOwnerId, lead.getOwnerId());
+        if (changes.hasChanges()) {
+            auditService.recordWithSummary(
+                    lead.getOrganizationId(), user.userId(), "UPDATE", "LEAD", lead.getId(), changes.toJson());
+        } else {
+            auditService.record(lead.getOrganizationId(), user.userId(), "UPDATE", "LEAD", lead.getId());
+        }
         return LeadResponse.from(lead);
     }
 
@@ -561,13 +608,31 @@ public class LeadService {
                 orgId,
                 region.getId(),
                 ownerId,
+                trimToNull(request.salutation()),
                 trimToNull(request.firstName()),
                 trimToNull(request.lastName()),
                 trimToNull(request.companyName()),
                 trimToNull(request.email()),
                 trimToNull(request.phone()),
+                trimToNull(request.mobile()),
+                trimToNull(request.fax()),
                 trimToNull(request.website()),
                 trimToNull(request.source()),
+                request.emailOptOut() != null && request.emailOptOut(),
+                request.noOfEmployees(),
+                trimToNull(request.rating()),
+                trimToNull(request.skypeId()),
+                trimToNull(request.secondaryEmail()),
+                trimToNull(request.twitter()),
+                trimToNull(request.addressCountry()),
+                trimToNull(request.addressFlat()),
+                trimToNull(request.addressStreet()),
+                trimToNull(request.addressCity()),
+                trimToNull(request.addressState()),
+                trimToNull(request.addressZip()),
+                request.addressLatitude(),
+                request.addressLongitude(),
+                null,
                 request.status(),
                 trimToNull(request.priority()),
                 trimToNull(request.industry()),

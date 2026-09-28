@@ -4,7 +4,14 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormSection } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  optionsFromPairs,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -33,6 +40,9 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+
+const CONTRACT_STATUSES = ["DRAFT", "ACTIVE", "EXPIRED", "TERMINATED"] as const;
+const contractStatusOptions = enumPickerOptions(CONTRACT_STATUSES);
 
 const DEFAULTS: FormValues = {
   regionId: "",
@@ -100,6 +110,7 @@ export function ContractsPage() {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting, isDirty },
@@ -108,16 +119,59 @@ export function ContractsPage() {
     defaultValues: DEFAULTS,
   });
 
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+  });
+
+  const regionOptions = useMemo(
+    () => optionsFromPairs((regionsQuery.data ?? []).map((r) => ({ value: r.id, label: r.name }))),
+    [regionsQuery.data],
+  );
+  const accountOptions = useMemo(
+    () => optionsFromPairs((accountsQuery.data ?? []).map((a) => ({ value: a.id, label: a.name }))),
+    [accountsQuery.data],
+  );
+  const projectOptions = useMemo(
+    () => optionsFromPairs((projectsQuery.data ?? []).map((p) => ({ value: p.id, label: p.name }))),
+    [projectsQuery.data],
+  );
+
+  const buildContractBody = (values: FormValues) => ({
+    regionId: values.regionId,
+    accountId: values.accountId,
+    projectId: values.projectId || undefined,
+    name: values.name,
+    contractNumber: values.contractNumber || undefined,
+    valueAmount: values.valueAmount ? Number(values.valueAmount) : undefined,
+    startDate: values.startDate || undefined,
+    endDate: values.endDate || undefined,
+    autoRenew: values.autoRenew,
+    renewalNoticeDays: values.renewalNoticeDays ? Number(values.renewalNoticeDays) : 30,
+    terms: values.terms || undefined,
+    status: values.status || "ACTIVE",
+  });
+
   const createMutation = useMutation({
     mutationFn: createContract,
-    onSuccess: async () => {
+    onSuccess: async (contract) => {
       await queryClient.invalidateQueries({ queryKey: ["contracts"] });
       setFormError(null);
-      reset(DEFAULTS);
-      setShowForm(false);
+      await afterCreateSuccess(contract, "CONTRACT");
     },
     onError: () => setFormError("Could not create contract."),
   });
+
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate(buildContractBody(values));
+  };
 
   const rows = contractsQuery.data ?? [];
   const accountName = (id: string) =>
@@ -131,6 +185,104 @@ export function ContractsPage() {
   ].filter(Boolean).length;
 
   return (
+    <>
+      {showForm && canManage ? (
+        <ZohoFormKitCreateView
+          title="Create Contract"
+          entityLabel="Contract"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          <FormSection title="Contract" description="Account, dates, value, renewal">
+            <div className="col-md-3">
+              <label className="form-label required">Region</label>
+              <ZohoFormSelect
+                control={control}
+                name="regionId"
+                options={regionOptions}
+                searchPlaceholder="Search Regions"
+                allowEmpty={false}
+                placeholder="Select"
+                invalid={!!errors.regionId}
+              />
+              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
+            </div>
+            <div className="col-md-3">
+              <label className="form-label required">Account</label>
+              <ZohoFormSelect
+                control={control}
+                name="accountId"
+                options={accountOptions}
+                searchPlaceholder="Search Accounts"
+                lookupIcon="building"
+                allowEmpty={false}
+                placeholder="Select"
+                invalid={!!errors.accountId}
+              />
+              {errors.accountId ? <div className="invalid-feedback d-block">{errors.accountId.message}</div> : null}
+            </div>
+            <div className="col-md-3">
+              <FormField label="Name" required error={errors.name} {...register("name")} />
+            </div>
+            <div className="col-md-3">
+              <FormField label="Number" error={errors.contractNumber} {...register("contractNumber")} />
+            </div>
+            <div className="col-md-2">
+              <FormField label="Value" type="number" error={errors.valueAmount} {...register("valueAmount")} />
+            </div>
+            <div className="col-md-2">
+              <FormField label="Start" type="date" error={errors.startDate} {...register("startDate")} />
+            </div>
+            <div className="col-md-2">
+              <FormField label="End" type="date" error={errors.endDate} {...register("endDate")} />
+            </div>
+            <div className="col-md-2">
+              <FormField
+                label="Notice days"
+                type="number"
+                error={errors.renewalNoticeDays}
+                {...register("renewalNoticeDays")}
+              />
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Status</label>
+              <ZohoFormSelect
+                control={control}
+                name="status"
+                options={contractStatusOptions}
+                searchPlaceholder="Search Statuses"
+                allowEmpty={false}
+              />
+            </div>
+            <div className="col-md-2 form-check mt-4">
+              <input className="form-check-input" type="checkbox" id="autoRenew" {...register("autoRenew")} />
+              <label className="form-check-label" htmlFor="autoRenew">
+                Auto renew
+              </label>
+            </div>
+            <div className="col-md-4">
+              <label className="form-label">Project</label>
+              <ZohoFormSelect
+                control={control}
+                name="projectId"
+                options={projectOptions}
+                searchPlaceholder="Search Projects"
+                lookupIcon="apps"
+                placeholder="Optional"
+              />
+            </div>
+          </FormSection>
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Contracts"
       filterOpen={filterOpen}
@@ -148,8 +300,8 @@ export function ContractsPage() {
       }
       primaryAction={
         canManage ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Contract"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
+            Create Contract
           </button>
         ) : null
       }
@@ -213,115 +365,6 @@ export function ContractsPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) =>
-            createMutation.mutate({
-              regionId: values.regionId,
-              accountId: values.accountId,
-              projectId: values.projectId || undefined,
-              name: values.name,
-              contractNumber: values.contractNumber || undefined,
-              valueAmount: values.valueAmount ? Number(values.valueAmount) : undefined,
-              startDate: values.startDate || undefined,
-              endDate: values.endDate || undefined,
-              autoRenew: values.autoRenew,
-              renewalNoticeDays: values.renewalNoticeDays ? Number(values.renewalNoticeDays) : 30,
-              terms: values.terms || undefined,
-              status: values.status || "ACTIVE",
-            }),
-          )}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Contract" description="Account, dates, value, renewal">
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <select className="form-select" {...register("regionId")}>
-                <option value="">Select</option>
-                {(regionsQuery.data ?? []).map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Account</label>
-              <select className="form-select" {...register("accountId")}>
-                <option value="">Select</option>
-                {(accountsQuery.data ?? []).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-              {errors.accountId ? <div className="invalid-feedback d-block">{errors.accountId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <FormField label="Name" required error={errors.name} {...register("name")} />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Number" error={errors.contractNumber} {...register("contractNumber")} />
-            </div>
-            <div className="col-md-2">
-              <FormField label="Value" type="number" error={errors.valueAmount} {...register("valueAmount")} />
-            </div>
-            <div className="col-md-2">
-              <FormField label="Start" type="date" error={errors.startDate} {...register("startDate")} />
-            </div>
-            <div className="col-md-2">
-              <FormField label="End" type="date" error={errors.endDate} {...register("endDate")} />
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="Notice days"
-                type="number"
-                error={errors.renewalNoticeDays}
-                {...register("renewalNoticeDays")}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <select className="form-select" {...register("status")}>
-                {["DRAFT", "ACTIVE", "EXPIRED", "TERMINATED"].map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-2 form-check mt-4">
-              <input className="form-check-input" type="checkbox" id="autoRenew" {...register("autoRenew")} />
-              <label className="form-check-label" htmlFor="autoRenew">
-                Auto renew
-              </label>
-            </div>
-            <div className="col-md-4">
-              <label className="form-label">Project</label>
-              <select className="form-select" {...register("projectId")}>
-                <option value="">Optional</option>
-                {(projectsQuery.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </FormSection>
-          <FormActions
-            submitLabel="Save"
-            submitting={isSubmitting || createMutation.isPending}
-            onCancel={() => {
-              setShowForm(false);
-              reset(DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {contractsQuery.isLoading ? <LoadingState label="Loading contracts..." /> : null}
       {contractsQuery.error ? <ErrorState title="Unable to load contracts" message="Try again." /> : null}
       {!contractsQuery.isLoading && !contractsQuery.error ? (
@@ -364,5 +407,7 @@ export function ContractsPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

@@ -1,5 +1,6 @@
 package com.techearnest.crm.expense.application;
 
+import com.techearnest.crm.approval.application.ApprovalService;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
 import com.techearnest.crm.common.exception.BusinessException;
@@ -27,6 +28,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +41,7 @@ public class ExpenseService {
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
     private final NotificationService notificationService;
+    private final ApprovalService approvalService;
 
     public ExpenseService(
             ExpenseRepository expenseRepository,
@@ -46,13 +49,15 @@ public class ExpenseService {
             ProjectRepository projectRepository,
             TenantAccess tenantAccess,
             AuditService auditService,
-            NotificationService notificationService) {
+            NotificationService notificationService,
+            @Lazy ApprovalService approvalService) {
         this.expenseRepository = expenseRepository;
         this.resourceRepository = resourceRepository;
         this.projectRepository = projectRepository;
         this.tenantAccess = tenantAccess;
         this.auditService = auditService;
         this.notificationService = notificationService;
+        this.approvalService = approvalService;
     }
 
     @Transactional(readOnly = true)
@@ -291,30 +296,18 @@ public class ExpenseService {
 
         expense.submit();
 
+        UUID approvalRequestId =
+                approvalService.openExpenseRequest(expense, user.userId());
+        if (approvalRequestId != null) {
+            expense.setApprovalRequestId(approvalRequestId);
+        }
+
         auditService.record(
                 expense.getOrganizationId(),
                 user.userId(),
                 "UPDATE",
                 "EXPENSE",
                 expense.getId());
-
-        /*
-         * TEMPORARY FIX
-         * ------------------------------------------------------------
-         * ApprovalService currently does not expose:
-         *
-         *     openExpenseRequest(Expense, UUID)
-         *
-         * Therefore automatic creation of an approval workflow for
-         * submitted expenses is temporarily disabled.
-         *
-         * The Expense itself is still moved to SUBMITTED status.
-         * Audit logging and manager notification continue normally.
-         *
-         * Restore approval integration once ApprovalService API
-         * is confirmed.
-         * ------------------------------------------------------------
-         */
 
         notifyManagerOnSubmit(expense, user);
 
@@ -344,23 +337,12 @@ public class ExpenseService {
                 "EXPENSE",
                 expense.getId());
 
-        /*
-         * TEMPORARY FIX
-         * ------------------------------------------------------------
-         * ApprovalService.TARGET_EXPENSE does not currently exist.
-         *
-         * Approval synchronization is temporarily disabled.
-         *
-         * The Expense domain object itself is still approved and
-         * the submitter is still notified.
-         *
-         * Restore something equivalent to:
-         *
-         * approvalService.syncApprove(...)
-         *
-         * once the correct approval target API/type is confirmed.
-         * ------------------------------------------------------------
-         */
+        approvalService.syncApprove(
+                expense.getOrganizationId(),
+                ApprovalService.TARGET_EXPENSE,
+                expense.getId(),
+                user.userId(),
+                null);
 
         notifySubmitter(
                 expense,
@@ -409,20 +391,12 @@ public class ExpenseService {
                 "EXPENSE",
                 expense.getId());
 
-        /*
-         * TEMPORARY FIX
-         * ------------------------------------------------------------
-         * ApprovalService.TARGET_EXPENSE does not currently exist.
-         *
-         * Approval synchronization is temporarily disabled.
-         *
-         * The Expense itself is still rejected and the submitter
-         * receives the rejection notification.
-         *
-         * Restore approvalService.syncReject(...) after confirming
-         * the ApprovalService target model.
-         * ------------------------------------------------------------
-         */
+        approvalService.syncReject(
+                expense.getOrganizationId(),
+                ApprovalService.TARGET_EXPENSE,
+                expense.getId(),
+                user.userId(),
+                reason);
 
         notifySubmitter(
                 expense,

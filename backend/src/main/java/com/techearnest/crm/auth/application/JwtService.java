@@ -38,12 +38,21 @@ public class JwtService {
     }
 
     public String createAccessToken(CurrentUser user) {
+        return encodeToken(user, "INTERNAL");
+    }
+
+    public String createPortalAccessToken(CurrentUser user, String audience) {
+        return encodeToken(user, audience);
+    }
+
+    private String encodeToken(CurrentUser user, String audience) {
         Instant now = Instant.now();
-        JwtClaimsSet claims = JwtClaimsSet.builder()
+        JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .issuer("techearnest-crm")
                 .issuedAt(now)
                 .expiresAt(now.plus(properties.getAccessTokenTtl()))
                 .subject(user.userId().toString())
+                .claim("aud", audience)
                 .claim("email", user.email())
                 .claim("name", user.displayName())
                 .claim("org", user.organizationId() == null ? "" : user.organizationId().toString())
@@ -52,10 +61,10 @@ public class JwtService {
                 .claim("dept", user.departmentId() == null ? "" : user.departmentId().toString())
                 .claim("team", user.teamId() == null ? "" : user.teamId().toString())
                 .claim("resource", user.resourceId() == null ? "" : user.resourceId().toString())
-                .claim("perms", user.permissionList())
-                .build();
+                .claim("perms", user.permissionList());
+        JwtClaimsSet built = claims.build();
         JwsHeader header = JwsHeader.with(ALG).build();
-        return encoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();
+        return encoder.encode(JwtEncoderParameters.from(header, built)).getTokenValue();
     }
 
     public CurrentUser parseAccessToken(String token) {

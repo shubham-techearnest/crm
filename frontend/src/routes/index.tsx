@@ -34,7 +34,16 @@ import { ApprovalsPage } from "@/features/approvals/ApprovalsPage";
 import { TaxRatesPage } from "@/features/finance/TaxRatesPage";
 import { InvoicesPage } from "@/features/finance/InvoicesPage";
 import { ContractsPage } from "@/features/contracts/ContractsPage";
-import { ComingSoonPage } from "@/features/common/ComingSoonPage";
+import { ExpensesPage } from "@/features/expenses/ExpensesPage";
+import { VendorsPage } from "@/features/procurement/VendorsPage";
+import { PurchaseOrdersPage } from "@/features/procurement/PurchaseOrdersPage";
+import { ReportsPage } from "@/features/reports/ReportsPage";
+import { WorkflowAdminPage } from "@/features/admin/WorkflowAdminPage";
+import { PortalGuard } from "@/features/portal/PortalGuard";
+import { PortalLoginPage } from "@/features/portal/PortalLoginPage";
+import { PortalHomePage } from "@/features/portal/PortalHomePage";
+import { PortalListPage } from "@/features/portal/PortalListPage";
+import { PortalShell } from "@/layouts/PortalShell";
 import { PlatformDashboardPage } from "@/features/platform/PlatformDashboardPage";
 import { PlatformPlaceholderPage } from "@/features/platform/PlatformPlaceholderPage";
 import { PlatformProspectsPage } from "@/features/platform/PlatformProspectsPage";
@@ -49,7 +58,25 @@ function guard(anyOf: string[], element: ReactNode) {
 export const router = createBrowserRouter([
   {
     element: <AuthLayout />,
-    children: [{ path: "/login", element: <GuestGuard /> }],
+    children: [
+      { path: "/login", element: <GuestGuard /> },
+      { path: "/portal/login", element: <PortalLoginPage /> },
+    ],
+  },
+  {
+    path: "/portal",
+    element: <PortalGuard />,
+    children: [
+      {
+        element: <PortalShell />,
+        children: [
+          { index: true, element: <PortalHomePage /> },
+          { path: "projects", element: <PortalListPage tab="projects" /> },
+          { path: "invoices", element: <PortalListPage tab="invoices" /> },
+          { path: "documents", element: <PortalListPage tab="documents" /> },
+        ],
+      },
+    ],
   },
   {
     element: <AuthGuard />,
@@ -132,42 +159,10 @@ export const router = createBrowserRouter([
               { path: "/tax-rates", element: guard(["TAX_VIEW"], <TaxRatesPage />) },
               { path: "/invoices", element: guard(["INVOICE_VIEW"], <InvoicesPage />) },
               { path: "/contracts", element: guard(["CONTRACT_VIEW"], <ContractsPage />) },
-              {
-                path: "/purchase-orders",
-                element: (
-                  <ComingSoonPage
-                    title="Purchase Orders"
-                    description="Vendors, POs, and procurement approvals are planned after Finance foundation."
-                  />
-                ),
-              },
-              {
-                path: "/expenses",
-                element: (
-                  <ComingSoonPage
-                    title="Expenses"
-                    description="Employee and project expenses with approvals are part of V2 Expenses."
-                  />
-                ),
-              },
-              {
-                path: "/contracts",
-                element: (
-                  <ComingSoonPage
-                    title="Contracts"
-                    description="Customer contracts, renewals, and expiry reminders are planned in V2."
-                  />
-                ),
-              },
-              {
-                path: "/reports",
-                element: (
-                  <ComingSoonPage
-                    title="Reports"
-                    description="Advanced analytics and profitability reports follow Finance and Timesheet data."
-                  />
-                ),
-              },
+              { path: "/vendors", element: guard(["VENDOR_VIEW"], <VendorsPage />) },
+              { path: "/purchase-orders", element: guard(["PO_VIEW"], <PurchaseOrdersPage />) },
+              { path: "/expenses", element: guard(["EXPENSE_VIEW"], <ExpensesPage />) },
+              { path: "/reports", element: guard(["REPORT_VIEW"], <ReportsPage />) },
               { path: "/admin/users", element: guard(["USER_VIEW"], <UsersPage />) },
               { path: "/admin/roles", element: guard(["ROLE_VIEW"], <RolesPage />) },
               { path: "/admin/regions", element: guard(["REGION_VIEW"], <RegionsPage />) },
@@ -177,6 +172,7 @@ export const router = createBrowserRouter([
               { path: "/admin/acl-matrix", element: guard(["ACL_VIEW"], <AclMatrixPage />) },
               { path: "/admin/field-acl", element: guard(["FIELD_ACL_VIEW"], <FieldAclMatrixPage />) },
               { path: "/admin/audit-logs", element: guard(["AUDIT_VIEW"], <AuditLogsPage />) },
+              { path: "/admin/workflows", element: guard(["WORKFLOW_VIEW"], <WorkflowAdminPage />) },
             ],
           },
         ],

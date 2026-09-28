@@ -4,7 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import { ZohoFormKitCreateView, useZohoCreateFlow } from "@/components/ZohoCreate";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
@@ -30,7 +31,6 @@ export function SkillsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
 
   const listParams = useMemo(
     () => ({
@@ -56,6 +56,19 @@ export function SkillsPage() {
     defaultValues: SKILL_DEFAULTS,
   });
 
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: SKILL_DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+    onResetExtras: () => setShowMore(false),
+  });
+
   const buildBody = (values: FormValues) => ({
     name: values.name,
     category: values.category || undefined,
@@ -63,26 +76,64 @@ export function SkillsPage() {
 
   const createMutation = useMutation({
     mutationFn: createSkill,
-    onSuccess: async () => {
+    onSuccess: async (skill) => {
       await queryClient.invalidateQueries({ queryKey: ["skills"] });
       setFormError(null);
-      if (saveAndNew) {
-        reset(SKILL_DEFAULTS);
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        reset(SKILL_DEFAULTS);
-        setShowForm(false);
-        setShowMore(false);
-      }
+      await afterCreateSuccess(skill, "SKILL");
     },
     onError: () => setFormError("Could not create skill. Check the name is unique."),
   });
 
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate(buildBody(values));
+  };
+
+  function openCreate() {
+    reset(SKILL_DEFAULTS);
+    setShowForm(true);
+  }
+
   const rows = skillsQuery.data ?? [];
   const activeFilterCount = [search, nameFilter, categoryFilter].filter(Boolean).length;
 
+  const skillFormFields = (
+    <>
+      <FormSection title="Primary details" description="Skill name">
+        <div className="col-md-6">
+          <FormField label="Name" required error={errors.name} {...register("name")} />
+        </div>
+      </FormSection>
+      <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
+        <FormSection title="Classification">
+          <div className="col-md-4">
+            <FormField label="Category" error={errors.category} {...register("category")} />
+          </div>
+        </FormSection>
+      </FormMoreDetails>
+    </>
+  );
+
   return (
+    <>
+      {showForm && canManage ? (
+        <ZohoFormKitCreateView
+          title="Create Skill"
+          entityLabel="Skill"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          {skillFormFields}
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Skills"
       filterOpen={filterOpen}
@@ -100,8 +151,8 @@ export function SkillsPage() {
       }
       primaryAction={
         canManage ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Skill"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Create Skill
           </button>
         ) : null
       }
@@ -138,43 +189,6 @@ export function SkillsPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => createMutation.mutate(buildBody(values)))}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Primary details" description="Skill name">
-            <div className="col-md-6">
-              <FormField label="Name" required error={errors.name} {...register("name")} />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Classification">
-              <div className="col-md-4">
-                <FormField label="Category" error={errors.category} {...register("category")} />
-              </div>
-            </FormSection>
-          </FormMoreDetails>
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={isSubmitting || createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) => createMutation.mutate(buildBody(values)))();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              reset(SKILL_DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {skillsQuery.isLoading ? <LoadingState label="Loading skills..." /> : null}
       {skillsQuery.error ? <ErrorState title="Unable to load skills" message="Try again." /> : null}
 
@@ -219,5 +233,7 @@ export function SkillsPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

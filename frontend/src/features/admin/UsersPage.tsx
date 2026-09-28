@@ -4,7 +4,13 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import {
+  optionsFromPairs,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -56,7 +62,6 @@ export function UsersPage() {
   const [selected, setSelected] = useState<AdminUser | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
   const [assignRoleId, setAssignRoleId] = useState("");
   const [assignRegionId, setAssignRegionId] = useState("");
 
@@ -67,12 +72,27 @@ export function UsersPage() {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: USER_DEFAULTS,
+  });
+
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: USER_DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+    setSelected,
+    onResetExtras: () => setShowMore(false),
   });
 
   const buildBody = (values: FormValues) => ({
@@ -92,21 +112,22 @@ export function UsersPage() {
 
   const createMutation = useMutation({
     mutationFn: createUser,
-    onSuccess: async () => {
+    onSuccess: async (user) => {
       await refresh();
       setFormError(null);
-      if (saveAndNew) {
-        reset(USER_DEFAULTS);
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        reset(USER_DEFAULTS);
-        setShowForm(false);
-        setShowMore(false);
-      }
+      await afterCreateSuccess(user, "USER");
     },
     onError: () => setFormError("Could not create user. Email may already exist."),
   });
+
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate(buildBody(values));
+  };
+
+  function openCreate() {
+    reset(USER_DEFAULTS);
+    setShowForm(true);
+  }
 
   const roleMutation = useMutation({
     mutationFn: ({ userId, roleIds }: { userId: string; roleIds: string[] }) =>
@@ -139,6 +160,24 @@ export function UsersPage() {
     return (id: string | null) => (id ? (map.get(id) ?? id.slice(0, 8)) : "—");
   }, [regionsQuery.data]);
 
+  const regionOptions = useMemo(
+    () => optionsFromPairs((regionsQuery.data ?? []).map((r) => ({ value: r.id, label: r.name }))),
+    [regionsQuery.data],
+  );
+  const departmentOptions = useMemo(
+    () => optionsFromPairs((departmentsQuery.data ?? []).map((d) => ({ value: d.id, label: d.name }))),
+    [departmentsQuery.data],
+  );
+  const roleOptions = useMemo(
+    () =>
+      optionsFromPairs(
+        (rolesQuery.data ?? [])
+          .filter((role) => role.code !== "SUPER_ADMIN")
+          .map((role) => ({ value: role.id, label: role.name })),
+      ),
+    [rolesQuery.data],
+  );
+
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return (usersQuery.data ?? []).filter((user) => {
@@ -153,7 +192,89 @@ export function UsersPage() {
     });
   }, [usersQuery.data, search, statusFilter]);
 
+  const userFormFields = (
+    <>
+      <FormSection title="Primary details" description="Identity and login">
+        <div className="col-md-3">
+          <FormField label="First name" required error={errors.firstName} {...register("firstName")} />
+        </div>
+        <div className="col-md-3">
+          <FormField label="Last name" required error={errors.lastName} {...register("lastName")} />
+        </div>
+        <div className="col-md-3">
+          <FormField label="Email" type="email" required error={errors.email} {...register("email")} />
+        </div>
+        <div className="col-md-3">
+          <FormField
+            label="Password"
+            type="password"
+            required
+            error={errors.password}
+            {...register("password")}
+          />
+        </div>
+      </FormSection>
+      <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
+        <FormSection title="Org placement">
+          <div className="col-md-3">
+            <FormField label="Phone" error={errors.phone} {...register("phone")} />
+          </div>
+          <div className="col-md-3">
+            <label className="form-label">Region</label>
+            <ZohoFormSelect
+              control={control}
+              name="regionId"
+              options={regionOptions}
+              searchPlaceholder="Search Regions"
+              placeholder="None"
+            />
+          </div>
+          <div className="col-md-3">
+            <label className="form-label">Department</label>
+            <ZohoFormSelect
+              control={control}
+              name="departmentId"
+              options={departmentOptions}
+              searchPlaceholder="Search Departments"
+              placeholder="None"
+            />
+          </div>
+          <div className="col-md-3">
+            <label className="form-label">Initial role</label>
+            <ZohoFormSelect
+              control={control}
+              name="roleId"
+              options={roleOptions}
+              searchPlaceholder="Search Roles"
+              placeholder="None"
+            />
+          </div>
+        </FormSection>
+      </FormMoreDetails>
+    </>
+  );
+
   return (
+    <>
+      {showForm && canManage ? (
+        <ZohoFormKitCreateView
+          title="Create User"
+          entityLabel="User"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          {userFormFields}
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Users"
       filterOpen={filterOpen}
@@ -171,8 +292,8 @@ export function UsersPage() {
       }
       primaryAction={
         canManage ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Add user"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Add user
           </button>
         ) : null
       }
@@ -205,93 +326,6 @@ export function UsersPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => createMutation.mutate(buildBody(values)))}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Primary details" description="Identity and login">
-            <div className="col-md-3">
-              <FormField label="First name" required error={errors.firstName} {...register("firstName")} />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Last name" required error={errors.lastName} {...register("lastName")} />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Email" type="email" required error={errors.email} {...register("email")} />
-            </div>
-            <div className="col-md-3">
-              <FormField
-                label="Password"
-                type="password"
-                required
-                error={errors.password}
-                {...register("password")}
-              />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Org placement">
-              <div className="col-md-3">
-                <FormField label="Phone" error={errors.phone} {...register("phone")} />
-              </div>
-              <div className="col-md-3">
-                <label className="form-label">Region</label>
-                <select className="form-select" {...register("regionId")}>
-                  <option value="">None</option>
-                  {(regionsQuery.data ?? []).map((region) => (
-                    <option key={region.id} value={region.id}>
-                      {region.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label">Department</label>
-                <select className="form-select" {...register("departmentId")}>
-                  <option value="">None</option>
-                  {(departmentsQuery.data ?? []).map((department) => (
-                    <option key={department.id} value={department.id}>
-                      {department.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="col-md-3">
-                <label className="form-label">Initial role</label>
-                <select className="form-select" {...register("roleId")}>
-                  <option value="">None</option>
-                  {(rolesQuery.data ?? [])
-                    .filter((role) => role.code !== "SUPER_ADMIN")
-                    .map((role) => (
-                      <option key={role.id} value={role.id}>
-                        {role.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-            </FormSection>
-          </FormMoreDetails>
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={isSubmitting || createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) => createMutation.mutate(buildBody(values)))();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              reset(USER_DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {usersQuery.isLoading ? <LoadingState label="Loading users..." /> : null}
       {usersQuery.error ? <ErrorState title="Unable to load users" message="Try again." /> : null}
 
@@ -469,5 +503,7 @@ export function UsersPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

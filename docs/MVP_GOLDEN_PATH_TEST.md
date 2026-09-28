@@ -19,6 +19,7 @@ Organization (seed) → Region (Pune) → Users/Roles (seed) → Lead → Accoun
 | Notification after submit | PASS | `GET /notifications` as PM |
 | Region isolation (Mumbai lead) | PASS | Pune admin 404 on Mumbai lead |
 | Cross-org region IDOR | PASS | `CrossTenantSecurityTest` |
+| V2 finance/report/portal isolation | PASS | `V2CrossTenantIsolationTest` |
 
 ## Manual UI checklist (operator)
 
@@ -27,8 +28,9 @@ Organization (seed) → Region (Pune) → Users/Roles (seed) → Lead → Accoun
 3. Login `resource.mgr@example.com` — allocate Arjun to project.
 4. Login `employee@example.com` — new week timesheet, entry on allocated project, submit.
 5. Login `pm@example.com` — approve; confirm Notifications menu shows entry.
-6. Login `orgadmin@example.com` — Organization dashboard KPIs non-zero.
+6. Login `orgadmin@example.com` — Organization dashboard KPIs non-zero; open Reports (utilization + spend).
 7. Login `pune.admin@example.com` — cannot open Mumbai-only records; cannot open `/admin/users` if lacking permission (route guard redirects home).
+8. Open `/portal/login` — sign in as `portal@horizon-retail.example.com`; confirm projects/invoices/documents lists load.
 
 ## Failures / residual risks
 

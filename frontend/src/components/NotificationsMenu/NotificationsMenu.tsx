@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ApiResponse } from "@/types/api";
 import api from "@/api/client";
+import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import { useHasPermission } from "@/features/auth/AuthContext";
 
 interface NotificationItem {
@@ -52,37 +53,37 @@ export function NotificationsMenu() {
   const unread = (query.data ?? []).filter((n) => !n.read).length;
 
   return (
-    <div className="position-relative">
+    <div className="notifications-menu position-relative">
       <button
         type="button"
-        className="btn btn-outline-secondary btn-sm"
+        className="app-topbar-icon-btn"
         onClick={() => setOpen((v) => !v)}
+        title="Notifications"
+        aria-label={unread > 0 ? `Notifications (${unread} unread)` : "Notifications"}
       >
-        Notifications{unread > 0 ? ` (${unread})` : ""}
+        <ToolbarIcon name="bell" />
+        {unread > 0 ? <span className="app-topbar-badge">{unread > 9 ? "9+" : unread}</span> : null}
       </button>
       {open ? (
-        <div
-          className="position-absolute end-0 mt-1 border rounded bg-white shadow-sm"
-          style={{ zIndex: 40, width: 320, maxHeight: 320, overflowY: "auto" }}
-        >
-          {query.isLoading ? <div className="p-2 small text-muted">Loading…</div> : null}
-          {query.isError ? <div className="p-2 small text-danger">Unable to load</div> : null}
+        <div className="notifications-panel topbar-panel">
+          {query.isLoading ? <div className="topbar-panel-empty">Loading…</div> : null}
+          {query.isError ? <div className="topbar-panel-empty text-danger">Unable to load</div> : null}
           {!query.isLoading && (query.data?.length ?? 0) === 0 ? (
-            <div className="p-2 small text-muted">No notifications</div>
+            <div className="topbar-panel-empty">No notifications</div>
           ) : null}
           {(query.data ?? []).map((item) => (
             <button
               key={item.id}
               type="button"
-              className="d-block w-100 text-start border-0 border-bottom px-2 py-2 bg-white"
+              className={`notifications-item${item.read ? " is-read" : ""}`}
               onClick={() => {
                 if (!item.read) {
                   markRead.mutate(item.id);
                 }
               }}
             >
-              <div className={`small ${item.read ? "text-muted" : "fw-semibold"}`}>{item.title}</div>
-              <div className="small text-muted">{item.message}</div>
+              <div className="notifications-item-title">{item.title}</div>
+              <div className="notifications-item-message">{item.message}</div>
             </button>
           ))}
         </div>

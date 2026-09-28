@@ -29,8 +29,8 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
               and (:entityType is null or d.entityType = :entityType)
               and (:visibility is null or d.visibility = :visibility)
               and (:uploadedBy is null or d.uploadedBy = :uploadedBy)
-              and (:fromTs is null or d.createdAt >= :fromTs)
-              and (:toTs is null or d.createdAt <= :toTs)
+              and coalesce(:fromTs, d.createdAt) <= d.createdAt
+              and coalesce(:toTs, d.createdAt) >= d.createdAt
             order by d.createdAt desc
             """)
     List<Document> searchRecent(

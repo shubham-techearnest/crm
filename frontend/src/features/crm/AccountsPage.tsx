@@ -1,21 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useSearchParams } from "react-router-dom";
-import { z } from "zod";
-import { DynamicForm, FormActions, UnsavedGuard } from "@/components/FormKit";
+import { AccountCreateView } from "./AccountCreateView";
+import { buildOwnerOptions, enumPickerOptions, optionsFromPairs, ZohoFilterSelect } from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
-import { RecordShell } from "@/components/RecordShell";
+import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
+import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, ZohoRecordTimeline } from "@/components/ZohoRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
-import { useHasPermission } from "@/features/auth/AuthContext";
-import { listAuditLogs, listRegions } from "@/features/admin/adminApi";
-import { getPublishedFormBundle, getPublishedRelatedLists } from "@/features/admin/studio/metadataApi";
+import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
+import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
+import { getPublishedRelatedLists } from "@/features/admin/studio/metadataApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import {
-  createAccount,
   listAccountContacts,
   listAccountDeals,
   listAccounts,
@@ -25,25 +23,9 @@ import {
 import { listDocuments, listNotes } from "./foundationApi";
 import { listProjects } from "@/features/projects/projectApi";
 
-const schema = z.object({
-  regionId: z.string().min(1, "Region is required"),
-  name: z.string().min(1, "Name is required"),
-  accountType: z.string().min(1, "Type is required"),
-  industry: z.string().optional(),
-  email: z.string().email("Enter a valid email").or(z.literal("")).optional(),
-  phone: z.string().optional(),
-  website: z.string().optional(),
-  status: z.string().optional(),
-  billingAddress: z.string().optional(),
-  shippingAddress: z.string().optional(),
-  taxNumber: z.string().optional(),
-  description: z.string().optional(),
-});
-
-type FormValues = z.infer<typeof schema>;
-
 export function AccountsPage() {
   const queryClient = useQueryClient();
+  const auth = useAuth();
   const [params] = useSearchParams();
   const canCreate = useHasPermission("ACCOUNT_CREATE");
   const canViewNotes = useHasPermission("NOTE_VIEW");
@@ -58,9 +40,6 @@ export function AccountsPage() {
   const [industryFilter, setIndustryFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [selected, setSelected] = useState<Account | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
 
   useEffect(() => {
     if (params.get("create") === "1") setShowForm(true);
@@ -82,11 +61,10 @@ export function AccountsPage() {
     queryFn: () => listAccounts(listParams),
   });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
-  const accountFormBundleQuery = useQuery({
-    queryKey: ["metadata", "runtime", "account", "form-bundle", "CREATE"],
-    queryFn: () => getPublishedFormBundle("account", "CREATE"),
-    enabled: showForm,
-    staleTime: 60_000,
+  const usersQuery = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: () => listUsers(),
+    enabled: showForm && canCreate,
   });
   const relatedListsQuery = useQuery({
     queryKey: ["metadata", "runtime", "account", "related-lists"],
@@ -130,69 +108,271 @@ export function AccountsPage() {
     enabled: !!selected && canViewAudit,
   });
 
+  const userLabel = useMemo(() => {
+    const map = new Map(
+      (usersQuery.data ?? []).map((user) => [user.id, `${user.firstName} ${user.lastName}`.trim()]),
+    );
+    return (id: string | null | undefined) => (id ? (map.get(id) ?? id.slice(0, 8)) : "—");
+  }, [usersQuery.data]);
+
   const rows = accountsQuery.data ?? [];
+  const recordNav = useRecordNavigation(rows, selected, setSelected);
+  const timelineEntries = useMemo(
+    () =>
+      buildTimelineEntries(
+        auditQuery.data,
+        activitiesQuery.data,
+        (userId) => (userId === auth.userId ? auth.displayName : userLabel(userId)),
+        recordLifecycleInfo("Account", selected),
+        notesQuery.data,
+      ),
+    [auditQuery.data, activitiesQuery.data, notesQuery.data, auth.displayName, auth.userId, userLabel, selected],
+  );
+  const statusFilterOptions = enumPickerOptions(["ACTIVE", "INACTIVE"]);
+  const typeFilterOptions = enumPickerOptions(["PROSPECT", "CUSTOMER", "PARTNER", "VENDOR"]);
+  const regionFilterOptions = useMemo(
+    () => optionsFromPairs((regionsQuery.data ?? []).map((region) => ({ value: region.id, label: region.name }))),
+    [regionsQuery.data],
+  );
   const activeFilterCount = [search, statusFilter, typeFilter, industryFilter, regionFilter].filter(Boolean)
     .length;
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting, isDirty },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      regionId: "",
-      name: "",
-      accountType: "PROSPECT",
-      industry: "",
-      email: "",
-      phone: "",
-      website: "",
-      status: "ACTIVE",
-      billingAddress: "",
-      shippingAddress: "",
-      taxNumber: "",
-      description: "",
-    },
-  });
-
-  const createMutation = useMutation({
-    mutationFn: createAccount,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] });
-      setFormError(null);
-      if (saveAndNew) {
-        reset();
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        reset();
-        setShowForm(false);
-        setShowMore(false);
-      }
-    },
-    onError: () => setFormError("Could not create account."),
-  });
-
-  function buildAccountBody(values: FormValues) {
-    return {
-      regionId: values.regionId,
-      name: values.name,
-      accountType: values.accountType,
-      industry: values.industry || undefined,
-      email: values.email || undefined,
-      phone: values.phone || undefined,
-      website: values.website || undefined,
-      status: values.status || "ACTIVE",
-      billingAddress: values.billingAddress || undefined,
-      shippingAddress: values.shippingAddress || undefined,
-      taxNumber: values.taxNumber || undefined,
-      description: values.description || undefined,
-    };
+  async function handleAccountCreated(account: Account, mode: "save" | "saveAndNew") {
+    await queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] });
+    if (mode === "save") {
+      setShowForm(false);
+      setSelected(account);
+    }
   }
 
+  function openCreate() {
+    setSelected(null);
+    setShowForm(true);
+  }
+
+  const ownerOptions = useMemo(
+    () =>
+      buildOwnerOptions(usersQuery.data, {
+        userId: auth.userId,
+        displayName: auth.displayName,
+      }),
+    [usersQuery.data, auth.displayName, auth.userId],
+  );
+
   return (
+    <>
+      {showForm && canCreate ? (
+        <AccountCreateView
+          regions={(regionsQuery.data ?? []).map((region) => ({ id: region.id, name: region.name }))}
+          users={ownerOptions}
+          accounts={(accountsQuery.data ?? []).map((account) => ({ id: account.id, name: account.name }))}
+          defaultOwnerId={auth.userId}
+          defaultRegionId={auth.regionIds[0]}
+          onCancel={() => setShowForm(false)}
+          onCreated={(account, mode) => void handleAccountCreated(account, mode)}
+        />
+      ) : selected ? (
+        <RecordShell
+          layout="page"
+          title={selected.name}
+          subtitle={selected.accountType}
+          avatarLabel={selected.name}
+          avatarVariant="building"
+          status={<StatusBadge status={selected.status} />}
+          recordKey={selected.id}
+          onBack={recordNav.goBack}
+          onPrev={recordNav.goPrev}
+          onNext={recordNav.goNext}
+          hasPrev={recordNav.hasPrev}
+          hasNext={recordNav.hasNext}
+          relatedLinks={[...DEFAULT_RELATED_LINKS]}
+          tabs={[
+            {
+              id: "overview",
+              label: "Overview",
+              content: (
+                <>
+                  <p className="small mb-3">Email: {selected.email ?? "—"}</p>
+                  <p className="small mb-0">Phone: {selected.phone ?? "—"}</p>
+                </>
+              ),
+            },
+            {
+              id: "related",
+              label: "Related",
+              content: (
+                <>
+                  {(relatedListsQuery.data ?? []).map((rl) => {
+                    if (rl.childTableCode === "contact") {
+                      return (
+                        <div key={rl.id} className="mb-3">
+                          <h2 className="h6">{rl.label}</h2>
+                          <ul className="small mb-0">
+                            {(contactsQuery.data ?? []).map((c) => (
+                              <li key={c.id}>
+                                {rl.columns?.length
+                                  ? rl.columns
+                                      .map((col) => String((c as unknown as Record<string, unknown>)[col.field] ?? ""))
+                                      .filter(Boolean)
+                                      .join(" · ")
+                                  : `${c.firstName} ${c.lastName}`}
+                              </li>
+                            ))}
+                            {!contactsQuery.data?.length ? (
+                              <li className="text-muted">No linked contacts</li>
+                            ) : null}
+                          </ul>
+                        </div>
+                      );
+                    }
+                    if (rl.childTableCode === "deal") {
+                      return (
+                        <div key={rl.id} className="mb-3">
+                          <h2 className="h6">{rl.label}</h2>
+                          <ul className="small mb-0">
+                            {(dealsQuery.data ?? []).map((d) => (
+                              <li key={d.id}>
+                                {d.name} — <StatusBadge status={d.stage} />
+                              </li>
+                            ))}
+                            {!dealsQuery.data?.length ? (
+                              <li className="text-muted">No linked deals</li>
+                            ) : null}
+                          </ul>
+                        </div>
+                      );
+                    }
+                    if (rl.childTableCode === "activity" && canViewActivities) {
+                      return (
+                        <div key={rl.id} className="mb-3">
+                          <h2 className="h6">{rl.label}</h2>
+                          <ul className="small mb-0">
+                            {(activitiesQuery.data ?? []).map((a) => (
+                              <li key={a.id}>
+                                {a.subject} — <StatusBadge status={a.status} />
+                              </li>
+                            ))}
+                            {!activitiesQuery.data?.length ? (
+                              <li className="text-muted">No activities</li>
+                            ) : null}
+                          </ul>
+                        </div>
+                      );
+                    }
+                    if (rl.childTableCode === "project" && canViewProjects) {
+                      return (
+                        <div key={rl.id} className="mb-3">
+                          <h2 className="h6">{rl.label}</h2>
+                          <ul className="small mb-0">
+                            {(projectsQuery.data ?? []).map((p) => (
+                              <li key={p.id}>
+                                {p.name} — <StatusBadge status={p.status} />
+                                {p.health ? (
+                                  <>
+                                    {" "}
+                                    · <StatusBadge status={p.health} />
+                                  </>
+                                ) : null}
+                              </li>
+                            ))}
+                            {!projectsQuery.data?.length ? (
+                              <li className="text-muted">No linked projects</li>
+                            ) : null}
+                          </ul>
+                        </div>
+                      );
+                    }
+                    if (rl.childTableCode === "document" && canViewDocs) {
+                      return (
+                        <div key={rl.id} className="mb-3">
+                          <h2 className="h6">{rl.label}</h2>
+                          <ul className="small mb-0">
+                            {(docsQuery.data ?? []).map((d) => (
+                              <li key={d.id}>
+                                {d.fileName}
+                                {d.visibility ? ` — ${d.visibility}` : ""}
+                              </li>
+                            ))}
+                            {!docsQuery.data?.length ? (
+                              <li className="text-muted">No documents</li>
+                            ) : null}
+                          </ul>
+                        </div>
+                      );
+                    }
+                    if (rl.childTableCode === "note" && canViewNotes) {
+                      return (
+                        <div key={rl.id} className="mb-3">
+                          <h2 className="h6">{rl.label}</h2>
+                          <ul className="small mb-0">
+                            {(notesQuery.data ?? []).map((n) => (
+                              <li key={n.id}>{n.body}</li>
+                            ))}
+                            {!notesQuery.data?.length ? (
+                              <li className="text-muted">No notes</li>
+                            ) : null}
+                          </ul>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
+                  {!relatedListsQuery.data?.length ? (
+                    <p className="text-muted small mb-0">No related lists configured.</p>
+                  ) : null}
+                </>
+              ),
+            },
+            {
+              id: "timeline",
+              label: "Timeline",
+              visible: canViewActivities || canViewAudit,
+              content: <ZohoRecordTimeline entries={timelineEntries} />,
+            },
+            {
+              id: "notes",
+              label: "Notes",
+              visible: canViewNotes,
+              content: (
+                <ul className="small mb-0">
+                  {(notesQuery.data ?? []).map((n) => (
+                    <li key={n.id}>{n.body}</li>
+                  ))}
+                  {!notesQuery.data?.length ? <li className="text-muted">No notes</li> : null}
+                </ul>
+              ),
+            },
+            {
+              id: "documents",
+              label: "Documents",
+              visible: canViewDocs,
+              content: (
+                <ul className="small mb-0">
+                  {(docsQuery.data ?? []).map((d) => (
+                    <li key={d.id}>{d.fileName}</li>
+                  ))}
+                  {!docsQuery.data?.length ? <li className="text-muted">No documents</li> : null}
+                </ul>
+              ),
+            },
+            {
+              id: "audit",
+              label: "Audit",
+              visible: canViewAudit,
+              content: (
+                <ul className="small mb-0">
+                  {(auditQuery.data ?? []).map((log) => (
+                    <li key={log.id}>
+                      {log.action} · {new Date(log.createdAt).toLocaleString()}
+                    </li>
+                  ))}
+                  {!auditQuery.data?.length ? <li className="text-muted">No audit events</li> : null}
+                </ul>
+              ),
+            },
+          ]}
+        />
+      ) : (
     <ModuleListShell
       title="Accounts"
       filterOpen={filterOpen}
@@ -210,8 +390,8 @@ export function AccountsPage() {
       }
       primaryAction={
         canCreate ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Account"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Create Account
           </button>
         ) : null
       }
@@ -229,20 +409,20 @@ export function AccountsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Status</label>
-            <select className="form-select form-select-sm mb-2" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="">All</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="INACTIVE">INACTIVE</option>
-            </select>
-            <label className="form-label small mb-1">Type</label>
-            <select className="form-select form-select-sm mb-2" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-              <option value="">All</option>
-              <option value="PROSPECT">PROSPECT</option>
-              <option value="CUSTOMER">CUSTOMER</option>
-              <option value="PARTNER">PARTNER</option>
-              <option value="VENDOR">VENDOR</option>
-            </select>
+            <ZohoFilterSelect
+              label="Status"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={statusFilterOptions}
+              searchPlaceholder="Search Status"
+            />
+            <ZohoFilterSelect
+              label="Type"
+              value={typeFilter}
+              onChange={setTypeFilter}
+              options={typeFilterOptions}
+              searchPlaceholder="Search Types"
+            />
             <label className="form-label small mb-1">Industry</label>
             <input
               className="form-control form-control-sm mb-2"
@@ -250,94 +430,23 @@ export function AccountsPage() {
               onChange={(e) => setIndustryFilter(e.target.value)}
               placeholder="e.g. Technology"
             />
-            <label className="form-label small mb-1">Region</label>
-            <select
-              className="form-select form-select-sm"
+            <ZohoFilterSelect
+              label="Region"
               value={regionFilter}
-              onChange={(e) => setRegionFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(regionsQuery.data ?? []).map((region) => (
-                <option key={region.id} value={region.id}>
-                  {region.name}
-                </option>
-              ))}
-            </select>
+              onChange={setRegionFilter}
+              options={regionFilterOptions}
+              searchPlaceholder="Search Regions"
+            />
           </div>
         </>
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => createMutation.mutate(buildAccountBody(values)))}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          {accountFormBundleQuery.isLoading ? <LoadingState label="Loading form layout..." /> : null}
-          {accountFormBundleQuery.error ? (
-            <ErrorState title="Form layout unavailable" message="Published Account CREATE layout is required." />
-          ) : null}
-          {accountFormBundleQuery.data ? (
-            <DynamicForm
-              layout={accountFormBundleQuery.data.layout.layout}
-              fields={accountFormBundleQuery.data.fields}
-              register={register}
-              errors={errors}
-              moreOpen={showMore}
-              onMoreToggle={() => setShowMore((v) => !v)}
-              fieldConfig={{
-                regionId: {
-                  options: (regionsQuery.data ?? []).map((region) => ({
-                    value: region.id,
-                    label: region.name,
-                  })),
-                  colClass: "col-md-3",
-                },
-                accountType: {
-                  options: [
-                    { value: "PROSPECT", label: "PROSPECT" },
-                    { value: "CUSTOMER", label: "CUSTOMER" },
-                    { value: "PARTNER", label: "PARTNER" },
-                    { value: "VENDOR", label: "VENDOR" },
-                  ],
-                  colClass: "col-md-3",
-                },
-                status: {
-                  options: [
-                    { value: "ACTIVE", label: "ACTIVE" },
-                    { value: "INACTIVE", label: "INACTIVE" },
-                  ],
-                },
-                email: { typeOverride: "email" },
-                name: { colClass: "col-md-4" },
-              }}
-            />
-          ) : null}
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={isSubmitting || createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) => createMutation.mutate(buildAccountBody(values)))();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              reset();
-            }}
-          />
-        </form>
-      ) : null}
-
       {accountsQuery.isLoading ? <LoadingState label="Loading accounts..." /> : null}
       {accountsQuery.error ? <ErrorState title="Unable to load accounts" message="Try again." /> : null}
 
       {!accountsQuery.isLoading && !accountsQuery.error ? (
-        <div className={selected ? "module-list-split" : undefined} style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {viewMode === "list" ? (
             <div className="module-list-table-wrap">
               <table className="table module-list-table align-middle">
@@ -393,211 +502,10 @@ export function AccountsPage() {
               ))}
             </div>
           )}
-
-          {selected ? (
-            <RecordShell
-              title={selected.name}
-              subtitle={selected.accountType}
-              badges={<StatusBadge status={selected.status} />}
-              onClose={() => setSelected(null)}
-              tabs={[
-                {
-                  id: "overview",
-                  label: "Overview",
-                  content: (
-                    <>
-                      <p className="small mb-3">Email: {selected.email ?? "—"}</p>
-                      <p className="small mb-0">Phone: {selected.phone ?? "—"}</p>
-                    </>
-                  ),
-                },
-                {
-                  id: "related",
-                  label: "Related",
-                  content: (
-                    <>
-                      {(relatedListsQuery.data ?? []).map((rl) => {
-                        if (rl.childTableCode === "contact") {
-                          return (
-                            <div key={rl.id} className="mb-3">
-                              <h2 className="h6">{rl.label}</h2>
-                              <ul className="small mb-0">
-                                {(contactsQuery.data ?? []).map((c) => (
-                                  <li key={c.id}>
-                                    {rl.columns?.length
-                                      ? rl.columns
-                                          .map((col) => String((c as unknown as Record<string, unknown>)[col.field] ?? ""))
-                                          .filter(Boolean)
-                                          .join(" · ")
-                                      : `${c.firstName} ${c.lastName}`}
-                                  </li>
-                                ))}
-                                {!contactsQuery.data?.length ? (
-                                  <li className="text-muted">No linked contacts</li>
-                                ) : null}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (rl.childTableCode === "deal") {
-                          return (
-                            <div key={rl.id} className="mb-3">
-                              <h2 className="h6">{rl.label}</h2>
-                              <ul className="small mb-0">
-                                {(dealsQuery.data ?? []).map((d) => (
-                                  <li key={d.id}>
-                                    {d.name} — <StatusBadge status={d.stage} />
-                                  </li>
-                                ))}
-                                {!dealsQuery.data?.length ? (
-                                  <li className="text-muted">No linked deals</li>
-                                ) : null}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (rl.childTableCode === "activity" && canViewActivities) {
-                          return (
-                            <div key={rl.id} className="mb-3">
-                              <h2 className="h6">{rl.label}</h2>
-                              <ul className="small mb-0">
-                                {(activitiesQuery.data ?? []).map((a) => (
-                                  <li key={a.id}>
-                                    {a.subject} — <StatusBadge status={a.status} />
-                                  </li>
-                                ))}
-                                {!activitiesQuery.data?.length ? (
-                                  <li className="text-muted">No activities</li>
-                                ) : null}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (rl.childTableCode === "project" && canViewProjects) {
-                          return (
-                            <div key={rl.id} className="mb-3">
-                              <h2 className="h6">{rl.label}</h2>
-                              <ul className="small mb-0">
-                                {(projectsQuery.data ?? []).map((p) => (
-                                  <li key={p.id}>
-                                    {p.name} — <StatusBadge status={p.status} />
-                                    {p.health ? (
-                                      <>
-                                        {" "}
-                                        · <StatusBadge status={p.health} />
-                                      </>
-                                    ) : null}
-                                  </li>
-                                ))}
-                                {!projectsQuery.data?.length ? (
-                                  <li className="text-muted">No linked projects</li>
-                                ) : null}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (rl.childTableCode === "document" && canViewDocs) {
-                          return (
-                            <div key={rl.id} className="mb-3">
-                              <h2 className="h6">{rl.label}</h2>
-                              <ul className="small mb-0">
-                                {(docsQuery.data ?? []).map((d) => (
-                                  <li key={d.id}>
-                                    {d.fileName}
-                                    {d.visibility ? ` — ${d.visibility}` : ""}
-                                  </li>
-                                ))}
-                                {!docsQuery.data?.length ? (
-                                  <li className="text-muted">No documents</li>
-                                ) : null}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        if (rl.childTableCode === "note" && canViewNotes) {
-                          return (
-                            <div key={rl.id} className="mb-3">
-                              <h2 className="h6">{rl.label}</h2>
-                              <ul className="small mb-0">
-                                {(notesQuery.data ?? []).map((n) => (
-                                  <li key={n.id}>{n.body}</li>
-                                ))}
-                                {!notesQuery.data?.length ? (
-                                  <li className="text-muted">No notes</li>
-                                ) : null}
-                              </ul>
-                            </div>
-                          );
-                        }
-                        return null;
-                      })}
-                      {!relatedListsQuery.data?.length ? (
-                        <p className="text-muted small mb-0">No related lists configured.</p>
-                      ) : null}
-                    </>
-                  ),
-                },
-                {
-                  id: "activities",
-                  label: "Activities",
-                  visible: canViewActivities,
-                  content: (
-                    <ul className="small mb-0">
-                      {(activitiesQuery.data ?? []).map((a) => (
-                        <li key={a.id}>
-                          {a.subject} — <StatusBadge status={a.status} />
-                        </li>
-                      ))}
-                      {!activitiesQuery.data?.length ? <li className="text-muted">No activities</li> : null}
-                    </ul>
-                  ),
-                },
-                {
-                  id: "notes",
-                  label: "Notes",
-                  visible: canViewNotes,
-                  content: (
-                    <ul className="small mb-0">
-                      {(notesQuery.data ?? []).map((n) => (
-                        <li key={n.id}>{n.body}</li>
-                      ))}
-                      {!notesQuery.data?.length ? <li className="text-muted">No notes</li> : null}
-                    </ul>
-                  ),
-                },
-                {
-                  id: "documents",
-                  label: "Documents",
-                  visible: canViewDocs,
-                  content: (
-                    <ul className="small mb-0">
-                      {(docsQuery.data ?? []).map((d) => (
-                        <li key={d.id}>{d.fileName}</li>
-                      ))}
-                      {!docsQuery.data?.length ? <li className="text-muted">No documents</li> : null}
-                    </ul>
-                  ),
-                },
-                {
-                  id: "audit",
-                  label: "Audit",
-                  visible: canViewAudit,
-                  content: (
-                    <ul className="small mb-0">
-                      {(auditQuery.data ?? []).map((log) => (
-                        <li key={log.id}>
-                          {log.action} · {new Date(log.createdAt).toLocaleString()}
-                        </li>
-                      ))}
-                      {!auditQuery.data?.length ? <li className="text-muted">No audit events</li> : null}
-                    </ul>
-                  ),
-                },
-              ]}
-            />
-          ) : null}
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

@@ -10,4 +10,6 @@ public interface WorkflowDefinitionRepository extends JpaRepository<WorkflowDefi
             UUID organizationId, String eventType);
 
     Optional<WorkflowDefinition> findByOrganizationIdAndCode(UUID organizationId, String code);
+
+    List<WorkflowDefinition> findByOrganizationIdOrderByCodeAsc(UUID organizationId);
 }

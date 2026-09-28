@@ -4,7 +4,13 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
@@ -22,6 +28,9 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+const DATA_SCOPES = ["ORGANIZATION", "REGION", "DEPARTMENT", "TEAM", "OWN"] as const;
+const dataScopeOptions = enumPickerOptions(DATA_SCOPES);
+
 const ROLE_DEFAULTS: FormValues = { code: "", name: "", dataScope: "OWN" };
 
 export function RolesPage() {
@@ -36,7 +45,6 @@ export function RolesPage() {
   const [permSearch, setPermSearch] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
 
   const rolesQuery = useQuery({ queryKey: ["admin", "roles"], queryFn: listRoles });
   const permissionsQuery = useQuery({ queryKey: ["admin", "permissions"], queryFn: listPermissions });
@@ -48,12 +56,31 @@ export function RolesPage() {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: ROLE_DEFAULTS,
+  });
+
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: ROLE_DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+    setSelected: (entity) => {
+      const role = entity as Role;
+      setSelected(role);
+      setSelectedPermissions([...role.permissionCodes]);
+    },
+    onResetExtras: () => setShowMore(false),
   });
 
   const buildBody = (values: FormValues) => ({
@@ -105,21 +132,22 @@ export function RolesPage() {
 
   const createMutation = useMutation({
     mutationFn: createRole,
-    onSuccess: async () => {
+    onSuccess: async (role) => {
       await queryClient.invalidateQueries({ queryKey: ["admin", "roles"] });
       setFormError(null);
-      if (saveAndNew) {
-        reset(ROLE_DEFAULTS);
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        reset(ROLE_DEFAULTS);
-        setShowForm(false);
-        setShowMore(false);
-      }
+      await afterCreateSuccess(role, "ROLE");
     },
     onError: () => setFormError("Could not create role."),
   });
+
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate(buildBody(values));
+  };
+
+  function openCreate() {
+    reset(ROLE_DEFAULTS);
+    setShowForm(true);
+  }
 
   const updateMutation = useMutation({
     mutationFn: ({
@@ -160,7 +188,59 @@ export function RolesPage() {
     });
   }, [rolesQuery.data, search, scopeFilter]);
 
+  const roleFormFields = (
+    <>
+      <FormSection title="Primary details" description="Role identity and scope">
+        <div className="col-md-3">
+          <FormField label="Code" required error={errors.code} {...register("code")} />
+        </div>
+        <div className="col-md-4">
+          <FormField label="Name" required error={errors.name} {...register("name")} />
+        </div>
+        <div className="col-md-3">
+          <label className="form-label required">Data scope</label>
+          <ZohoFormSelect
+            control={control}
+            name="dataScope"
+            options={dataScopeOptions}
+            searchPlaceholder="Search Scopes"
+            allowEmpty={false}
+          />
+        </div>
+      </FormSection>
+      <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
+        <FormSection title="Permissions">
+          <div className="col-12">
+            <p className="text-muted small mb-0">
+              Create the role first, then open it from the list to assign permissions.
+            </p>
+          </div>
+        </FormSection>
+      </FormMoreDetails>
+    </>
+  );
+
   return (
+    <>
+      {showForm && canManage ? (
+        <ZohoFormKitCreateView
+          title="Create Role"
+          entityLabel="Role"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          {roleFormFields}
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Roles"
       filterOpen={filterOpen}
@@ -178,8 +258,8 @@ export function RolesPage() {
       }
       primaryAction={
         canManage ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Add role"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Add role
           </button>
         ) : null
       }
@@ -214,58 +294,6 @@ export function RolesPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => createMutation.mutate(buildBody(values)))}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Primary details" description="Role identity and scope">
-            <div className="col-md-3">
-              <FormField label="Code" required error={errors.code} {...register("code")} />
-            </div>
-            <div className="col-md-4">
-              <FormField label="Name" required error={errors.name} {...register("name")} />
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Data scope</label>
-              <select className="form-select" {...register("dataScope")}>
-                <option value="ORGANIZATION">ORGANIZATION</option>
-                <option value="REGION">REGION</option>
-                <option value="DEPARTMENT">DEPARTMENT</option>
-                <option value="TEAM">TEAM</option>
-                <option value="OWN">OWN</option>
-              </select>
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Permissions">
-              <div className="col-12">
-                <p className="text-muted small mb-0">
-                  Create the role first, then open it from the list to assign permissions.
-                </p>
-              </div>
-            </FormSection>
-          </FormMoreDetails>
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={isSubmitting || createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) => createMutation.mutate(buildBody(values)))();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              reset(ROLE_DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {rolesQuery.isLoading ? <LoadingState label="Loading roles..." /> : null}
       {rolesQuery.error ? <ErrorState title="Unable to load roles" message="Try again." /> : null}
 
@@ -441,5 +469,7 @@ export function RolesPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

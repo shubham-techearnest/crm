@@ -4,7 +4,13 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormSection } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -23,6 +29,9 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+
+const TAX_TYPES = ["CGST", "SGST", "IGST", "OTHER"] as const;
+const taxTypeOptions = enumPickerOptions(TAX_TYPES);
 
 const DEFAULTS: FormValues = {
   code: "",
@@ -56,6 +65,7 @@ export function TaxRatesPage() {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting, isDirty },
@@ -64,21 +74,103 @@ export function TaxRatesPage() {
     defaultValues: DEFAULTS,
   });
 
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+  });
+
+  const buildBody = (values: FormValues) => ({
+    code: values.code,
+    name: values.name,
+    ratePercent: Number(values.ratePercent),
+    jurisdiction: values.jurisdiction || undefined,
+    taxType: values.taxType || undefined,
+    description: values.description || undefined,
+  });
+
   const createMutation = useMutation({
     mutationFn: createTaxRate,
-    onSuccess: async () => {
+    onSuccess: async (taxRate) => {
       await queryClient.invalidateQueries({ queryKey: ["tax-rates"] });
       setFormError(null);
-      reset(DEFAULTS);
-      setShowForm(false);
+      await afterCreateSuccess(taxRate, "TAX_RATE");
     },
     onError: () => setFormError("Could not create tax rate. Check code is unique."),
   });
 
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate(buildBody(values));
+  };
+
+  function openCreate() {
+    reset(DEFAULTS);
+    setShowForm(true);
+  }
+
   const rows = query.data ?? [];
   const activeFilterCount = [search, taxTypeFilter].filter(Boolean).length;
 
+  const taxRateFormFields = (
+    <FormSection title="Tax rate" description="GST-ready code, rate, and jurisdiction">
+      <div className="col-md-2">
+        <FormField label="Code" required error={errors.code} {...register("code")} />
+      </div>
+      <div className="col-md-3">
+        <FormField label="Name" required error={errors.name} {...register("name")} />
+      </div>
+      <div className="col-md-2">
+        <FormField
+          label="Rate %"
+          type="number"
+          required
+          error={errors.ratePercent}
+          {...register("ratePercent")}
+        />
+      </div>
+      <div className="col-md-2">
+        <label className="form-label">Type</label>
+        <ZohoFormSelect
+          control={control}
+          name="taxType"
+          options={taxTypeOptions}
+          searchPlaceholder="Search Types"
+          allowEmpty={false}
+        />
+      </div>
+      <div className="col-md-3">
+        <FormField label="Jurisdiction" error={errors.jurisdiction} {...register("jurisdiction")} />
+      </div>
+    </FormSection>
+  );
+
   return (
+    <>
+      {showForm && canManage ? (
+        <ZohoFormKitCreateView
+          title="Create Tax Rate"
+          entityLabel="Tax Rate"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          {taxRateFormFields}
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Tax Rates"
       filterOpen={filterOpen}
@@ -96,8 +188,8 @@ export function TaxRatesPage() {
       }
       primaryAction={
         canManage ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Tax Rate"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Create Tax Rate
           </button>
         ) : null
       }
@@ -131,62 +223,6 @@ export function TaxRatesPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) =>
-            createMutation.mutate({
-              code: values.code,
-              name: values.name,
-              ratePercent: Number(values.ratePercent),
-              jurisdiction: values.jurisdiction || undefined,
-              taxType: values.taxType || undefined,
-              description: values.description || undefined,
-            }),
-          )}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Tax rate" description="GST-ready code, rate, and jurisdiction">
-            <div className="col-md-2">
-              <FormField label="Code" required error={errors.code} {...register("code")} />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Name" required error={errors.name} {...register("name")} />
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="Rate %"
-                type="number"
-                required
-                error={errors.ratePercent}
-                {...register("ratePercent")}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Type</label>
-              <select className="form-select" {...register("taxType")}>
-                <option value="CGST">CGST</option>
-                <option value="SGST">SGST</option>
-                <option value="IGST">IGST</option>
-                <option value="OTHER">OTHER</option>
-              </select>
-            </div>
-            <div className="col-md-3">
-              <FormField label="Jurisdiction" error={errors.jurisdiction} {...register("jurisdiction")} />
-            </div>
-          </FormSection>
-          <FormActions
-            submitLabel="Save"
-            submitting={isSubmitting || createMutation.isPending}
-            onCancel={() => {
-              setShowForm(false);
-              reset(DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {query.isLoading ? <LoadingState label="Loading tax rates..." /> : null}
       {query.error ? <ErrorState title="Unable to load tax rates" message="Try again." /> : null}
       {!query.isLoading && !query.error ? (
@@ -227,5 +263,7 @@ export function TaxRatesPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

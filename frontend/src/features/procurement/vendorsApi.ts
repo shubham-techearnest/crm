@@ -45,6 +45,19 @@ export type UpdateVendorBody = {
   status?: string;
 };
 
+export async function queryVendors(body: {
+  search?: string;
+  filter?: { op: "AND" | "OR"; conditions: Array<{ field: string; operator: string; value?: unknown; valueTo?: unknown }> };
+  status?: string;
+}): Promise<Vendor[]> {
+  const { data } = await api.post<ApiResponse<Vendor[]>>("/vendors/query", {
+    ...body,
+    page: 0,
+    size: 100,
+  });
+  return unwrap(data);
+}
+
 export async function listVendors(params?: {
   search?: string;
   status?: string;

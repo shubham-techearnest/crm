@@ -1,5 +1,6 @@
 package com.techearnest.crm.procurement.application;
 
+import com.techearnest.crm.approval.application.ApprovalService;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
 import com.techearnest.crm.common.exception.BusinessException;
@@ -13,6 +14,7 @@ import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.AddPurchaseOrde
 import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.CreatePurchaseOrderRequest;
 import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.PurchaseOrderResponse;
 import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.QueryPurchaseOrderRequest;
+import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.RejectPurchaseOrderRequest;
 import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.UpdatePurchaseOrderRequest;
 import com.techearnest.crm.procurement.domain.PurchaseOrder;
 import com.techearnest.crm.procurement.domain.PurchaseOrderItem;
@@ -32,6 +34,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -45,6 +48,7 @@ public class PurchaseOrderService {
     private final TaxRateRepository taxRateRepository;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
+    private final ApprovalService approvalService;
 
     public PurchaseOrderService(
             PurchaseOrderRepository purchaseOrderRepository,
@@ -53,7 +57,8 @@ public class PurchaseOrderService {
             ProjectRepository projectRepository,
             TaxRateRepository taxRateRepository,
             TenantAccess tenantAccess,
-            AuditService auditService) {
+            AuditService auditService,
+            @Lazy ApprovalService approvalService) {
         this.purchaseOrderRepository = purchaseOrderRepository;
         this.purchaseOrderItemRepository = purchaseOrderItemRepository;
         this.vendorRepository = vendorRepository;
@@ -61,6 +66,7 @@ public class PurchaseOrderService {
         this.taxRateRepository = taxRateRepository;
         this.tenantAccess = tenantAccess;
         this.auditService = auditService;
+        this.approvalService = approvalService;
     }
 
     @Transactional(readOnly = true)
@@ -205,6 +211,91 @@ public class PurchaseOrderService {
         auditService.record(po.getOrganizationId(), user.userId(), "DELETE", "PURCHASE_ORDER", po.getId());
     }
 
+    @Transactional
+    public PurchaseOrderResponse submit(UUID id) {
+        CurrentUser user = tenantAccess.requirePermission("PO_CREATE");
+        PurchaseOrder po = requireVisible(id);
+        if (!po.isEditable()) {
+            throw new BusinessException("INVALID_STATUS", "Only draft or rejected POs can be submitted");
+        }
+        List<PurchaseOrderItem> items = purchaseOrderItemRepository.findActiveByPurchaseOrderId(id);
+        if (items.isEmpty()) {
+            throw new BusinessException("INVALID_PO", "Add at least one line before submitting");
+        }
+        if (po.getTotal() == null || po.getTotal().signum() <= 0) {
+            throw new BusinessException("INVALID_PO", "PO total must be greater than zero");
+        }
+        po.submit();
+        approvalService.openPurchaseOrderRequest(po, user.userId());
+        auditService.record(po.getOrganizationId(), user.userId(), "UPDATE", "PURCHASE_ORDER", po.getId());
+        return detail(po);
+    }
+
+    @Transactional
+    public PurchaseOrderResponse approve(UUID id) {
+        CurrentUser user = tenantAccess.requirePermission("PO_APPROVE");
+        PurchaseOrder po = requireVisible(id);
+        if (!PurchaseOrder.STATUS_PENDING_APPROVAL.equals(po.getStatus())) {
+            throw new BusinessException("INVALID_STATUS", "Only pending POs can be approved");
+        }
+        po.approve(user.userId());
+        approvalService.syncApprove(
+                po.getOrganizationId(),
+                ApprovalService.TARGET_PURCHASE_ORDER,
+                po.getId(),
+                user.userId(),
+                null);
+        auditService.record(po.getOrganizationId(), user.userId(), "APPROVE", "PURCHASE_ORDER", po.getId());
+        return detail(po);
+    }
+
+    @Transactional
+    public PurchaseOrderResponse reject(UUID id, RejectPurchaseOrderRequest request) {
+        CurrentUser user = tenantAccess.requirePermission("PO_APPROVE");
+        PurchaseOrder po = requireVisible(id);
+        if (!PurchaseOrder.STATUS_PENDING_APPROVAL.equals(po.getStatus())) {
+            throw new BusinessException("INVALID_STATUS", "Only pending POs can be rejected");
+        }
+        if (request == null || request.reason() == null || request.reason().isBlank()) {
+            throw new BusinessException("INVALID_REASON", "Rejection reason is required");
+        }
+        String reason = request.reason().trim();
+        po.reject(user.userId());
+        approvalService.syncReject(
+                po.getOrganizationId(),
+                ApprovalService.TARGET_PURCHASE_ORDER,
+                po.getId(),
+                user.userId(),
+                reason);
+        auditService.record(po.getOrganizationId(), user.userId(), "REJECT", "PURCHASE_ORDER", po.getId());
+        return detail(po);
+    }
+
+    @Transactional
+    public PurchaseOrderResponse send(UUID id) {
+        CurrentUser user = tenantAccess.requirePermission("PO_UPDATE");
+        PurchaseOrder po = requireVisible(id);
+        if (!PurchaseOrder.STATUS_APPROVED.equals(po.getStatus())) {
+            throw new BusinessException("INVALID_STATUS", "Only approved POs can be sent");
+        }
+        po.send(user.userId());
+        auditService.record(po.getOrganizationId(), user.userId(), "UPDATE", "PURCHASE_ORDER", po.getId());
+        return detail(po);
+    }
+
+    @Transactional
+    public PurchaseOrderResponse close(UUID id) {
+        CurrentUser user = tenantAccess.requirePermission("PO_UPDATE");
+        PurchaseOrder po = requireVisible(id);
+        if (!PurchaseOrder.STATUS_SENT.equals(po.getStatus())
+                && !PurchaseOrder.STATUS_APPROVED.equals(po.getStatus())) {
+            throw new BusinessException("INVALID_STATUS", "Only sent or approved POs can be closed");
+        }
+        po.close(user.userId());
+        auditService.record(po.getOrganizationId(), user.userId(), "UPDATE", "PURCHASE_ORDER", po.getId());
+        return detail(po);
+    }
+
     private void recalculate(PurchaseOrder po) {
         List<PurchaseOrderItem> items = purchaseOrderItemRepository.findActiveByPurchaseOrderId(po.getId());
         BigDecimal subtotal = BigDecimal.ZERO;
@@ -223,8 +314,8 @@ public class PurchaseOrderService {
 
     private PurchaseOrder requireDraft(UUID id) {
         PurchaseOrder po = requireVisible(id);
-        if (!po.isDraft()) {
-            throw new BusinessException("INVALID_STATUS", "Only draft purchase orders can be modified");
+        if (!po.isEditable()) {
+            throw new BusinessException("INVALID_STATUS", "Only draft or rejected purchase orders can be modified");
         }
         return po;
     }

@@ -15,6 +15,14 @@ import com.techearnest.crm.common.exception.ForbiddenException;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.TenantAccess;
+import com.techearnest.crm.expense.api.dto.ExpenseDtos.RejectExpenseRequest;
+import com.techearnest.crm.expense.application.ExpenseService;
+import com.techearnest.crm.expense.domain.Expense;
+import com.techearnest.crm.expense.domain.ExpenseRepository;
+import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.RejectPurchaseOrderRequest;
+import com.techearnest.crm.procurement.application.PurchaseOrderService;
+import com.techearnest.crm.procurement.domain.PurchaseOrder;
+import com.techearnest.crm.procurement.domain.PurchaseOrderRepository;
 import com.techearnest.crm.resource.domain.Resource;
 import com.techearnest.crm.resource.domain.ResourceRepository;
 import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.RejectTimesheetRequest;
@@ -34,7 +42,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class ApprovalService {
 
     public static final String TARGET_TIMESHEET = "TIMESHEET";
+    public static final String TARGET_EXPENSE = "EXPENSE";
+    public static final String TARGET_PURCHASE_ORDER = "PURCHASE_ORDER";
     public static final String WORKFLOW_TIMESHEET_DEFAULT = "TIMESHEET_DEFAULT";
+    public static final String WORKFLOW_EXPENSE_DEFAULT = "EXPENSE_DEFAULT";
+    public static final String WORKFLOW_PO_DEFAULT = "PO_DEFAULT";
 
     private final ApprovalWorkflowRepository workflowRepository;
     private final ApprovalStepRepository stepRepository;
@@ -42,8 +54,12 @@ public class ApprovalService {
     private final ApprovalActionRepository actionRepository;
     private final ResourceRepository resourceRepository;
     private final TimesheetRepository timesheetRepository;
+    private final ExpenseRepository expenseRepository;
+    private final PurchaseOrderRepository purchaseOrderRepository;
     private final TenantAccess tenantAccess;
     private final TimesheetService timesheetService;
+    private final ExpenseService expenseService;
+    private final PurchaseOrderService purchaseOrderService;
 
     public ApprovalService(
             ApprovalWorkflowRepository workflowRepository,
@@ -52,40 +68,75 @@ public class ApprovalService {
             ApprovalActionRepository actionRepository,
             ResourceRepository resourceRepository,
             TimesheetRepository timesheetRepository,
+            ExpenseRepository expenseRepository,
+            PurchaseOrderRepository purchaseOrderRepository,
             TenantAccess tenantAccess,
-            @Lazy TimesheetService timesheetService) {
+            @Lazy TimesheetService timesheetService,
+            @Lazy ExpenseService expenseService,
+            @Lazy PurchaseOrderService purchaseOrderService) {
         this.workflowRepository = workflowRepository;
         this.stepRepository = stepRepository;
         this.requestRepository = requestRepository;
         this.actionRepository = actionRepository;
         this.resourceRepository = resourceRepository;
         this.timesheetRepository = timesheetRepository;
+        this.expenseRepository = expenseRepository;
+        this.purchaseOrderRepository = purchaseOrderRepository;
         this.tenantAccess = tenantAccess;
         this.timesheetService = timesheetService;
+        this.expenseService = expenseService;
+        this.purchaseOrderService = purchaseOrderService;
     }
 
     @Transactional
-    public void openTimesheetRequest(Timesheet timesheet, UUID submittedBy) {
-        ApprovalWorkflow workflow = ensureTimesheetWorkflow(timesheet.getOrganizationId(), submittedBy);
-        List<ApprovalStep> steps =
-                stepRepository.findByWorkflowIdAndActiveTrueOrderByStepOrderAsc(workflow.getId());
-        if (steps.isEmpty()) {
-            return;
-        }
-        if (requestRepository
-                .findByOrganizationIdAndTargetTypeAndTargetIdAndStatus(
-                        timesheet.getOrganizationId(), TARGET_TIMESHEET, timesheet.getId(), "PENDING")
-                .isPresent()) {
-            return;
-        }
-        requestRepository.save(ApprovalRequest.create(
+    public UUID openTimesheetRequest(Timesheet timesheet, UUID submittedBy) {
+        ApprovalWorkflow workflow = ensureWorkflow(
                 timesheet.getOrganizationId(),
-                workflow.getId(),
+                submittedBy,
+                TARGET_TIMESHEET,
+                WORKFLOW_TIMESHEET_DEFAULT,
+                "Timesheet approval");
+        return openRequest(
+                timesheet.getOrganizationId(),
+                workflow,
                 TARGET_TIMESHEET,
                 timesheet.getId(),
-                steps.get(0).getId(),
                 submittedBy,
-                timesheet.getRegionId()));
+                timesheet.getRegionId());
+    }
+
+    @Transactional
+    public UUID openExpenseRequest(Expense expense, UUID submittedBy) {
+        ApprovalWorkflow workflow = ensureWorkflow(
+                expense.getOrganizationId(),
+                submittedBy,
+                TARGET_EXPENSE,
+                WORKFLOW_EXPENSE_DEFAULT,
+                "Expense approval");
+        return openRequest(
+                expense.getOrganizationId(),
+                workflow,
+                TARGET_EXPENSE,
+                expense.getId(),
+                submittedBy,
+                expense.getRegionId());
+    }
+
+    @Transactional
+    public UUID openPurchaseOrderRequest(PurchaseOrder po, UUID submittedBy) {
+        ApprovalWorkflow workflow = ensureWorkflow(
+                po.getOrganizationId(),
+                submittedBy,
+                TARGET_PURCHASE_ORDER,
+                WORKFLOW_PO_DEFAULT,
+                "Purchase order approval");
+        return openRequest(
+                po.getOrganizationId(),
+                workflow,
+                TARGET_PURCHASE_ORDER,
+                po.getId(),
+                submittedBy,
+                po.getRegionId());
     }
 
     @Transactional
@@ -144,6 +195,24 @@ public class ApprovalService {
                         : body.comment().trim();
                 timesheetService.reject(request.getTargetId(), new RejectTimesheetRequest(reason));
             }
+        } else if (TARGET_EXPENSE.equals(request.getTargetType())) {
+            if ("APPROVE".equals(action)) {
+                expenseService.approve(request.getTargetId());
+            } else {
+                String reason = body.comment() == null || body.comment().isBlank()
+                        ? "Rejected via approvals inbox"
+                        : body.comment().trim();
+                expenseService.reject(request.getTargetId(), new RejectExpenseRequest(reason));
+            }
+        } else if (TARGET_PURCHASE_ORDER.equals(request.getTargetType())) {
+            if ("APPROVE".equals(action)) {
+                purchaseOrderService.approve(request.getTargetId());
+            } else {
+                String reason = body.comment() == null || body.comment().isBlank()
+                        ? "Rejected via approvals inbox"
+                        : body.comment().trim();
+                purchaseOrderService.reject(request.getTargetId(), new RejectPurchaseOrderRequest(reason));
+            }
         } else {
             closePending(
                     request.getOrganizationId(),
@@ -156,6 +225,40 @@ public class ApprovalService {
         return ApprovalRequestResponse.from(requestRepository
                 .findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Resource not found")));
+    }
+
+    private UUID openRequest(
+            UUID organizationId,
+            ApprovalWorkflow workflow,
+            String targetType,
+            UUID targetId,
+            UUID submittedBy,
+            UUID regionId) {
+        List<ApprovalStep> steps =
+                stepRepository.findByWorkflowIdAndActiveTrueOrderByStepOrderAsc(workflow.getId());
+        if (steps.isEmpty()) {
+            return null;
+        }
+        if (requestRepository
+                .findByOrganizationIdAndTargetTypeAndTargetIdAndStatus(
+                        organizationId, targetType, targetId, "PENDING")
+                .isPresent()) {
+            return requestRepository
+                    .findByOrganizationIdAndTargetTypeAndTargetIdAndStatus(
+                            organizationId, targetType, targetId, "PENDING")
+                    .map(ApprovalRequest::getId)
+                    .orElse(null);
+        }
+        ApprovalRequest request = ApprovalRequest.create(
+                organizationId,
+                workflow.getId(),
+                targetType,
+                targetId,
+                steps.get(0).getId(),
+                submittedBy,
+                regionId);
+        requestRepository.save(request);
+        return request.getId();
     }
 
     private void closePending(
@@ -182,16 +285,17 @@ public class ApprovalService {
         requestRepository.save(pending);
     }
 
-    private ApprovalWorkflow ensureTimesheetWorkflow(UUID organizationId, UUID createdBy) {
+    private ApprovalWorkflow ensureWorkflow(
+            UUID organizationId,
+            UUID createdBy,
+            String targetType,
+            String workflowCode,
+            String workflowName) {
         return workflowRepository
-                .findByOrganizationIdAndCode(organizationId, WORKFLOW_TIMESHEET_DEFAULT)
+                .findByOrganizationIdAndCode(organizationId, workflowCode)
                 .orElseGet(() -> {
                     ApprovalWorkflow workflow = ApprovalWorkflow.create(
-                            organizationId,
-                            TARGET_TIMESHEET,
-                            WORKFLOW_TIMESHEET_DEFAULT,
-                            "Timesheet approval",
-                            createdBy);
+                            organizationId, targetType, workflowCode, workflowName, createdBy);
                     workflowRepository.save(workflow);
                     stepRepository.save(ApprovalStep.create(
                             organizationId, workflow.getId(), 1, "SEQUENTIAL", "MANAGER", null, 1));
@@ -203,20 +307,51 @@ public class ApprovalService {
         if (user.hasPermission("APPROVAL_ADMIN")) {
             return true;
         }
-        if (!TARGET_TIMESHEET.equals(request.getTargetType())) {
-            return user.hasPermission("APPROVAL_VIEW") || user.hasPermission("APPROVAL_ACT");
+        if (TARGET_TIMESHEET.equals(request.getTargetType())) {
+            if (!user.hasPermission("TIMESHEET_APPROVE") && !user.hasPermission("APPROVAL_ACT")) {
+                return false;
+            }
+            Timesheet timesheet = timesheetRepository.findActiveById(request.getTargetId()).orElse(null);
+            if (timesheet == null) {
+                return false;
+            }
+            Resource resource = resourceRepository.findActiveById(timesheet.getResourceId()).orElse(null);
+            if (resource == null) {
+                return false;
+            }
+            return isManagerStepVisible(request, user, resource);
         }
-        if (!user.hasPermission("TIMESHEET_APPROVE") && !user.hasPermission("APPROVAL_ACT")) {
-            return false;
+        if (TARGET_EXPENSE.equals(request.getTargetType())) {
+            if (!user.hasPermission("EXPENSE_APPROVE") && !user.hasPermission("APPROVAL_ACT")) {
+                return false;
+            }
+            Expense expense = expenseRepository.findActiveById(request.getTargetId()).orElse(null);
+            if (expense == null) {
+                return false;
+            }
+            if (expense.getResourceId() == null) {
+                return user.hasPermission("EXPENSE_APPROVE") || user.hasPermission("APPROVAL_VIEW");
+            }
+            Resource resource = resourceRepository.findActiveById(expense.getResourceId()).orElse(null);
+            if (resource == null) {
+                return user.hasPermission("EXPENSE_APPROVE");
+            }
+            return isManagerStepVisible(request, user, resource);
         }
-        Timesheet timesheet = timesheetRepository.findActiveById(request.getTargetId()).orElse(null);
-        if (timesheet == null) {
-            return false;
+        if (TARGET_PURCHASE_ORDER.equals(request.getTargetType())) {
+            if (!user.hasPermission("PO_APPROVE") && !user.hasPermission("APPROVAL_ACT")) {
+                return false;
+            }
+            PurchaseOrder po = purchaseOrderRepository.findActiveById(request.getTargetId()).orElse(null);
+            if (po == null) {
+                return false;
+            }
+            return user.hasPermission("PO_APPROVE") || user.hasPermission("APPROVAL_VIEW");
         }
-        Resource resource = resourceRepository.findActiveById(timesheet.getResourceId()).orElse(null);
-        if (resource == null) {
-            return false;
-        }
+        return user.hasPermission("APPROVAL_VIEW") || user.hasPermission("APPROVAL_ACT");
+    }
+
+    private boolean isManagerStepVisible(ApprovalRequest request, CurrentUser user, Resource resource) {
         ApprovalStep step = request.getCurrentStepId() == null
                 ? null
                 : stepRepository.findById(request.getCurrentStepId()).orElse(null);
@@ -245,6 +380,8 @@ public class ApprovalService {
         if (user.hasPermission("APPROVAL_VIEW")
                 || user.hasPermission("APPROVAL_ACT")
                 || user.hasPermission("TIMESHEET_APPROVE")
+                || user.hasPermission("EXPENSE_APPROVE")
+                || user.hasPermission("PO_APPROVE")
                 || user.hasPermission("APPROVAL_ADMIN")) {
             return user;
         }
@@ -255,6 +392,8 @@ public class ApprovalService {
         CurrentUser user = tenantAccess.currentUser();
         if (user.hasPermission("APPROVAL_ACT")
                 || user.hasPermission("TIMESHEET_APPROVE")
+                || user.hasPermission("EXPENSE_APPROVE")
+                || user.hasPermission("PO_APPROVE")
                 || user.hasPermission("APPROVAL_ADMIN")) {
             return user;
         }

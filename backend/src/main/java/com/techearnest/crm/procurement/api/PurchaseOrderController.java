@@ -5,6 +5,7 @@ import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.AddPurchaseOrde
 import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.CreatePurchaseOrderRequest;
 import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.PurchaseOrderResponse;
 import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.QueryPurchaseOrderRequest;
+import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.RejectPurchaseOrderRequest;
 import com.techearnest.crm.procurement.api.dto.PurchaseOrderDtos.UpdatePurchaseOrderRequest;
 import com.techearnest.crm.procurement.application.PurchaseOrderService;
 import jakarta.validation.Valid;
@@ -89,5 +90,31 @@ public class PurchaseOrderController {
     public ApiResponse<Void> delete(@PathVariable UUID id) {
         purchaseOrderService.softDelete(id);
         return ApiResponse.ok(null, "Purchase order deleted");
+    }
+
+    @PostMapping("/{id}/submit")
+    public ApiResponse<PurchaseOrderResponse> submit(@PathVariable UUID id) {
+        return ApiResponse.ok(purchaseOrderService.submit(id), "Purchase order submitted");
+    }
+
+    @PostMapping("/{id}/approve")
+    public ApiResponse<PurchaseOrderResponse> approve(@PathVariable UUID id) {
+        return ApiResponse.ok(purchaseOrderService.approve(id), "Purchase order approved");
+    }
+
+    @PostMapping("/{id}/reject")
+    public ApiResponse<PurchaseOrderResponse> reject(
+            @PathVariable UUID id, @Valid @RequestBody RejectPurchaseOrderRequest request) {
+        return ApiResponse.ok(purchaseOrderService.reject(id, request), "Purchase order rejected");
+    }
+
+    @PostMapping("/{id}/send")
+    public ApiResponse<PurchaseOrderResponse> send(@PathVariable UUID id) {
+        return ApiResponse.ok(purchaseOrderService.send(id), "Purchase order sent");
+    }
+
+    @PostMapping("/{id}/close")
+    public ApiResponse<PurchaseOrderResponse> close(@PathVariable UUID id) {
+        return ApiResponse.ok(purchaseOrderService.close(id), "Purchase order closed");
     }
 }

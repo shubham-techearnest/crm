@@ -5,7 +5,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  optionsFromPairs,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -13,10 +20,19 @@ import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listUsers } from "@/features/admin/adminApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { completeActivity, createActivity, listActivities } from "./crmApi";
+import { completeActivity, createActivity, listActivities, updateActivity } from "./crmApi";
 
 const ENTITY_TYPES = ["LEAD", "ACCOUNT", "CONTACT", "DEAL"] as const;
 const ACTIVITY_TYPES = ["TASK", "CALL", "MEETING", "NOTE", "FOLLOW_UP"] as const;
+
+const activityTypeOptions = enumPickerOptions(ACTIVITY_TYPES);
+const entityTypeOptions = enumPickerOptions(ENTITY_TYPES);
+const activityPriorityOptions = enumPickerOptions(["LOW", "MEDIUM", "HIGH"] as const);
+const callDirectionOptions = optionsFromPairs([
+  { value: "", label: "—" },
+  { value: "INBOUND", label: "INBOUND" },
+  { value: "OUTBOUND", label: "OUTBOUND" },
+]);
 
 const schema = z.object({
   type: z.string().min(1, "Required"),
@@ -35,12 +51,31 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+function activityDefaults(typeFilter: string): FormValues {
+  return {
+    type:
+      typeFilter && ACTIVITY_TYPES.includes(typeFilter as (typeof ACTIVITY_TYPES)[number]) ? typeFilter : "TASK",
+    subject: "",
+    description: "",
+    priority: "MEDIUM",
+    relatedEntityType: "LEAD",
+    relatedEntityId: "",
+    dueDate: "",
+    location: "",
+    attendees: "",
+    outcome: "",
+    callDirection: "",
+    durationSeconds: "",
+  };
+}
+
 export function ActivitiesPage() {
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
   const typeFromUrl = params.get("type")?.toUpperCase() ?? "";
   const auth = useAuth();
   const canCreate = useHasPermission("ACTIVITY_CREATE");
+  const canUpdate = useHasPermission("ACTIVITY_UPDATE");
   const canComplete = useHasPermission("ACTIVITY_COMPLETE");
   const canViewUsers = useHasPermission("USER_VIEW");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
@@ -55,7 +90,15 @@ export function ActivitiesPage() {
   const [dueTo, setDueTo] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editSubject, setEditSubject] = useState("");
+  const [editPriority, setEditPriority] = useState("MEDIUM");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editOutcome, setEditOutcome] = useState("");
+  const [editLocation, setEditLocation] = useState("");
+  const [editAttendees, setEditAttendees] = useState("");
+  const [editDirection, setEditDirection] = useState("");
+  const [manageError, setManageError] = useState<string | null>(null);
 
   useEffect(() => {
     setTypeFilter(typeFromUrl);
@@ -123,21 +166,23 @@ export function ActivitiesPage() {
     formState: { errors, isSubmitting, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      type: typeFilter && ACTIVITY_TYPES.includes(typeFilter as (typeof ACTIVITY_TYPES)[number]) ? typeFilter : "TASK",
-      subject: "",
-      description: "",
-      priority: "MEDIUM",
-      relatedEntityType: "LEAD",
-      relatedEntityId: "",
-      dueDate: "",
-      location: "",
-      attendees: "",
-      outcome: "",
-      callDirection: "",
-      durationSeconds: "",
-    },
+    defaultValues: activityDefaults(typeFilter),
   });
+
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: activityDefaults(typeFilter),
+    reset,
+    setShowForm,
+    setFormError,
+    setSelected: (entity) => setSelectedId(entity.id),
+    onResetExtras: () => setShowMore(false),
+  });
+
   const watchedType = useWatch({ control, name: "type" });
 
   function buildActivityBody(values: FormValues) {
@@ -159,34 +204,17 @@ export function ActivitiesPage() {
 
   const createMutation = useMutation({
     mutationFn: createActivity,
-    onSuccess: async () => {
+    onSuccess: async (activity) => {
       await queryClient.invalidateQueries({ queryKey: ["crm", "activities"] });
       setFormError(null);
-      if (saveAndNew) {
-        reset({
-          type: typeFilter && ACTIVITY_TYPES.includes(typeFilter as (typeof ACTIVITY_TYPES)[number]) ? typeFilter : "TASK",
-          subject: "",
-          description: "",
-          priority: "MEDIUM",
-          relatedEntityType: "LEAD",
-          relatedEntityId: "",
-          dueDate: "",
-          location: "",
-          attendees: "",
-          outcome: "",
-          callDirection: "",
-          durationSeconds: "",
-        });
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        reset();
-        setShowForm(false);
-        setShowMore(false);
-      }
+      await afterCreateSuccess(activity, "ACTIVITY");
     },
     onError: () => setFormError("Could not create activity. Check the related entity id."),
   });
+
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate(buildActivityBody(values));
+  };
 
   const completeMutation = useMutation({
     mutationFn: completeActivity,
@@ -195,7 +223,156 @@ export function ActivitiesPage() {
     },
   });
 
+  const selected = useMemo(
+    () => (activitiesQuery.data ?? []).find((activity) => activity.id === selectedId) ?? null,
+    [activitiesQuery.data, selectedId],
+  );
+
+  useEffect(() => {
+    if (!selected) {
+      return;
+    }
+    setEditSubject(selected.subject);
+    setEditPriority(selected.priority ?? "MEDIUM");
+    setEditDueDate(selected.dueDate ? selected.dueDate.slice(0, 10) : "");
+    setEditOutcome(selected.outcome ?? "");
+    setEditLocation(selected.location ?? "");
+    setEditAttendees(selected.attendees ?? "");
+    setEditDirection(selected.callDirection ?? "");
+    setManageError(null);
+  }, [selected]);
+
+  const updateMutation = useMutation({
+    mutationFn: () =>
+      updateActivity(selectedId!, {
+        type: selected!.type,
+        subject: editSubject.trim(),
+        description: selected!.description ?? undefined,
+        status: selected!.status,
+        priority: editPriority,
+        dueDate: editDueDate ? new Date(editDueDate).toISOString() : null,
+        assignedTo: selected!.assignedTo,
+        location: editLocation || undefined,
+        attendees: editAttendees || undefined,
+        outcome: editOutcome || undefined,
+        callDirection: editDirection || undefined,
+        durationSeconds: selected!.durationSeconds ?? undefined,
+      }),
+    onSuccess: async () => {
+      setManageError(null);
+      await queryClient.invalidateQueries({ queryKey: ["crm", "activities"] });
+    },
+    onError: () => setManageError("Could not update activity."),
+  });
+
+  const createLabel = title.replace(/s$/, "");
+
   return (
+    <>
+      {showForm && canCreate ? (
+        <ZohoFormKitCreateView
+          title={`Create ${createLabel}`}
+          tableCode="activity"
+          entityLabel={createLabel}
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          <FormSection title="Primary details">
+            <div className="col-md-2">
+              <label className="form-label">Type</label>
+              <ZohoFormSelect
+                control={control}
+                name="type"
+                options={activityTypeOptions}
+                searchPlaceholder="Search Types"
+                allowEmpty={false}
+              />
+            </div>
+            <div className="col-md-4">
+              <FormField label="Subject" required error={errors.subject} {...register("subject")} />
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Related to</label>
+              <ZohoFormSelect
+                control={control}
+                name="relatedEntityType"
+                options={entityTypeOptions}
+                searchPlaceholder="Search Entity Types"
+                allowEmpty={false}
+              />
+            </div>
+            <div className="col-md-4">
+              <FormField label="Related record ID" required error={errors.relatedEntityId} {...register("relatedEntityId")} />
+            </div>
+          </FormSection>
+          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
+            <FormSection title="Additional details">
+              <div className="col-md-3">
+                <label className="form-label">Priority</label>
+                <ZohoFormSelect
+                  control={control}
+                  name="priority"
+                  options={activityPriorityOptions}
+                  searchPlaceholder="Search Priorities"
+                  allowEmpty={false}
+                />
+              </div>
+              <div className="col-md-3">
+                <FormField label="Due date" type="date" error={errors.dueDate} {...register("dueDate")} />
+              </div>
+              <div className="col-12">
+                <FormField label="Description" error={errors.description} {...register("description")} />
+              </div>
+            </FormSection>
+            {watchedType === "MEETING" ? (
+              <FormSection title="Meeting details">
+                <div className="col-md-4">
+                  <FormField label="Location" error={errors.location} {...register("location")} />
+                </div>
+                <div className="col-md-4">
+                  <FormField label="Attendees" error={errors.attendees} {...register("attendees")} />
+                </div>
+                <div className="col-md-4">
+                  <FormField label="Outcome" error={errors.outcome} {...register("outcome")} />
+                </div>
+              </FormSection>
+            ) : null}
+            {watchedType === "CALL" ? (
+              <FormSection title="Call details">
+                <div className="col-md-3">
+                  <label className="form-label">Direction</label>
+                  <ZohoFormSelect
+                    control={control}
+                    name="callDirection"
+                    options={callDirectionOptions}
+                    searchPlaceholder="Search Directions"
+                  />
+                </div>
+                <div className="col-md-3">
+                  <FormField
+                    label="Duration (seconds)"
+                    type="number"
+                    error={errors.durationSeconds}
+                    {...register("durationSeconds")}
+                  />
+                </div>
+                <div className="col-md-3">
+                  <FormField label="Outcome" error={errors.outcome} {...register("outcome")} />
+                </div>
+              </FormSection>
+            ) : null}
+          </FormMoreDetails>
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title={title}
       filterOpen={filterOpen}
@@ -213,8 +390,16 @@ export function ActivitiesPage() {
       }
       primaryAction={
         canCreate ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : `Create ${title.replace(/s$/, "")}`}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              reset(activityDefaults(typeFilter));
+              setShowMore(false);
+              setShowForm(true);
+            }}
+          >
+            Create {createLabel}
           </button>
         ) : null
       }
@@ -314,112 +499,6 @@ export function ActivitiesPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => createMutation.mutate(buildActivityBody(values)))}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Primary details">
-            <div className="col-md-2">
-              <label className="form-label">Type</label>
-              <select className="form-select" {...register("type")}>
-                {ACTIVITY_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-4">
-              <FormField label="Subject" required error={errors.subject} {...register("subject")} />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Related to</label>
-              <select className="form-select" {...register("relatedEntityType")}>
-                {ENTITY_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-4">
-              <FormField label="Related record ID" required error={errors.relatedEntityId} {...register("relatedEntityId")} />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Additional details">
-              <div className="col-md-3">
-                <label className="form-label">Priority</label>
-                <select className="form-select" {...register("priority")}>
-                  <option value="LOW">LOW</option>
-                  <option value="MEDIUM">MEDIUM</option>
-                  <option value="HIGH">HIGH</option>
-                </select>
-              </div>
-              <div className="col-md-3">
-                <FormField label="Due date" type="date" error={errors.dueDate} {...register("dueDate")} />
-              </div>
-              <div className="col-12">
-                <FormField label="Description" error={errors.description} {...register("description")} />
-              </div>
-            </FormSection>
-            {watchedType === "MEETING" ? (
-              <FormSection title="Meeting details">
-                <div className="col-md-4">
-                  <FormField label="Location" error={errors.location} {...register("location")} />
-                </div>
-                <div className="col-md-4">
-                  <FormField label="Attendees" error={errors.attendees} {...register("attendees")} />
-                </div>
-                <div className="col-md-4">
-                  <FormField label="Outcome" error={errors.outcome} {...register("outcome")} />
-                </div>
-              </FormSection>
-            ) : null}
-            {watchedType === "CALL" ? (
-              <FormSection title="Call details">
-                <div className="col-md-3">
-                  <label className="form-label">Direction</label>
-                  <select className="form-select" {...register("callDirection")}>
-                    <option value="">—</option>
-                    <option value="INBOUND">INBOUND</option>
-                    <option value="OUTBOUND">OUTBOUND</option>
-                  </select>
-                </div>
-                <div className="col-md-3">
-                  <FormField
-                    label="Duration (seconds)"
-                    type="number"
-                    error={errors.durationSeconds}
-                    {...register("durationSeconds")}
-                  />
-                </div>
-                <div className="col-md-3">
-                  <FormField label="Outcome" error={errors.outcome} {...register("outcome")} />
-                </div>
-              </FormSection>
-            ) : null}
-          </FormMoreDetails>
-          <FormActions
-            submitting={isSubmitting || createMutation.isPending}
-            showSaveAndNew
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) => createMutation.mutate(buildActivityBody(values)))();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              reset();
-            }}
-          />
-        </form>
-      ) : null}
-
       {activitiesQuery.isLoading ? <LoadingState label="Loading..." /> : null}
       {activitiesQuery.error ? <ErrorState title="Unable to load" message="Try again." /> : null}
 
@@ -438,7 +517,12 @@ export function ActivitiesPage() {
             </thead>
             <tbody>
               {rows.map((activity) => (
-                <tr key={activity.id}>
+                <tr
+                  key={activity.id}
+                  className={selectedId === activity.id ? "table-active" : undefined}
+                  onClick={() => setSelectedId(activity.id)}
+                  style={{ cursor: "pointer" }}
+                >
                   <td className="lead-name">{activity.subject}</td>
                   <td>{activity.type}</td>
                   <td>
@@ -448,7 +532,7 @@ export function ActivitiesPage() {
                   <td>
                     <StatusBadge status={activity.status} />
                   </td>
-                  <td>
+                  <td onClick={(e) => e.stopPropagation()}>
                     {canComplete && activity.status !== "COMPLETED" ? (
                       <button
                         type="button"
@@ -473,6 +557,83 @@ export function ActivitiesPage() {
         </div>
       ) : null}
 
+      {selected && canUpdate ? (
+        <div className="border-top bg-white p-3">
+          <h2 className="h6 mb-3">Manage {selected.type.toLowerCase()}</h2>
+          {manageError ? <div className="alert alert-danger py-2">{manageError}</div> : null}
+          <div className="row g-2 align-items-end">
+            <div className="col-md-4">
+              <label className="form-label small">Subject</label>
+              <input className="form-control form-control-sm" value={editSubject} onChange={(e) => setEditSubject(e.target.value)} />
+            </div>
+            <div className="col-md-2">
+              <label className="form-label small">Priority</label>
+              <select className="form-select form-select-sm" value={editPriority} onChange={(e) => setEditPriority(e.target.value)}>
+                <option value="LOW">LOW</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="HIGH">HIGH</option>
+              </select>
+            </div>
+            <div className="col-md-2">
+              <label className="form-label small">Due / schedule</label>
+              <input
+                className="form-control form-control-sm"
+                type="date"
+                value={editDueDate}
+                onChange={(e) => setEditDueDate(e.target.value)}
+              />
+            </div>
+            {selected.type === "MEETING" ? (
+              <>
+                <div className="col-md-2">
+                  <label className="form-label small">Location</label>
+                  <input className="form-control form-control-sm" value={editLocation} onChange={(e) => setEditLocation(e.target.value)} />
+                </div>
+                <div className="col-md-2">
+                  <label className="form-label small">Attendees</label>
+                  <input className="form-control form-control-sm" value={editAttendees} onChange={(e) => setEditAttendees(e.target.value)} />
+                </div>
+              </>
+            ) : null}
+            {selected.type === "CALL" ? (
+              <>
+                <div className="col-md-2">
+                  <label className="form-label small">Direction</label>
+                  <select className="form-select form-select-sm" value={editDirection} onChange={(e) => setEditDirection(e.target.value)}>
+                    <option value="">—</option>
+                    <option value="INBOUND">INBOUND</option>
+                    <option value="OUTBOUND">OUTBOUND</option>
+                  </select>
+                </div>
+                <div className="col-md-2">
+                  <label className="form-label small">Outcome</label>
+                  <input className="form-control form-control-sm" value={editOutcome} onChange={(e) => setEditOutcome(e.target.value)} />
+                </div>
+              </>
+            ) : null}
+            {selected.type === "TASK" ? (
+              <div className="col-md-2">
+                <label className="form-label small">Outcome</label>
+                <input className="form-control form-control-sm" value={editOutcome} onChange={(e) => setEditOutcome(e.target.value)} />
+              </div>
+            ) : null}
+            <div className="col-md-2 d-flex gap-2">
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!editSubject.trim() || updateMutation.isPending}
+                onClick={() => updateMutation.mutate()}
+              >
+                Save changes
+              </button>
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setSelectedId(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {!activitiesQuery.isLoading && !activitiesQuery.error && viewMode === "tile" ? (
         <div className="module-tile-grid">
           {rows.map((activity) => (
@@ -486,5 +647,7 @@ export function ActivitiesPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

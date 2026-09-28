@@ -2,16 +2,58 @@
 @use "bootstrap/scss/bootstrap" with (
   $primary: $primary,
   $secondary: $secondary,
+  $success: $success,
+  $warning: $warning,
+  $danger: $danger,
+  $info: $info,
   $body-bg: $body-bg,
   $body-color: $body-color,
+  $border-color: $border-color,
   $border-radius: $border-radius,
   $font-family-sans-serif: $font-family-sans-serif
 );
 @use "layout";
 
 :root {
-  --te-navy: #{$te-navy};
+  // Brand
+  --te-primary: #{$te-primary};
+  --te-primary-dark: #{$te-primary-dark};
+  --te-primary-light: #{$te-primary-light};
   --te-accent: #{$te-accent};
+  --te-navy: #{$te-navy};
+
+  // Sidebar
+  --te-sidebar: #{$te-sidebar};
+  --te-sidebar-hover: #{$te-sidebar-hover};
+  --te-sidebar-active: #{$te-sidebar-active};
+
+  // Surfaces
+  --te-page-bg: #{$te-page-bg};
+  --te-surface: #{$te-surface};
+
+  // Text
+  --te-text: #{$te-text};
+  --te-text-secondary: #{$te-text-secondary};
+  --te-muted: #{$te-muted};
+
+  // Borders
+  --te-border: #{$te-border};
+  --te-border-light: #{$te-border-light};
+
+  // Semantic
+  --te-success: #{$te-success};
+  --te-warning: #{$te-warning};
+  --te-danger: #{$te-danger};
+  --te-info: #{$te-info};
+
+  // Spacing
+  --te-space-1: #{$te-space-1};
+  --te-space-2: #{$te-space-2};
+  --te-space-3: #{$te-space-3};
+  --te-space-4: #{$te-space-4};
+  --te-space-5: #{$te-space-5};
+  --te-space-6: #{$te-space-6};
+  --te-space-7: #{$te-space-7};
 }
 
 html,
@@ -21,7 +63,8 @@ body,
 }
 
 body {
-  background: $te-surface;
+  background: $te-page-bg;
+  color: $te-text;
 }
 
 a {
@@ -30,5 +73,5 @@ a {
 
 .required::after {
   content: " *";
-  color: #c0392b;
+  color: $te-danger;
 }

@@ -4,7 +4,13 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -25,6 +31,9 @@ import {
 
 const TASK_STATUSES = ["TODO", "IN_PROGRESS", "BLOCKED", "COMPLETED", "CANCELLED"] as const;
 const TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+
+const taskStatusOptions = enumPickerOptions(TASK_STATUSES);
+const taskPriorityOptions = enumPickerOptions(["LOW", "MEDIUM", "HIGH"] as const);
 
 const createSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -85,7 +94,6 @@ export function TasksPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
 
   const listParams = useMemo(
     () => ({
@@ -124,6 +132,20 @@ export function TasksPage() {
     defaultValues: TASK_DEFAULTS,
   });
 
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow<CreateFormValues, ProjectTask>({
+    defaults: TASK_DEFAULTS,
+    reset: createForm.reset,
+    setShowForm,
+    setFormError,
+    setSelected,
+    onResetExtras: () => setShowMore(false),
+  });
+
   const buildTaskBody = (values: CreateFormValues) => ({
     name: values.name,
     description: values.description || undefined,
@@ -152,21 +174,17 @@ export function TasksPage() {
 
   const createMutation = useMutation({
     mutationFn: (body: Parameters<typeof createTask>[1]) => createTask(projectId, body),
-    onSuccess: async () => {
+    onSuccess: async (task) => {
       await refreshTasks();
       setFormError(null);
-      if (saveAndNew) {
-        createForm.reset(TASK_DEFAULTS);
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        createForm.reset(TASK_DEFAULTS);
-        setShowForm(false);
-        setShowMore(false);
-      }
+      await afterCreateSuccess(task, "TASK");
     },
     onError: () => setFormError("Could not create task."),
   });
+
+  const onCreateSubmit = (values: CreateFormValues) => {
+    createMutation.mutate(buildTaskBody(values));
+  };
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: string }) => updateTask(id, { status }),
@@ -226,6 +244,82 @@ export function TasksPage() {
   const hasError = projectsQuery.error || tasksQuery.error;
 
   return (
+    <>
+      {showForm && canCreate && projectId ? (
+        <ZohoFormKitCreateView
+          title="Create Task"
+          tableCode="task"
+          entityLabel="Task"
+          pending={createForm.formState.isSubmitting || createMutation.isPending}
+          isDirty={createForm.formState.isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(createForm.formState.isDirty)}
+          onSave={() => void createForm.handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void createForm.handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void createForm.handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          <FormSection title="Primary details" description="Task identity and status">
+            <div className="col-md-5">
+              <FormField
+                label="Name"
+                required
+                error={createForm.formState.errors.name}
+                {...createForm.register("name")}
+              />
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Status</label>
+              <ZohoFormSelect
+                control={createForm.control}
+                name="status"
+                options={taskStatusOptions}
+                searchPlaceholder="Search Statuses"
+                allowEmpty={false}
+              />
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Priority</label>
+              <ZohoFormSelect
+                control={createForm.control}
+                name="priority"
+                options={taskPriorityOptions}
+                searchPlaceholder="Search Priorities"
+                allowEmpty={false}
+              />
+            </div>
+            <div className="col-md-3">
+              <FormField label="Due date" type="date" {...createForm.register("dueDate")} />
+            </div>
+          </FormSection>
+          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
+            <FormSection title="Assignment & effort">
+              <div className="col-md-3">
+                <FormField label="Start date" type="date" {...createForm.register("startDate")} />
+              </div>
+              <div className="col-md-3">
+                <FormField
+                  label="Estimated hours"
+                  type="number"
+                  {...createForm.register("estimatedHours")}
+                />
+              </div>
+              <div className="col-md-4">
+                <FormField
+                  label="Assigned resource ID"
+                  {...createForm.register("assignedResourceId")}
+                />
+              </div>
+              <div className="col-12">
+                <FormField label="Description" {...createForm.register("description")} />
+              </div>
+            </FormSection>
+          </FormMoreDetails>
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Tasks"
       filterOpen={filterOpen}
@@ -243,8 +337,15 @@ export function TasksPage() {
       }
       primaryAction={
         canCreate && projectId ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Task"}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setSelected(null);
+              setShowForm(true);
+            }}
+          >
+            Create Task
           </button>
         ) : null
       }
@@ -338,85 +439,6 @@ export function TasksPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm && projectId ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={createForm.handleSubmit((values) => createMutation.mutate(buildTaskBody(values)))}
-        >
-          <UnsavedGuard when={createForm.formState.isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Primary details" description="Task identity and status">
-            <div className="col-md-5">
-              <FormField
-                label="Name"
-                required
-                error={createForm.formState.errors.name}
-                {...createForm.register("name")}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <select className="form-select" {...createForm.register("status")}>
-                {TASK_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Priority</label>
-              <select className="form-select" {...createForm.register("priority")}>
-                <option value="LOW">LOW</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="HIGH">HIGH</option>
-              </select>
-            </div>
-            <div className="col-md-3">
-              <FormField label="Due date" type="date" {...createForm.register("dueDate")} />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Assignment & effort">
-              <div className="col-md-3">
-                <FormField label="Start date" type="date" {...createForm.register("startDate")} />
-              </div>
-              <div className="col-md-3">
-                <FormField
-                  label="Estimated hours"
-                  type="number"
-                  {...createForm.register("estimatedHours")}
-                />
-              </div>
-              <div className="col-md-4">
-                <FormField
-                  label="Assigned resource ID"
-                  {...createForm.register("assignedResourceId")}
-                />
-              </div>
-              <div className="col-12">
-                <FormField label="Description" {...createForm.register("description")} />
-              </div>
-            </FormSection>
-          </FormMoreDetails>
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void createForm.handleSubmit((values) => createMutation.mutate(buildTaskBody(values)))();
-            }}
-            onCancel={() => {
-              if (createForm.formState.isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              createForm.reset(TASK_DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {isLoading ? <LoadingState label="Loading tasks..." /> : null}
       {hasError ? <ErrorState title="Unable to load tasks" message="Try again." /> : null}
 
@@ -611,5 +633,7 @@ export function TasksPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

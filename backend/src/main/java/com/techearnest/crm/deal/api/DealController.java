@@ -5,6 +5,7 @@ import com.techearnest.crm.deal.api.dto.DealDtos.CreateDealRequest;
 import com.techearnest.crm.deal.api.dto.DealDtos.DealResponse;
 import com.techearnest.crm.deal.api.dto.DealDtos.PipelineColumn;
 import com.techearnest.crm.deal.api.dto.DealDtos.StageChangeRequest;
+import com.techearnest.crm.deal.api.dto.DealDtos.StageHistoryResponse;
 import com.techearnest.crm.deal.api.dto.DealDtos.UpdateDealRequest;
 import com.techearnest.crm.deal.application.DealService;
 import com.techearnest.crm.project.api.dto.ProjectDtos.CreateProjectFromDealRequest;
@@ -97,6 +98,11 @@ public class DealController {
     public ApiResponse<DealResponse> changeStage(
             @PathVariable UUID id, @Valid @RequestBody StageChangeRequest request) {
         return ApiResponse.ok(dealService.changeStage(id, request), "Deal stage updated successfully");
+    }
+
+    @GetMapping("/{id}/stage-history")
+    public ApiResponse<List<StageHistoryResponse>> stageHistory(@PathVariable UUID id) {
+        return ApiResponse.ok(dealService.stageHistory(id));
     }
 
     @PostMapping("/{id}/create-project")

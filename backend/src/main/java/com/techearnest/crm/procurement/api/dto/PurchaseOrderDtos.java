@@ -118,4 +118,6 @@ public final class PurchaseOrderDtos {
             UUID organizationId,
             Integer page,
             Integer size) {}
+
+    public record RejectPurchaseOrderRequest(@NotBlank String reason) {}
 }

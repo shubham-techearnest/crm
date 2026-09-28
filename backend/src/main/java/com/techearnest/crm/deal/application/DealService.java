@@ -2,6 +2,7 @@ package com.techearnest.crm.deal.application;
 
 import com.techearnest.crm.account.domain.Account;
 import com.techearnest.crm.account.domain.AccountRepository;
+import com.techearnest.crm.audit.application.AuditFieldChanges;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
 import com.techearnest.crm.common.exception.BusinessException;
@@ -14,6 +15,7 @@ import com.techearnest.crm.deal.api.dto.DealDtos.CreateDealRequest;
 import com.techearnest.crm.deal.api.dto.DealDtos.DealResponse;
 import com.techearnest.crm.deal.api.dto.DealDtos.PipelineColumn;
 import com.techearnest.crm.deal.api.dto.DealDtos.StageChangeRequest;
+import com.techearnest.crm.deal.api.dto.DealDtos.StageHistoryResponse;
 import com.techearnest.crm.deal.api.dto.DealDtos.UpdateDealRequest;
 import com.techearnest.crm.deal.domain.Deal;
 import com.techearnest.crm.deal.domain.DealRepository;
@@ -26,7 +28,9 @@ import com.techearnest.crm.metadata.application.TableAclEvaluator.CrudOp;
 import com.techearnest.crm.common.outbox.OutboxPublisher;
 import com.techearnest.crm.workflow.application.WorkflowEngine;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -171,17 +175,46 @@ public class DealService {
                     .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
             tenantAccess.assertRecordVisible(contact);
         }
+        UUID oldContactId = deal.getContactId();
+        UUID oldOwnerId = deal.getOwnerId();
+        String oldName = deal.getName();
+        BigDecimal oldValue = deal.getValue();
+        BigDecimal oldProbability = deal.getProbability();
+        LocalDate oldCloseDate = deal.getExpectedCloseDate();
+        String oldSource = deal.getSource();
+        String oldDescription = deal.getDescription();
+        String oldCompetitor = deal.getCompetitor();
+        String oldExpectedRevenue = AuditFieldChanges.expectedRevenue(oldValue, oldProbability);
+
+        LocalDate closeDate = resolveCloseDateForUpdate(deal, request.expectedCloseDate());
+
         deal.update(
                 request.contactId(),
                 request.ownerId(),
                 request.name().trim(),
                 request.value(),
                 request.probability(),
-                request.expectedCloseDate(),
+                closeDate,
                 blankToNull(request.source()),
                 request.description(),
                 blankToNull(request.competitor()));
-        auditService.record(deal.getOrganizationId(), user.userId(), "UPDATE", "DEAL", deal.getId());
+
+        AuditFieldChanges.Builder changes = AuditFieldChanges.builder()
+                .addIfChanged("name", "Deal Name", oldName, deal.getName())
+                .addIfChanged("value", "Amount", oldValue, deal.getValue())
+                .addIfChanged("probability", "Probability (%)", oldProbability, deal.getProbability())
+                .addIfChanged(
+                        "expectedRevenue",
+                        "Expected Revenue",
+                        oldExpectedRevenue,
+                        AuditFieldChanges.expectedRevenue(deal.getValue(), deal.getProbability()))
+                .addIfChanged("expectedCloseDate", "Closing Date", oldCloseDate, deal.getExpectedCloseDate())
+                .addIfChanged("source", "Lead Source", oldSource, deal.getSource())
+                .addIfChanged("description", "Description", oldDescription, deal.getDescription())
+                .addIfChanged("competitor", "Campaign Source", oldCompetitor, deal.getCompetitor())
+                .addIfChanged("contactId", "Contact Name", oldContactId, deal.getContactId())
+                .addIfChanged("ownerId", "Deal Owner", oldOwnerId, deal.getOwnerId());
+        recordDealAudit(deal, user.userId(), "UPDATE", changes);
         return DealResponse.from(deal);
     }
 
@@ -213,10 +246,29 @@ public class DealService {
         formPolicyEvaluator.assertMandatory(
                 metadataExtensionService.publishedPolicyNodes("deal", "EDIT"), values);
         String fromStage = deal.getStage();
-        deal.changeStage(toStage, blankToNull(request.lostReason()), request.expectedCloseDate());
+        if (("WON".equals(fromStage) || "LOST".equals(fromStage)) && !fromStage.equals(toStage)) {
+            throw new BusinessException(
+                    "DEAL_STAGE_TERMINAL", "Stage cannot be changed after the deal is closed.");
+        }
+        BigDecimal oldValue = deal.getValue();
+        BigDecimal oldProbability = deal.getProbability();
+        LocalDate oldCloseDate = deal.getExpectedCloseDate();
+        String oldExpectedRevenue = AuditFieldChanges.expectedRevenue(oldValue, oldProbability);
+
+        LocalDate closeDate = resolveCloseDateForStageChange(deal, toStage, request.expectedCloseDate());
+        deal.changeStage(toStage, blankToNull(request.lostReason()), closeDate);
         dealStageHistoryRepository.save(
                 DealStageHistory.of(deal.getOrganizationId(), deal.getId(), fromStage, toStage, user.userId()));
-        auditService.record(deal.getOrganizationId(), user.userId(), "UPDATE", "DEAL", deal.getId());
+        AuditFieldChanges.Builder changes = AuditFieldChanges.builder()
+                .addIfChanged("stage", "Stage", formatStageLabel(fromStage), formatStageLabel(toStage))
+                .addIfChanged("probability", "Probability (%)", oldProbability, deal.getProbability())
+                .addIfChanged(
+                        "expectedRevenue",
+                        "Expected Revenue",
+                        oldExpectedRevenue,
+                        AuditFieldChanges.expectedRevenue(deal.getValue(), deal.getProbability()))
+                .addIfChanged("expectedCloseDate", "Closing Date", oldCloseDate, deal.getExpectedCloseDate());
+        recordDealAudit(deal, user.userId(), "UPDATE", changes);
         if ("WON".equals(toStage) && !"WON".equals(fromStage)) {
             outboxPublisher.append(
                     deal.getOrganizationId(),
@@ -258,6 +310,71 @@ public class DealService {
             columns.add(new PipelineColumn(entry.getKey(), entry.getValue(), total));
         }
         return columns;
+    }
+
+    @Transactional(readOnly = true)
+    public List<StageHistoryResponse> stageHistory(UUID dealId) {
+        tenantAccess.requirePermission("DEAL_VIEW");
+        Deal deal = requireVisibleDeal(dealId);
+        return dealStageHistoryRepository.findByDealIdOrderByChangedAtDesc(deal.getId()).stream()
+                .map(StageHistoryResponse::from)
+                .toList();
+    }
+
+    private void recordDealAudit(Deal deal, UUID userId, String action, AuditFieldChanges.Builder changes) {
+        if (changes.hasChanges()) {
+            auditService.recordWithSummary(
+                    deal.getOrganizationId(), userId, action, "DEAL", deal.getId(), changes.toJson());
+        } else {
+            auditService.record(deal.getOrganizationId(), userId, action, "DEAL", deal.getId());
+        }
+    }
+
+    private boolean isClosingDateLocked(Deal deal) {
+        return deal.getWonAt() != null || "WON".equals(deal.getStage());
+    }
+
+    private LocalDate resolveCloseDateForUpdate(Deal deal, LocalDate requestedCloseDate) {
+        if (isClosingDateLocked(deal)) {
+            if (requestedCloseDate != null
+                    && !Objects.equals(requestedCloseDate, deal.getExpectedCloseDate())) {
+                throw new BusinessException(
+                        "DEAL_CLOSE_DATE_LOCKED", "Closing date cannot be changed after the deal is won.");
+            }
+            return deal.getExpectedCloseDate();
+        }
+        return requestedCloseDate;
+    }
+
+    private LocalDate resolveCloseDateForStageChange(Deal deal, String toStage, LocalDate requestedCloseDate) {
+        if (isClosingDateLocked(deal)) {
+            if (requestedCloseDate != null
+                    && !Objects.equals(requestedCloseDate, deal.getExpectedCloseDate())) {
+                throw new BusinessException(
+                        "DEAL_CLOSE_DATE_LOCKED", "Closing date cannot be changed after the deal is won.");
+            }
+            return deal.getExpectedCloseDate();
+        }
+        if ("WON".equals(toStage)) {
+            return requestedCloseDate != null ? requestedCloseDate : deal.getExpectedCloseDate();
+        }
+        return requestedCloseDate;
+    }
+
+    private static String formatStageLabel(String stage) {
+        if (stage == null || stage.isBlank()) {
+            return null;
+        }
+        return switch (stage) {
+            case "NEW" -> "Qualification";
+            case "QUALIFICATION" -> "Qualification";
+            case "REQUIREMENT" -> "Needs Analysis";
+            case "PROPOSAL" -> "Proposal/Price Quote";
+            case "NEGOTIATION" -> "Negotiation/Review";
+            case "WON" -> "Closed Won";
+            case "LOST" -> "Closed Lost";
+            default -> stage.charAt(0) + stage.substring(1).toLowerCase();
+        };
     }
 
     private Deal requireVisibleDeal(UUID id) {

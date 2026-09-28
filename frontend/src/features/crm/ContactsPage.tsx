@@ -2,21 +2,45 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { z } from "zod";
+import { ACCESS_TOKEN_KEY } from "@/api/client";
 import { DynamicForm, FormActions, UnsavedGuard } from "@/components/FormKit";
+import { ContactCreateView } from "./ContactCreateView";
+import { buildOwnerOptions, buildFilterOwnerOptions, enumPickerOptions, optionsFromPairs, ZohoFilterSelect } from "@/components/ZohoCreate";
+import { EmptyState } from "@/components/EmptyState/EmptyState";
+import {
+  ModuleListShell,
+  countActiveFilters,
+} from "@/components/ModuleListShell/ModuleListShell";
+import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
+import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, ZohoRecordTimeline } from "@/components/ZohoRecord";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
-import { useHasPermission } from "@/features/auth/AuthContext";
-import { listUsers } from "@/features/admin/adminApi";
-import { getPublishedFormBundle } from "@/features/admin/studio/metadataApi";
+import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
+import { listAuditLogs, listUsers } from "@/features/admin/adminApi";
+import { getPublishedFormBundle, getPublishedRelatedLists } from "@/features/admin/studio/metadataApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { createContact, listAccounts, listContacts } from "./crmApi";
+import {
+  getAccount,
+  listAccountDeals,
+  listAccounts,
+  listActivities,
+  listContacts,
+  updateContact,
+  type Contact,
+} from "./crmApi";
+import {
+  createNote,
+  deleteNote,
+  documentDownloadUrl,
+  listDocuments,
+  listNotes,
+  uploadDocument,
+} from "./foundationApi";
 
-const schema = z.object({
-  accountId: z.string().min(1, "Account is required"),
+const editSchema = z.object({
   firstName: z.string().min(1, "Required"),
   lastName: z.string().min(1, "Required"),
   email: z.string().email("Enter a valid email").or(z.literal("")).optional(),
@@ -27,15 +51,45 @@ const schema = z.object({
   linkedinUrl: z.string().optional(),
   status: z.string().optional(),
   notes: z.string().optional(),
+  ownerId: z.string().optional(),
 });
 
-type FormValues = z.infer<typeof schema>;
+type EditFormValues = z.infer<typeof editSchema>;
+
+function contactName(contact: Pick<Contact, "firstName" | "lastName">) {
+  return `${contact.firstName} ${contact.lastName}`.trim();
+}
+
+function buildUpdateBody(values: EditFormValues) {
+  return {
+    ownerId: values.ownerId || undefined,
+    firstName: values.firstName,
+    lastName: values.lastName,
+    email: values.email || undefined,
+    phone: values.phone || undefined,
+    mobile: values.mobile || undefined,
+    designation: values.designation || undefined,
+    department: values.department || undefined,
+    linkedinUrl: values.linkedinUrl || undefined,
+    status: values.status || "ACTIVE",
+    notes: values.notes || undefined,
+  };
+}
 
 export function ContactsPage() {
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
+  const auth = useAuth();
   const canCreate = useHasPermission("CONTACT_CREATE");
+  const canUpdate = useHasPermission("CONTACT_UPDATE");
   const canViewUsers = useHasPermission("USER_VIEW");
+  const canViewNotes = useHasPermission("NOTE_VIEW");
+  const canCreateNotes = useHasPermission("NOTE_CREATE");
+  const canDeleteNotes = useHasPermission("NOTE_DELETE");
+  const canViewDocs = useHasPermission("DOCUMENT_VIEW");
+  const canUploadDocs = useHasPermission("DOCUMENT_UPLOAD");
+  const canViewActivities = useHasPermission("ACTIVITY_VIEW");
+  const canViewAudit = useHasPermission("AUDIT_VIEW");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
   const [statusFilter, setStatusFilter] = useState("");
@@ -43,9 +97,10 @@ export function ContactsPage() {
   const [ownerFilter, setOwnerFilter] = useState("");
   const [emailFilter, setEmailFilter] = useState("");
   const [designationFilter, setDesignationFilter] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
+  const [selected, setSelected] = useState<Contact | null>(null);
+  const [showEdit, setShowEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [noteBody, setNoteBody] = useState("");
 
   useEffect(() => {
     if (params.get("create") === "1") setShowForm(true);
@@ -68,16 +123,52 @@ export function ContactsPage() {
     queryFn: () => listContacts(listParams),
   });
   const accountsQuery = useQuery({ queryKey: ["crm", "accounts"], queryFn: () => listAccounts() });
-  const contactFormBundleQuery = useQuery({
-    queryKey: ["metadata", "runtime", "contact", "form-bundle", "CREATE"],
+  const contactEditBundleQuery = useQuery({
+    queryKey: ["metadata", "runtime", "contact", "form-bundle", "CREATE", "edit"],
     queryFn: () => getPublishedFormBundle("contact", "CREATE"),
-    enabled: showForm,
+    enabled: !!selected && showEdit,
     staleTime: 60_000,
   });
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => listUsers(),
-    enabled: canViewUsers,
+    enabled: canViewUsers || (showForm && canCreate),
+  });
+  const relatedListsQuery = useQuery({
+    queryKey: ["metadata", "runtime", "contact", "related-lists"],
+    queryFn: () => getPublishedRelatedLists("contact"),
+    enabled: !!selected,
+    staleTime: 60_000,
+  });
+  const accountQuery = useQuery({
+    queryKey: ["crm", "accounts", selected?.accountId],
+    queryFn: () => getAccount(selected!.accountId),
+    enabled: !!selected,
+  });
+  const dealsQuery = useQuery({
+    queryKey: ["crm", "accounts", selected?.accountId, "deals"],
+    queryFn: () => listAccountDeals(selected!.accountId),
+    enabled: !!selected,
+  });
+  const activitiesQuery = useQuery({
+    queryKey: ["crm", "activities", "CONTACT", selected?.id],
+    queryFn: () => listActivities({ relatedEntityType: "CONTACT", relatedEntityId: selected!.id }),
+    enabled: !!selected && canViewActivities,
+  });
+  const notesQuery = useQuery({
+    queryKey: ["crm", "notes", "CONTACT", selected?.id],
+    queryFn: () => listNotes("CONTACT", selected!.id),
+    enabled: !!selected && canViewNotes,
+  });
+  const docsQuery = useQuery({
+    queryKey: ["crm", "documents", "CONTACT", selected?.id],
+    queryFn: () => listDocuments("CONTACT", selected!.id),
+    enabled: !!selected && canViewDocs,
+  });
+  const auditQuery = useQuery({
+    queryKey: ["admin", "audit-logs", "CONTACT", selected?.id],
+    queryFn: () => listAuditLogs({ entityType: "CONTACT", entityId: selected!.id, size: 30 }),
+    enabled: !!selected && canViewAudit,
   });
 
   const accountName = useMemo(() => {
@@ -85,88 +176,487 @@ export function ContactsPage() {
     return (id: string) => map.get(id) ?? id.slice(0, 8);
   }, [accountsQuery.data]);
 
+  const userLabel = useMemo(() => {
+    const map = new Map(
+      (usersQuery.data ?? []).map((user) => [user.id, `${user.firstName} ${user.lastName}`.trim()]),
+    );
+    return (id: string | null) => (id ? (map.get(id) ?? id.slice(0, 8)) : "—");
+  }, [usersQuery.data]);
+
   const rows = contactsQuery.data ?? [];
-  const activeFilterCount = [
+  const recordNav = useRecordNavigation(rows, selected, setSelected);
+  const timelineEntries = useMemo(
+    () =>
+      buildTimelineEntries(
+        auditQuery.data,
+        activitiesQuery.data,
+        (userId) => (userId === auth.userId ? auth.displayName : userLabel(userId ?? null)),
+        recordLifecycleInfo("Contact", selected),
+        notesQuery.data,
+      ),
+    [auditQuery.data, activitiesQuery.data, notesQuery.data, auth.displayName, auth.userId, userLabel, selected],
+  );
+  const activeFilterCount = countActiveFilters(
     search,
     statusFilter,
     accountFilter,
     ownerFilter,
     emailFilter,
     designationFilter,
-  ].filter(Boolean).length;
+  );
+  const relatedDeals = useMemo(
+    () => (dealsQuery.data ?? []).filter((deal) => deal.contactId === selected?.id),
+    [dealsQuery.data, selected?.id],
+  );
 
   const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting, isDirty },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      accountId: "",
-      firstName: "",
-      lastName: "",
-      email: "",
-      phone: "",
-      mobile: "",
-      designation: "",
-      department: "",
-      linkedinUrl: "",
-      status: "ACTIVE",
-      notes: "",
+    register: registerEdit,
+    handleSubmit: handleEditSubmit,
+    reset: resetEdit,
+    control: controlEdit,
+    formState: { errors: editErrors, isSubmitting: isEditSubmitting, isDirty: isEditDirty },
+  } = useForm<EditFormValues>({
+    resolver: zodResolver(editSchema),
+  });
+
+  useEffect(() => {
+    if (!selected) {
+      setShowEdit(false);
+      return;
+    }
+    resetEdit({
+      firstName: selected.firstName,
+      lastName: selected.lastName,
+      email: selected.email ?? "",
+      phone: selected.phone ?? "",
+      mobile: selected.mobile ?? "",
+      designation: selected.designation ?? "",
+      department: selected.department ?? "",
+      linkedinUrl: selected.linkedinUrl ?? "",
+      status: selected.status,
+      notes: selected.notes ?? "",
+      ownerId: selected.ownerId ?? "",
+    });
+    setEditError(null);
+  }, [selected, resetEdit]);
+
+  async function handleContactCreated(contact: Contact, mode: "save" | "saveAndNew") {
+    await queryClient.invalidateQueries({ queryKey: ["crm", "contacts"] });
+    if (mode === "save") {
+      setShowForm(false);
+      setSelected(contact);
+    }
+  }
+
+  function openCreate() {
+    setSelected(null);
+    setShowForm(true);
+  }
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ReturnType<typeof buildUpdateBody> }) =>
+      updateContact(id, body),
+    onSuccess: async (contact) => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "contacts"] });
+      setSelected(contact);
+      setShowEdit(false);
+      setEditError(null);
+    },
+    onError: () => setEditError("Could not update contact."),
+  });
+
+  const noteMutation = useMutation({
+    mutationFn: () => createNote("CONTACT", selected!.id, noteBody),
+    onSuccess: async () => {
+      setNoteBody("");
+      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "CONTACT", selected!.id] });
     },
   });
 
-  const createMutation = useMutation({
-    mutationFn: createContact,
+  const deleteNoteMutation = useMutation({
+    mutationFn: deleteNote,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["crm", "contacts"] });
-      setFormError(null);
-      if (saveAndNew) {
-        reset({
-          accountId: "",
-          firstName: "",
-          lastName: "",
-          email: "",
-          phone: "",
-          mobile: "",
-          designation: "",
-          department: "",
-          linkedinUrl: "",
-          status: "ACTIVE",
-          notes: "",
-        });
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        reset();
-        setShowForm(false);
-        setShowMore(false);
-      }
+      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "CONTACT", selected!.id] });
     },
-    onError: () => setFormError("Could not create contact."),
   });
+
+  const contactFieldConfig = {
+    accountId: {
+      options: (accountsQuery.data ?? []).map((account) => ({
+        value: account.id,
+        label: account.name,
+      })),
+      colClass: "col-md-4",
+    },
+    status: {
+      options: [
+        { value: "ACTIVE", label: "ACTIVE" },
+        { value: "INACTIVE", label: "INACTIVE" },
+      ],
+      colClass: "col-md-3",
+    },
+    email: { typeOverride: "email" as const, colClass: "col-md-4" },
+    firstName: { colClass: "col-md-4" },
+    lastName: { colClass: "col-md-4" },
+    ownerId: {
+      options: (usersQuery.data ?? []).map((user) => ({
+        value: user.id,
+        label: `${user.firstName} ${user.lastName}`.trim(),
+        subtitle: user.email,
+      })),
+      colClass: "col-md-4",
+      pickerMode: "user" as const,
+      searchPlaceholder: "Search Users",
+      lookupIcon: "users" as const,
+    },
+  };
+
+  const ownerOptions = useMemo(
+    () =>
+      buildOwnerOptions(usersQuery.data, {
+        userId: auth.userId,
+        displayName: auth.displayName,
+      }),
+    [usersQuery.data, auth.displayName, auth.userId],
+  );
+
+  const statusFilterOptions = enumPickerOptions(["ACTIVE", "INACTIVE"]);
+  const accountFilterOptions = useMemo(
+    () => optionsFromPairs((accountsQuery.data ?? []).map((account) => ({ value: account.id, label: account.name }))),
+    [accountsQuery.data],
+  );
+  const ownerFilterOptions = useMemo(
+    () => buildFilterOwnerOptions(usersQuery.data, auth.userId),
+    [usersQuery.data, auth.userId],
+  );
 
   return (
+    <>
+      {showForm && canCreate ? (
+        <ContactCreateView
+          accounts={(accountsQuery.data ?? []).map((account) => ({ id: account.id, name: account.name }))}
+          users={ownerOptions}
+          defaultOwnerId={auth.userId}
+          onCancel={() => setShowForm(false)}
+          onCreated={(contact, mode) => void handleContactCreated(contact, mode)}
+        />
+      ) : selected ? (
+        <RecordShell
+          layout="page"
+          title={contactName(selected)}
+          subtitle={accountName(selected.accountId)}
+          avatarLabel={contactName(selected)}
+          status={<StatusBadge status={selected.status} />}
+          recordKey={selected.id}
+          onBack={() => {
+            setSelected(null);
+            setShowEdit(false);
+          }}
+          onPrev={recordNav.goPrev}
+          onNext={recordNav.goNext}
+          hasPrev={recordNav.hasPrev}
+          hasNext={recordNav.hasNext}
+          relatedLinks={[...DEFAULT_RELATED_LINKS]}
+          primaryAction={
+            canUpdate ? (
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                onClick={() => setShowEdit((value) => !value)}
+              >
+                {showEdit ? "Cancel edit" : "Edit"}
+              </button>
+            ) : null
+          }
+          tabs={[
+            {
+              id: "overview",
+              label: "Overview",
+              content: (
+                <>
+                  {editError ? <div className="alert alert-danger py-2">{editError}</div> : null}
+                  {showEdit && canUpdate ? (
+                    <form
+                      className="mb-3"
+                      onSubmit={handleEditSubmit((values) =>
+                        updateMutation.mutate({ id: selected.id, body: buildUpdateBody(values) }),
+                      )}
+                    >
+                      <UnsavedGuard when={isEditDirty && showEdit} />
+                      {contactEditBundleQuery.isLoading ? (
+                        <LoadingState label="Loading form layout..." workspace />
+                      ) : null}
+                      {contactEditBundleQuery.error ? (
+                        <ErrorState
+                          title="Form layout unavailable"
+                          message="Published Contact layout is required."
+                          workspace
+                        />
+                      ) : null}
+                      {contactEditBundleQuery.data ? (
+                        <DynamicForm
+                          layout={contactEditBundleQuery.data.layout.layout}
+                          fields={contactEditBundleQuery.data.fields.filter((field) => field.code !== "accountId")}
+                          register={registerEdit}
+                          control={controlEdit}
+                          errors={editErrors}
+                          fieldConfig={{
+                            ...contactFieldConfig,
+                            ownerId: canViewUsers ? contactFieldConfig.ownerId : undefined,
+                          }}
+                        />
+                      ) : null}
+                      <FormActions
+                        submitLabel="Update"
+                        submitting={isEditSubmitting || updateMutation.isPending}
+                        onCancel={() => {
+                          if (isEditDirty && !window.confirm("Discard unsaved changes?")) return;
+                          setShowEdit(false);
+                          resetEdit({
+                            firstName: selected.firstName,
+                            lastName: selected.lastName,
+                            email: selected.email ?? "",
+                            phone: selected.phone ?? "",
+                            mobile: selected.mobile ?? "",
+                            designation: selected.designation ?? "",
+                            department: selected.department ?? "",
+                            linkedinUrl: selected.linkedinUrl ?? "",
+                            status: selected.status,
+                            notes: selected.notes ?? "",
+                            ownerId: selected.ownerId ?? "",
+                          });
+                        }}
+                      />
+                    </form>
+                  ) : (
+                    <>
+                      <p className="small mb-1">Email: {selected.email ?? "—"}</p>
+                      <p className="small mb-1">Phone: {selected.phone ?? selected.mobile ?? "—"}</p>
+                      <p className="small mb-1">Designation: {selected.designation ?? "—"}</p>
+                      <p className="small mb-1">Department: {selected.department ?? "—"}</p>
+                      <p className="small mb-3">Owner: {userLabel(selected.ownerId)}</p>
+                      {selected.notes ? <p className="small text-muted mb-0">{selected.notes}</p> : null}
+                    </>
+                  )}
+                </>
+              ),
+            },
+            {
+              id: "related",
+              label: "Related",
+              content: (
+                <>
+                  <div className="mb-3">
+                    <h2 className="h6">Account</h2>
+                    {accountQuery.isLoading ? <LoadingState label="Loading account…" workspace /> : null}
+                    {accountQuery.error ? (
+                      <p className="small text-muted mb-0">Unable to load account.</p>
+                    ) : accountQuery.data ? (
+                      <div className="small">
+                        <div className="fw-semibold">{accountQuery.data.name}</div>
+                        <div className="text-muted">
+                          {accountQuery.data.accountType} · {accountQuery.data.status}
+                        </div>
+                        <div>{accountQuery.data.email ?? "—"}</div>
+                        <Link className="small" to="/accounts">
+                          Open Accounts
+                        </Link>
+                      </div>
+                    ) : (
+                      <p className="small text-muted mb-0">No linked account.</p>
+                    )}
+                  </div>
+                  <div className="mb-3">
+                    <h2 className="h6">Deals</h2>
+                    <ul className="small mb-0">
+                      {relatedDeals.map((deal) => (
+                        <li key={deal.id}>
+                          {deal.name} — <StatusBadge status={deal.stage} />
+                        </li>
+                      ))}
+                      {!relatedDeals.length ? <li className="text-muted">No linked deals</li> : null}
+                    </ul>
+                  </div>
+                  {(relatedListsQuery.data ?? []).map((relatedList) => {
+                    if (relatedList.childTableCode === "activity" && canViewActivities) {
+                      return (
+                        <div key={relatedList.id} className="mb-3">
+                          <h2 className="h6">{relatedList.label}</h2>
+                          <ul className="small mb-0">
+                            {(activitiesQuery.data ?? []).map((activity) => (
+                              <li key={activity.id}>
+                                {activity.subject} — <StatusBadge status={activity.status} />
+                              </li>
+                            ))}
+                            {!activitiesQuery.data?.length ? (
+                              <li className="text-muted">No activities</li>
+                            ) : null}
+                          </ul>
+                        </div>
+                      );
+                    }
+                    if (relatedList.childTableCode === "deal") {
+                      return (
+                        <div key={relatedList.id} className="mb-3">
+                          <h2 className="h6">{relatedList.label}</h2>
+                          <ul className="small mb-0">
+                            {relatedDeals.map((deal) => (
+                              <li key={deal.id}>
+                                {deal.name} — <StatusBadge status={deal.stage} />
+                              </li>
+                            ))}
+                            {!relatedDeals.length ? <li className="text-muted">No linked deals</li> : null}
+                          </ul>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
+                  {!relatedListsQuery.data?.length && !accountQuery.data && !relatedDeals.length ? (
+                    <p className="text-muted small mb-0">No related records.</p>
+                  ) : null}
+                </>
+              ),
+            },
+            {
+              id: "timeline",
+              label: "Timeline",
+              visible: canViewActivities || canViewAudit,
+              content: <ZohoRecordTimeline entries={timelineEntries} />,
+            },
+            {
+              id: "notes",
+              label: "Notes",
+              visible: canViewNotes,
+              content: (
+                <>
+                  {canCreateNotes ? (
+                    <div className="mb-3">
+                      <textarea
+                        className="form-control form-control-sm mb-2"
+                        rows={2}
+                        value={noteBody}
+                        onChange={(e) => setNoteBody(e.target.value)}
+                        placeholder="Add a note…"
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-outline-primary btn-sm"
+                        disabled={!noteBody.trim() || noteMutation.isPending}
+                        onClick={() => noteMutation.mutate()}
+                      >
+                        Add note
+                      </button>
+                    </div>
+                  ) : null}
+                  <ul className="small mb-0">
+                    {(notesQuery.data ?? []).map((note) => (
+                      <li key={note.id} className="mb-2">
+                        <div>{note.body}</div>
+                        <div className="text-muted d-flex justify-content-between">
+                          <span>{new Date(note.createdAt).toLocaleString()}</span>
+                          {canDeleteNotes ? (
+                            <button
+                              type="button"
+                              className="btn btn-link btn-sm p-0"
+                              onClick={() => deleteNoteMutation.mutate(note.id)}
+                            >
+                              Delete
+                            </button>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                    {!notesQuery.data?.length ? <li className="text-muted">No notes</li> : null}
+                  </ul>
+                </>
+              ),
+            },
+            {
+              id: "documents",
+              label: "Documents",
+              visible: canViewDocs,
+              content: (
+                <>
+                  {canUploadDocs ? (
+                    <input
+                      className="form-control form-control-sm mb-2"
+                      type="file"
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        if (!file || !selected) return;
+                        try {
+                          await uploadDocument("CONTACT", selected.id, file);
+                          await queryClient.invalidateQueries({
+                            queryKey: ["crm", "documents", "CONTACT", selected.id],
+                          });
+                        } catch {
+                          /* ignore */
+                        }
+                        event.target.value = "";
+                      }}
+                    />
+                  ) : null}
+                  <ul className="small mb-0">
+                    {(docsQuery.data ?? []).map((doc) => (
+                      <li key={doc.id}>
+                        <button
+                          type="button"
+                          className="btn btn-link btn-sm px-0"
+                          onClick={async () => {
+                            const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+                            const response = await fetch(documentDownloadUrl(doc.id), {
+                              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+                            });
+                            if (!response.ok) return;
+                            const blob = await response.blob();
+                            const url = URL.createObjectURL(blob);
+                            const anchor = document.createElement("a");
+                            anchor.href = url;
+                            anchor.download = doc.fileName;
+                            anchor.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                        >
+                          {doc.fileName}
+                        </button>
+                      </li>
+                    ))}
+                    {!docsQuery.data?.length ? <li className="text-muted">No documents</li> : null}
+                  </ul>
+                </>
+              ),
+            },
+            {
+              id: "audit",
+              label: "Audit",
+              visible: canViewAudit,
+              content: (
+                <ul className="small mb-0">
+                  {(auditQuery.data ?? []).map((log) => (
+                    <li key={log.id}>
+                      {log.action} · {new Date(log.createdAt).toLocaleString()}
+                    </li>
+                  ))}
+                  {!auditQuery.data?.length ? <li className="text-muted">No audit events</li> : null}
+                </ul>
+              ),
+            },
+          ]}
+        />
+      ) : (
     <ModuleListShell
       title="Contacts"
       filterOpen={filterOpen}
+      activeFilterCount={activeFilterCount}
       viewMode={viewMode}
       onViewModeChange={setViewMode}
       viewSelector={<span className="module-view-select">All Contacts</span>}
-      toolbarActions={
-        <button
-          type="button"
-          className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-          onClick={() => setFilterOpen((o) => !o)}
-        >
-          Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-        </button>
-      }
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       primaryAction={
         canCreate ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Contact"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Create Contact
           </button>
         ) : null
       }
@@ -184,50 +674,28 @@ export function ContactsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Status</label>
-            <select
-              className="form-select form-select-sm mb-2"
+            <ZohoFilterSelect
+              label="Status"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="INACTIVE">INACTIVE</option>
-            </select>
-            <label className="form-label small mb-1">Account</label>
-            <select
-              className="form-select form-select-sm mb-2"
+              onChange={setStatusFilter}
+              options={statusFilterOptions}
+              searchPlaceholder="Search Status"
+            />
+            <ZohoFilterSelect
+              label="Account"
               value={accountFilter}
-              onChange={(e) => setAccountFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(accountsQuery.data ?? []).map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
+              onChange={setAccountFilter}
+              options={accountFilterOptions}
+              searchPlaceholder="Search Accounts"
+            />
             {canViewUsers ? (
-              <>
-                <label className="form-label small mb-1">Owner</label>
-                <select
-                  className="form-select form-select-sm mb-2"
-                  value={ownerFilter}
-                  onChange={(e) => setOwnerFilter(e.target.value)}
-                >
-                  <option value="">All</option>
-                  {auth.userId ? (
-                    <option value={auth.userId}>Current user</option>
-                  ) : null}
-                  {(usersQuery.data ?? [])
-                    .filter((u) => u.id !== auth.userId)
-                    .map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.firstName} {user.lastName}
-                      </option>
-                    ))}
-                </select>
-              </>
+              <ZohoFilterSelect
+                label="Owner"
+                value={ownerFilter}
+                onChange={setOwnerFilter}
+                options={ownerFilterOptions}
+                searchPlaceholder="Search Owners"
+              />
             ) : null}
             <label className="form-label small mb-1">Email contains</label>
             <input
@@ -246,147 +714,105 @@ export function ContactsPage() {
           </div>
         </>
       }
-      footerLeft={<span>Total Records: {rows.length}</span>}
+      recordCount={rows.length}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) =>
-            createMutation.mutate({
-              accountId: values.accountId,
-              firstName: values.firstName,
-              lastName: values.lastName,
-              email: values.email || undefined,
-              phone: values.phone || undefined,
-              mobile: values.mobile || undefined,
-              designation: values.designation || undefined,
-              department: values.department || undefined,
-              linkedinUrl: values.linkedinUrl || undefined,
-              status: values.status || "ACTIVE",
-              notes: values.notes || undefined,
-            }),
-          )}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          {contactFormBundleQuery.isLoading ? <LoadingState label="Loading form layout..." /> : null}
-          {contactFormBundleQuery.error ? (
-            <ErrorState title="Form layout unavailable" message="Published Contact CREATE layout is required." />
-          ) : null}
-          {contactFormBundleQuery.data ? (
-            <DynamicForm
-              layout={contactFormBundleQuery.data.layout.layout}
-              fields={contactFormBundleQuery.data.fields}
-              register={register}
-              errors={errors}
-              moreOpen={showMore}
-              onMoreToggle={() => setShowMore((v) => !v)}
-              fieldConfig={{
-                accountId: {
-                  options: (accountsQuery.data ?? []).map((account) => ({
-                    value: account.id,
-                    label: account.name,
-                  })),
-                  colClass: "col-md-4",
-                },
-                status: {
-                  options: [
-                    { value: "ACTIVE", label: "ACTIVE" },
-                    { value: "INACTIVE", label: "INACTIVE" },
-                  ],
-                  colClass: "col-md-3",
-                },
-                email: { typeOverride: "email", colClass: "col-md-4" },
-                firstName: { colClass: "col-md-4" },
-                lastName: { colClass: "col-md-4" },
-              }}
-            />
-          ) : null}
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={isSubmitting || createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) =>
-                createMutation.mutate({
-                  accountId: values.accountId,
-                  firstName: values.firstName,
-                  lastName: values.lastName,
-                  email: values.email || undefined,
-                  phone: values.phone || undefined,
-                  mobile: values.mobile || undefined,
-                  designation: values.designation || undefined,
-                  department: values.department || undefined,
-                  linkedinUrl: values.linkedinUrl || undefined,
-                  status: values.status || "ACTIVE",
-                  notes: values.notes || undefined,
-                }),
-              )();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              reset();
-            }}
-          />
-        </form>
+      {contactsQuery.isLoading ? <LoadingState label="Loading contacts..." workspace /> : null}
+      {contactsQuery.error ? (
+        <ErrorState
+          title="Unable to load contacts"
+          message="Try again."
+          workspace
+          onRetry={() => contactsQuery.refetch()}
+        />
       ) : null}
 
-      {contactsQuery.isLoading ? <LoadingState label="Loading contacts..." /> : null}
-      {contactsQuery.error ? <ErrorState title="Unable to load contacts" message="Try again." /> : null}
-
-      {!contactsQuery.isLoading && !contactsQuery.error && viewMode === "list" ? (
-        <div className="module-list-table-wrap">
-          <table className="table module-list-table align-middle">
-            <thead>
-              <tr>
-                <th>Contact Name</th>
-                <th>Account</th>
-                <th>Email</th>
-                <th>Phone</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
+      {!contactsQuery.isLoading && !contactsQuery.error ? (
+        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          {viewMode === "list" ? (
+            <div className="module-list-table-wrap">
+              <table className="table module-list-table align-middle">
+                <thead>
+                  <tr>
+                    <th>Contact Name</th>
+                    <th>Account</th>
+                    <th>Email</th>
+                    <th>Phone</th>
+                    <th>Designation</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((contact) => (
+                    <tr
+                      key={contact.id}
+                      className={selected?.id === contact.id ? "is-selected" : undefined}
+                      onClick={() => {
+                        setSelected(contact);
+                        setShowEdit(false);
+                      }}
+                    >
+                      <td className="record-name">{contactName(contact)}</td>
+                      <td>{accountName(contact.accountId)}</td>
+                      <td>{contact.email ?? "—"}</td>
+                      <td>{contact.phone ?? contact.mobile ?? "—"}</td>
+                      <td>{contact.designation ?? "—"}</td>
+                      <td>
+                        <StatusBadge status={contact.status} />
+                      </td>
+                    </tr>
+                  ))}
+                  {!rows.length ? (
+                    <tr>
+                      <td colSpan={6} className="p-0 border-0">
+                        <EmptyState
+                          workspace
+                          title="No contacts found"
+                          description="Adjust filters or create a contact to get started."
+                          action={
+                            canCreate ? (
+                              <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+                                Create Contact
+                              </button>
+                            ) : undefined
+                          }
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="module-tile-grid">
               {rows.map((contact) => (
-                <tr key={contact.id}>
-                  <td className="lead-name">
-                    {contact.firstName} {contact.lastName}
-                  </td>
-                  <td>{accountName(contact.accountId)}</td>
-                  <td>{contact.email ?? "—"}</td>
-                  <td>{contact.phone ?? contact.mobile ?? "—"}</td>
-                  <td>
-                    <StatusBadge status={contact.status} />
-                  </td>
-                </tr>
+                <button
+                  key={contact.id}
+                  type="button"
+                  className={`module-tile text-start${selected?.id === contact.id ? " is-selected" : ""}`}
+                  onClick={() => {
+                    setSelected(contact);
+                    setShowEdit(false);
+                  }}
+                >
+                  <div className="tile-title">{contactName(contact)}</div>
+                  <div className="small text-muted">
+                    {accountName(contact.accountId)} · {contact.status}
+                  </div>
+                </button>
               ))}
               {!rows.length ? (
-                <tr>
-                  <td colSpan={5} className="text-center text-muted py-5">
-                    No contacts match the current filters.
-                  </td>
-                </tr>
+                <EmptyState
+                  workspace
+                  title="No contacts found"
+                  description="Adjust filters or create a contact to get started."
+                />
               ) : null}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
-
-      {!contactsQuery.isLoading && !contactsQuery.error && viewMode === "tile" ? (
-        <div className="module-tile-grid">
-          {rows.map((contact) => (
-            <div key={contact.id} className="module-tile">
-              <div className="tile-title">
-                {contact.firstName} {contact.lastName}
-              </div>
-              <div className="small text-muted">{accountName(contact.accountId)}</div>
             </div>
-          ))}
+          )}
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

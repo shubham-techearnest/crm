@@ -1,24 +1,30 @@
 import { useMemo, useState } from "react";
-import type { FieldError, FieldErrors, FieldValues, Path, UseFormRegister } from "react-hook-form";
+import type { Control, FieldError, FieldErrors, FieldValues, Path, UseFormRegister } from "react-hook-form";
 import { FormField } from "@/components/FormField/FormField";
 import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import { ZohoFormSelect } from "@/components/ZohoCreate";
 import type { FormLayoutJson, SysField } from "@/features/admin/studio/metadataApi";
 
 export interface DynamicFormOption {
   value: string;
   label: string;
+  subtitle?: string;
 }
 
 export interface DynamicFormFieldConfig {
   options?: DynamicFormOption[];
   typeOverride?: string;
   colClass?: string;
+  pickerMode?: "standard" | "user";
+  searchPlaceholder?: string;
+  lookupIcon?: "users" | "building" | "apps";
 }
 
 interface DynamicFormProps<T extends FieldValues> {
   layout: FormLayoutJson;
   fields: SysField[];
   register: UseFormRegister<T>;
+  control: Control<T>;
   errors: FieldErrors<T>;
   fieldConfig?: Partial<Record<string, DynamicFormFieldConfig>>;
   moreOpen?: boolean;
@@ -38,6 +44,7 @@ export function DynamicForm<T extends FieldValues>({
   layout,
   fields,
   register,
+  control,
   errors,
   fieldConfig = {},
   moreOpen,
@@ -77,17 +84,26 @@ export function DynamicForm<T extends FieldValues>({
               : "text");
 
     if (options) {
+      const pickerOptions = options.map((opt) => ({
+        value: opt.value,
+        label: opt.label,
+        subtitle: opt.subtitle,
+      }));
+
       return (
         <div className={col} key={code}>
           <label className={`form-label${meta.mandatory ? " required" : ""}`}>{meta.label}</label>
-          <select className={`form-select${error ? " is-invalid" : ""}`} {...register(path)}>
-            <option value="">Select</option>
-            {options.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          <ZohoFormSelect
+            control={control}
+            name={path}
+            options={pickerOptions}
+            mode={cfg.pickerMode}
+            searchPlaceholder={cfg.searchPlaceholder ?? `Search ${meta.label}`}
+            lookupIcon={cfg.lookupIcon}
+            allowEmpty={!meta.mandatory}
+            placeholder="Select"
+            invalid={!!error}
+          />
           {meta.helpText && !error ? <div className="form-text">{meta.helpText}</div> : null}
           {error ? <div className="invalid-feedback d-block">{error.message}</div> : null}
         </div>

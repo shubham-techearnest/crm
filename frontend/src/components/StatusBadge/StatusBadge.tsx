@@ -3,36 +3,40 @@ interface StatusBadgeProps {
 }
 
 const TONE: Record<string, string> = {
-  PARTIALLY_ALLOCATED: "bg-warning text-dark",
-  FULLY_ALLOCATED: "bg-info text-dark",
-  AVAILABLE: "bg-success",
-  ON_LEAVE: "bg-secondary",
-  INACTIVE: "bg-secondary",
-  PLANNED: "bg-secondary",
-  ACTIVE: "bg-success",
-  APPROVED: "bg-success",
-  WON: "bg-success",
-  COMPLETED: "bg-success",
-  DRAFT: "bg-secondary",
-  NEW: "bg-primary",
-  SUBMITTED: "bg-info text-dark",
-  REJECTED: "bg-danger",
-  LOST: "bg-danger",
-  DELAYED: "bg-danger",
-  ON_TRACK: "bg-success",
-  BLOCKED: "bg-warning text-dark",
-  ON_HOLD: "bg-warning text-dark",
-  ISSUED: "bg-info text-dark",
-  PARTIALLY_PAID: "bg-warning text-dark",
-  PAID: "bg-success",
-  VOID: "bg-secondary",
-  OVERDUE: "bg-danger",
-  EXPIRED: "bg-danger",
-  TERMINATED: "bg-secondary",
-  RENEWED: "bg-info text-dark",
+  PARTIALLY_ALLOCATED: "status-badge--warning",
+  FULLY_ALLOCATED: "status-badge--info",
+  AVAILABLE: "status-badge--success",
+  ON_LEAVE: "status-badge--neutral",
+  INACTIVE: "status-badge--neutral",
+  PLANNED: "status-badge--neutral",
+  ACTIVE: "status-badge--success",
+  APPROVED: "status-badge--success",
+  WON: "status-badge--success",
+  COMPLETED: "status-badge--success",
+  DRAFT: "status-badge--neutral",
+  NEW: "status-badge--primary",
+  SUBMITTED: "status-badge--info",
+  REJECTED: "status-badge--danger",
+  LOST: "status-badge--danger",
+  DELAYED: "status-badge--danger",
+  ON_TRACK: "status-badge--success",
+  BLOCKED: "status-badge--warning",
+  ON_HOLD: "status-badge--warning",
+  ISSUED: "status-badge--info",
+  PARTIALLY_PAID: "status-badge--warning",
+  PAID: "status-badge--success",
+  VOID: "status-badge--neutral",
+  OVERDUE: "status-badge--danger",
+  EXPIRED: "status-badge--danger",
+  TERMINATED: "status-badge--neutral",
+  RENEWED: "status-badge--info",
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {
-  const tone = TONE[status] ?? "bg-secondary";
-  return <span className={`badge ${tone}`}>{status.replaceAll("_", " ")}</span>;
+  const tone = TONE[status] ?? "status-badge--neutral";
+  return (
+    <span className={`status-badge ${tone}`} title={status}>
+      {status.replaceAll("_", " ")}
+    </span>
+  );
 }

@@ -69,12 +69,7 @@ public class SavedViewService {
         UUID orgId = tenantAccess.resolveOrganizationId(null);
         String module = normalizeModule(request.module());
         String visibility = normalizeVisibility(request.visibility());
-        // v1: only PRIVATE unless org admin (ORGANIZATION/PLATFORM scope)
-        if (!"PRIVATE".equals(visibility)
-                && user.dataScope() != com.techearnest.crm.common.security.DataScope.ORGANIZATION
-                && user.dataScope() != com.techearnest.crm.common.security.DataScope.PLATFORM) {
-            throw new ForbiddenException("You do not have permission to perform this action");
-        }
+        assertCanPublishView(user, visibility);
         SavedView view = SavedView.create(
                 orgId,
                 user.userId(),
@@ -95,11 +90,7 @@ public class SavedViewService {
         CurrentUser user = tenantAccess.requirePermission("SAVED_VIEW_MANAGE");
         SavedView view = requireOwned(id, user);
         String visibility = request.visibility() == null ? view.getVisibility() : normalizeVisibility(request.visibility());
-        if (!"PRIVATE".equals(visibility)
-                && user.dataScope() != com.techearnest.crm.common.security.DataScope.ORGANIZATION
-                && user.dataScope() != com.techearnest.crm.common.security.DataScope.PLATFORM) {
-            throw new ForbiddenException("You do not have permission to perform this action");
-        }
+        assertCanPublishView(user, visibility);
         view.update(
                 request.name(),
                 visibility,
@@ -179,5 +170,14 @@ public class SavedViewService {
             throw new BusinessException("INVALID_VISIBILITY", "visibility must be PRIVATE, SHARED, or PUBLIC");
         }
         return vis;
+    }
+
+    private static void assertCanPublishView(CurrentUser user, String visibility) {
+        if ("PRIVATE".equals(visibility)) {
+            return;
+        }
+        if (!user.hasPermission("ORG_UPDATE")) {
+            throw new ForbiddenException("You do not have permission to perform this action");
+        }
     }
 }

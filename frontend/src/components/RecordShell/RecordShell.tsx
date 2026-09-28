@@ -1,8 +1,11 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ZohoRecordView, type ZohoRecordRelatedLink, type ZohoRecordTab } from "@/components/ZohoRecord";
+import { RecordHeader } from "./RecordHeader";
 
 export type RecordShellTabId =
   | "overview"
   | "related"
+  | "timeline"
   | "activities"
   | "notes"
   | "documents"
@@ -20,52 +23,132 @@ export interface RecordShellTab {
 export interface RecordShellProps {
   title: string;
   subtitle?: string;
+  meta?: ReactNode;
+  /** @deprecated Prefer `status` — kept for backward compatibility. */
   badges?: ReactNode;
+  status?: ReactNode;
+  /** Primary header action (e.g. Edit, Submit, Issue). */
+  primaryAction?: ReactNode;
+  /** Secondary header actions (e.g. Void, Reject, Close). */
+  secondaryActions?: ReactNode;
+  /** @deprecated Use `secondaryActions` — all actions render in the secondary group. */
   actions?: ReactNode;
   onClose?: () => void;
+  /** Alias for onClose — Zoho-style back navigation. */
+  onBack?: () => void;
   tabs: RecordShellTab[];
   defaultTab?: RecordShellTabId;
+  /** When the selected record changes, reset the active tab. */
+  recordKey?: string;
   className?: string;
+  /** `page` = full Zoho record view; `drawer` = legacy split-pane panel. */
+  layout?: "page" | "drawer";
+  avatarLabel?: string;
+  avatarUrl?: string | null;
+  avatarVariant?: "person" | "building";
+  relatedLinks?: ZohoRecordRelatedLink[];
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
 }
 
 /**
- * Reusable record detail shell: header + permission-aware tabs
- * (Overview / Related / Activities / Notes / Documents / Audit).
+ * Reusable record detail shell: Zoho full-page layout or legacy drawer.
  */
 export function RecordShell({
   title,
   subtitle,
+  meta,
   badges,
+  status,
+  primaryAction,
+  secondaryActions,
   actions,
   onClose,
+  onBack,
   tabs,
   defaultTab,
+  recordKey,
   className = "",
+  layout = "page",
+  avatarLabel,
+  avatarUrl,
+  avatarVariant,
+  relatedLinks,
+  onPrev,
+  onNext,
+  hasPrev,
+  hasNext,
 }: RecordShellProps) {
   const visibleTabs = tabs.filter((tab) => tab.visible !== false);
-  const initial =
-    (defaultTab && visibleTabs.some((t) => t.id === defaultTab) ? defaultTab : undefined) ??
-    visibleTabs[0]?.id ??
-    "overview";
-  const [activeTab, setActiveTab] = useState<RecordShellTabId>(initial);
-  const active = visibleTabs.find((t) => t.id === activeTab) ?? visibleTabs[0];
+  const resolvedStatus = status ?? badges;
+  const resolvedSecondary = secondaryActions ?? actions;
+  const resolvedBack = onBack ?? onClose;
+  const initialTab = useMemo(() => {
+    if (defaultTab && visibleTabs.some((tab) => tab.id === defaultTab)) {
+      return defaultTab;
+    }
+    return visibleTabs[0]?.id ?? "overview";
+  }, [defaultTab, visibleTabs]);
+  const [activeTab, setActiveTab] = useState<RecordShellTabId>(initialTab);
+  const active = visibleTabs.find((tab) => tab.id === activeTab) ?? visibleTabs[0];
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [recordKey, initialTab]);
+
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(visibleTabs[0]?.id ?? "overview");
+    }
+  }, [activeTab, visibleTabs]);
+
+  if (layout === "page") {
+    const zohoTabs: ZohoRecordTab[] = visibleTabs.map((tab) => ({
+      id: tab.id,
+      label: tab.label,
+      visible: tab.visible,
+      content: tab.content,
+    }));
+
+    return (
+      <ZohoRecordView
+        className={className}
+        title={title}
+        subtitle={subtitle}
+        meta={meta}
+        status={resolvedStatus}
+        primaryAction={primaryAction}
+        secondaryActions={resolvedSecondary}
+        onBack={resolvedBack}
+        onPrev={onPrev}
+        onNext={onNext}
+        hasPrev={hasPrev}
+        hasNext={hasNext}
+        relatedLinks={relatedLinks}
+        tabs={zohoTabs}
+        defaultTab={defaultTab}
+        recordKey={recordKey}
+        avatarLabel={avatarLabel ?? title}
+        avatarUrl={avatarUrl}
+        avatarVariant={avatarVariant}
+      />
+    );
+  }
 
   return (
     <aside className={`module-detail-drawer record-shell ${className}`.trim()}>
       <header className="record-shell-header">
-        <div className="d-flex justify-content-between align-items-start gap-2 mb-2">
-          <div className="min-w-0">
-            <div className="fw-semibold text-truncate">{title}</div>
-            {subtitle ? <div className="text-muted small text-truncate">{subtitle}</div> : null}
-            {badges ? <div className="mt-1 d-flex flex-wrap gap-1">{badges}</div> : null}
-          </div>
-          {onClose ? (
-            <button type="button" className="btn btn-outline-secondary btn-sm flex-shrink-0" onClick={onClose}>
-              Close
-            </button>
-          ) : null}
-        </div>
-        {actions ? <div className="record-shell-actions mb-2">{actions}</div> : null}
+        <RecordHeader
+          title={title}
+          subtitle={subtitle}
+          meta={meta}
+          status={resolvedStatus}
+          primaryAction={primaryAction}
+          secondaryActions={resolvedSecondary}
+          onClose={onClose}
+        />
         {visibleTabs.length > 1 ? (
           <nav className="record-shell-tabs" aria-label="Record sections">
             {visibleTabs.map((tab) => (
@@ -74,6 +157,7 @@ export function RecordShell({
                 type="button"
                 className={`record-shell-tab${active?.id === tab.id ? " is-active" : ""}`}
                 onClick={() => setActiveTab(tab.id)}
+                aria-current={active?.id === tab.id ? "page" : undefined}
               >
                 {tab.label}
               </button>

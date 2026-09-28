@@ -5,7 +5,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import axios from "axios";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  optionsFromPairs,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -32,6 +39,10 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+
+const ALLOCATION_STATUSES = ["ACTIVE", "PLANNED", "COMPLETED", "CANCELLED"] as const;
+
+const allocationStatusOptions = enumPickerOptions(ALLOCATION_STATUSES);
 
 const ALLOCATION_DEFAULTS: FormValues = {
   projectId: "",
@@ -71,7 +82,6 @@ export function AllocationsPage() {
   const [overlapOnly, setOverlapOnly] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
   const [pendingBody, setPendingBody] = useState<Parameters<typeof createAllocation>[0] | null>(null);
   const [overAllocWarn, setOverAllocWarn] = useState(false);
 
@@ -92,14 +102,54 @@ export function AllocationsPage() {
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const resourcesQuery = useQuery({ queryKey: ["resources"], queryFn: () => listResources() });
 
+  const projectOptions = useMemo(
+    () =>
+      optionsFromPairs(
+        (projectsQuery.data ?? []).map((project) => ({ value: project.id, label: project.name })),
+      ),
+    [projectsQuery.data],
+  );
+
+  const resourceOptions = useMemo(
+    () =>
+      optionsFromPairs(
+        (resourcesQuery.data ?? []).map((resource) => {
+          const label =
+            resource.employeeCode ?? resource.designation ?? resource.id.slice(0, 8);
+          const subtitle =
+            resource.designation && resource.employeeCode ? resource.designation : undefined;
+          return { value: resource.id, label, subtitle };
+        }),
+      ),
+    [resourcesQuery.data],
+  );
+
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: ALLOCATION_DEFAULTS,
+  });
+
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: ALLOCATION_DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+    onResetExtras: () => {
+      setShowMore(false);
+      setOverAllocWarn(false);
+      setPendingBody(null);
+    },
   });
 
   const buildAllocationBody = (values: FormValues) => ({
@@ -126,15 +176,7 @@ export function AllocationsPage() {
       if (allocation.warning === "OVER_ALLOCATED") {
         setFormError("Saved with over-allocation override.");
       }
-      if (saveAndNew) {
-        reset(ALLOCATION_DEFAULTS);
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        reset(ALLOCATION_DEFAULTS);
-        setShowForm(false);
-        setShowMore(false);
-      }
+      await afterCreateSuccess(allocation, "ALLOCATION");
     },
     onError: (err) =>
       setFormError(errorMessage(err, "Could not create allocation. Check capacity and dates.")),
@@ -192,7 +234,143 @@ export function AllocationsPage() {
     overlapOnly ? "1" : "",
   ].filter(Boolean).length;
 
+  const overAllocAlert = overAllocWarn ? (
+    <div className="alert alert-warning py-2 d-flex flex-wrap align-items-center gap-2">
+      <span className="me-auto">Over-allocation detected for this resource/period.</span>
+      {canOverride ? (
+        <button
+          type="button"
+          className="btn btn-sm btn-warning"
+          disabled={createMutation.isPending}
+          onClick={() => {
+            if (pendingBody) createMutation.mutate(pendingBody);
+            else void handleSubmit((values) => void submitAllocation(values, true))();
+          }}
+        >
+          Confirm override
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="btn btn-sm btn-outline-secondary"
+        onClick={() => {
+          setOverAllocWarn(false);
+          setPendingBody(null);
+          setFormError(null);
+        }}
+      >
+        Cancel
+      </button>
+    </div>
+  ) : null;
+
   return (
+    <>
+      {showForm && canAllocate ? (
+        <ZohoFormKitCreateView
+          title="Create Allocation"
+          tableCode="allocation"
+          entityLabel="Allocation"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          alert={overAllocAlert}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit((values) => void submitAllocation(values))()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit((values) => void submitAllocation(values))();
+          }}
+          onSubmit={() => void handleSubmit((values) => void submitAllocation(values))()}
+          photo={photo}
+        >
+          <FormSection title="Primary details" description="Who, which project, and when">
+            <div className="col-md-4">
+              <label className="form-label required">Project</label>
+              <ZohoFormSelect
+                control={control}
+                name="projectId"
+                options={projectOptions}
+                searchPlaceholder="Search Projects"
+                lookupIcon="apps"
+                allowEmpty={false}
+                placeholder="Select project"
+                invalid={!!errors.projectId}
+              />
+              {errors.projectId ? (
+                <div className="invalid-feedback d-block">{errors.projectId.message}</div>
+              ) : null}
+            </div>
+            <div className="col-md-4">
+              <label className="form-label required">Resource</label>
+              <ZohoFormSelect
+                control={control}
+                name="resourceId"
+                options={resourceOptions}
+                searchPlaceholder="Search Resources"
+                lookupIcon="users"
+                allowEmpty={false}
+                placeholder="Select resource"
+                invalid={!!errors.resourceId}
+              />
+              {errors.resourceId ? (
+                <div className="invalid-feedback d-block">{errors.resourceId.message}</div>
+              ) : null}
+            </div>
+            <div className="col-md-2">
+              <FormField
+                label="Start date"
+                type="date"
+                required
+                error={errors.startDate}
+                {...register("startDate")}
+              />
+            </div>
+            <div className="col-md-2">
+              <FormField
+                label="End date"
+                type="date"
+                required
+                error={errors.endDate}
+                {...register("endDate")}
+              />
+            </div>
+          </FormSection>
+          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
+            <FormSection title="Effort & role">
+              <div className="col-md-2">
+                <FormField
+                  label="Allocated hours"
+                  type="number"
+                  error={errors.allocatedHours}
+                  {...register("allocatedHours")}
+                />
+              </div>
+              <div className="col-md-2">
+                <FormField
+                  label="Percentage"
+                  type="number"
+                  error={errors.allocationPercentage}
+                  {...register("allocationPercentage")}
+                />
+              </div>
+              <div className="col-md-4">
+                <FormField label="Role" error={errors.role} {...register("role")} />
+              </div>
+              <div className="col-md-2">
+                <label className="form-label">Status</label>
+                <ZohoFormSelect
+                  control={control}
+                  name="status"
+                  options={allocationStatusOptions}
+                  searchPlaceholder="Search Statuses"
+                  allowEmpty={false}
+                />
+              </div>
+            </FormSection>
+          </FormMoreDetails>
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Allocations"
       filterOpen={filterOpen}
@@ -210,8 +388,8 @@ export function AllocationsPage() {
       }
       primaryAction={
         canAllocate ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Allocation"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm(true)}>
+            Create Allocation
           </button>
         ) : null
       }
@@ -284,146 +462,6 @@ export function AllocationsPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => void submitAllocation(values))}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          {overAllocWarn ? (
-            <div className="alert alert-warning py-2 d-flex flex-wrap align-items-center gap-2">
-              <span className="me-auto">Over-allocation detected for this resource/period.</span>
-              {canOverride ? (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-warning"
-                  disabled={createMutation.isPending}
-                  onClick={() => {
-                    if (pendingBody) createMutation.mutate(pendingBody);
-                    else void handleSubmit((values) => void submitAllocation(values, true))();
-                  }}
-                >
-                  Confirm override
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-secondary"
-                onClick={() => {
-                  setOverAllocWarn(false);
-                  setPendingBody(null);
-                  setFormError(null);
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          ) : null}
-          <FormSection title="Primary details" description="Who, which project, and when">
-            <div className="col-md-4">
-              <label className="form-label required">Project</label>
-              <select className="form-select" {...register("projectId")}>
-                <option value="">Select project</option>
-                {(projectsQuery.data ?? []).map((project) => (
-                  <option key={project.id} value={project.id}>
-                    {project.name}
-                  </option>
-                ))}
-              </select>
-              {errors.projectId ? (
-                <div className="invalid-feedback d-block">{errors.projectId.message}</div>
-              ) : null}
-            </div>
-            <div className="col-md-4">
-              <label className="form-label required">Resource</label>
-              <select className="form-select" {...register("resourceId")}>
-                <option value="">Select resource</option>
-                {(resourcesQuery.data ?? []).map((resource) => (
-                  <option key={resource.id} value={resource.id}>
-                    {resource.employeeCode ?? resource.designation ?? resource.id.slice(0, 8)}
-                    {resource.designation && resource.employeeCode
-                      ? ` — ${resource.designation}`
-                      : ""}
-                  </option>
-                ))}
-              </select>
-              {errors.resourceId ? (
-                <div className="invalid-feedback d-block">{errors.resourceId.message}</div>
-              ) : null}
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="Start date"
-                type="date"
-                required
-                error={errors.startDate}
-                {...register("startDate")}
-              />
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="End date"
-                type="date"
-                required
-                error={errors.endDate}
-                {...register("endDate")}
-              />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Effort & role">
-              <div className="col-md-2">
-                <FormField
-                  label="Allocated hours"
-                  type="number"
-                  error={errors.allocatedHours}
-                  {...register("allocatedHours")}
-                />
-              </div>
-              <div className="col-md-2">
-                <FormField
-                  label="Percentage"
-                  type="number"
-                  error={errors.allocationPercentage}
-                  {...register("allocationPercentage")}
-                />
-              </div>
-              <div className="col-md-4">
-                <FormField label="Role" error={errors.role} {...register("role")} />
-              </div>
-              <div className="col-md-2">
-                <label className="form-label">Status</label>
-                <select className="form-select" {...register("status")}>
-                  <option value="ACTIVE">ACTIVE</option>
-                  <option value="PLANNED">PLANNED</option>
-                  <option value="COMPLETED">COMPLETED</option>
-                  <option value="CANCELLED">CANCELLED</option>
-                </select>
-              </div>
-            </FormSection>
-          </FormMoreDetails>
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={isSubmitting || createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) => void submitAllocation(values))();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              setOverAllocWarn(false);
-              setPendingBody(null);
-              setFormError(null);
-              reset(ALLOCATION_DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {allocationsQuery.isLoading ? <LoadingState label="Loading allocations..." /> : null}
       {allocationsQuery.error ? (
         <ErrorState title="Unable to load allocations" message="Try again." />
@@ -498,5 +536,7 @@ export function AllocationsPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

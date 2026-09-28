@@ -1,19 +1,68 @@
-$te-navy: #1b2a4a;
-$te-navy-800: #243656;
-$te-navy-700: #2f4568;
-$te-accent: #2d6cdf;
-$te-accent-hover: #2459c0;
-$te-surface: #eef1f6;
-$te-border: #d5dce6;
-$te-text: #1a2332;
-$te-muted: #6b7a8d;
+// TechEarnest CRM — fixed design tokens (single theme)
+
+// Brand / primary
+$te-primary: #3f5ff5;
+$te-primary-dark: #2948d8;
+$te-primary-light: #eef1ff;
+
+// Sidebar shell
+$te-sidebar: #223458;
+$te-sidebar-hover: #304773;
+$te-sidebar-active: #334b7b;
+$te-sidebar-deep: #162445;
+
+// Legacy aliases (keep existing SCSS references working)
+$te-navy: $te-sidebar;
+$te-navy-800: $te-sidebar-hover;
+$te-navy-700: $te-sidebar-active;
+$te-accent: $te-primary;
+$te-accent-hover: $te-primary-dark;
+
+// Surfaces
+$te-page-bg: #eef1f9;
+$te-surface: #ffffff;
+$te-surface-muted: #fafbfc;
+$te-surface-subtle: #f5f7fa;
+
+// Text
+$te-text: #1f2937;
+$te-text-secondary: #64748b;
+$te-muted: #94a3b8;
+
+// Borders
+$te-border: #d9deea;
+$te-border-light: #e8ebf2;
+
+// Semantic status
+$te-success: #22c55e;
+$te-warning: #f59e0b;
+$te-danger: #ef4444;
+$te-info: #3b82f6;
+
+// Spacing scale (px)
+$te-space-1: 4px;
+$te-space-2: 8px;
+$te-space-3: 12px;
+$te-space-4: 16px;
+$te-space-5: 24px;
+$te-space-6: 32px;
+$te-space-7: 48px;
+
+// Layout
 $te-sidebar-width: 248px;
+$te-sidebar-collapsed-width: 64px;
 $te-topbar-height: 52px;
 
-$primary: $te-accent;
-$secondary: $te-navy;
-$body-bg: $te-surface;
+// Bootstrap theme bridge
+$primary: $te-primary;
+$secondary: $te-sidebar;
+$success: $te-success;
+$warning: $te-warning;
+$danger: $te-danger;
+$info: $te-info;
+$body-bg: $te-page-bg;
 $body-color: $te-text;
+$border-color: $te-border;
 $border-radius: 0.375rem;
 $font-family-sans-serif:
   "Segoe UI",

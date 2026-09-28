@@ -1,6 +1,7 @@
 package com.techearnest.crm.deal.api.dto;
 
 import com.techearnest.crm.deal.domain.Deal;
+import com.techearnest.crm.deal.domain.DealStageHistory;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -95,4 +96,21 @@ public final class DealDtos {
             LocalDate expectedCloseDate) {}
 
     public record PipelineColumn(String stage, List<DealResponse> deals, BigDecimal totalValue) {}
+
+    public record StageHistoryResponse(
+            UUID id,
+            String fromStage,
+            String toStage,
+            UUID changedBy,
+            Instant changedAt) {
+
+        public static StageHistoryResponse from(DealStageHistory history) {
+            return new StageHistoryResponse(
+                    history.getId(),
+                    history.getFromStage(),
+                    history.getToStage(),
+                    history.getChangedBy(),
+                    history.getChangedAt());
+        }
+    }
 }

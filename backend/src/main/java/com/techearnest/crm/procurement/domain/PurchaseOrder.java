@@ -16,6 +16,12 @@ import java.util.UUID;
 public class PurchaseOrder implements SecuredRecord {
 
     public static final String STATUS_DRAFT = "DRAFT";
+    public static final String STATUS_PENDING_APPROVAL = "PENDING_APPROVAL";
+    public static final String STATUS_APPROVED = "APPROVED";
+    public static final String STATUS_REJECTED = "REJECTED";
+    public static final String STATUS_SENT = "SENT";
+    public static final String STATUS_CLOSED = "CLOSED";
+    public static final String STATUS_CANCELLED = "CANCELLED";
 
     @Id
     private UUID id;
@@ -146,6 +152,49 @@ public class PurchaseOrder implements SecuredRecord {
 
     public boolean isDraft() {
         return STATUS_DRAFT.equals(status);
+    }
+
+    public boolean isEditable() {
+        return STATUS_DRAFT.equals(status) || STATUS_REJECTED.equals(status);
+    }
+
+    public void submit() {
+        this.status = STATUS_PENDING_APPROVAL;
+        this.updatedAt = Instant.now();
+    }
+
+    public void approve(UUID actorId) {
+        this.status = STATUS_APPROVED;
+        this.approvedAt = Instant.now();
+        this.approvedBy = actorId;
+        this.updatedBy = actorId;
+        this.updatedAt = Instant.now();
+    }
+
+    public void reject(UUID actorId) {
+        this.status = STATUS_REJECTED;
+        this.approvedAt = null;
+        this.approvedBy = null;
+        this.updatedBy = actorId;
+        this.updatedAt = Instant.now();
+    }
+
+    public void send(UUID actorId) {
+        this.status = STATUS_SENT;
+        this.updatedBy = actorId;
+        this.updatedAt = Instant.now();
+    }
+
+    public void close(UUID actorId) {
+        this.status = STATUS_CLOSED;
+        this.updatedBy = actorId;
+        this.updatedAt = Instant.now();
+    }
+
+    public void cancel(UUID actorId) {
+        this.status = STATUS_CANCELLED;
+        this.updatedBy = actorId;
+        this.updatedAt = Instant.now();
     }
 
     public void markDeleted() {

@@ -1,4 +1,7 @@
 import { useMemo, useState } from "react";
+import { countActiveFilters } from "@/components/ModuleListShell/moduleWorkspaceUi";
+
+export { countActiveFilters };
 
 export function useModuleWorkspace(defaultFilterOpen = true) {
   const [filterOpen, setFilterOpen] = useState(defaultFilterOpen);
@@ -6,7 +9,7 @@ export function useModuleWorkspace(defaultFilterOpen = true) {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
 
-  const filterCount = useMemo(() => (search.trim() ? 1 : 0), [search]);
+  const filterCount = useMemo(() => countActiveFilters(search), [search]);
 
   return {
     filterOpen,

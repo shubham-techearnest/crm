@@ -4,30 +4,40 @@ import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { DynamicForm, FormActions, UnsavedGuard } from "@/components/FormKit";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
-import { RecordShell } from "@/components/RecordShell";
+import type { ModuleMenuItem } from "@/components/ModuleListShell/ModuleListShell";
+import { buildOwnerOptions, buildFilterOwnerOptions, enumPickerOptions, optionsFromPairs, ZohoFilterSelect } from "@/components/ZohoCreate";
+import { LeadBulkImportDialog } from "./LeadBulkImportDialog";
+import { LeadCreateView } from "./LeadCreateView";
+import { LeadEditView } from "./LeadEditView";
+import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
+import {
+  buildTimelineEntries,
+  recordLifecycleInfo,
+  ZohoRecordInfoSection,
+  ZohoRecordRelatedCard,
+  ZohoRecordSummaryStrip,
+  ZohoRecordTimeline,
+  useRecordNavigation,
+} from "@/components/ZohoRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
-import { getPublishedFormBundle, getPublishedListLayout, getUserListPref, saveUserListPref, type ListLayoutColumn } from "@/features/admin/studio/metadataApi";
+import { getPublishedListLayout, getUserListPref, saveUserListPref, type ListLayoutColumn } from "@/features/admin/studio/metadataApi";
 import {
   assignLead,
   bulkAssignLeads,
   bulkStatusLeads,
-  checkLeadDuplicates,
   convertLead,
-  createLead,
   exportLeads,
   listAccounts,
   listActivities,
   listLeads,
   queryLeads,
   updateLead,
-  type DuplicateCheckResult,
   type Lead,
 } from "./crmApi";
 import {
@@ -44,26 +54,6 @@ import {
 } from "./foundationApi";
 import { buildLeadFilterConditions, needsLeadQuery } from "./leadFilterCatalog";
 
-const leadSchema = z.object({
-  regionId: z.string().min(1, "Region is required"),
-  firstName: z.string().min(1, "Required"),
-  lastName: z.string().min(1, "Required"),
-  companyName: z.string().min(1, "Required"),
-  email: z.string().email("Enter a valid email").or(z.literal("")).optional(),
-  status: z.string().min(1),
-  phone: z.string().optional(),
-  source: z.string().optional(),
-  priority: z.string().optional(),
-  estimatedValue: z.string().optional(),
-  website: z.string().optional(),
-  industry: z.string().optional(),
-  designation: z.string().optional(),
-  expectedCloseDate: z.string().optional(),
-  description: z.string().optional(),
-});
-
-type LeadFormValues = z.infer<typeof leadSchema>;
-
 const convertSchema = z.object({
   createAccount: z.boolean(),
   createContact: z.boolean(),
@@ -77,6 +67,8 @@ const convertSchema = z.object({
 type ConvertFormValues = z.infer<typeof convertSchema>;
 
 const LEAD_STATUSES = ["NEW", "CONTACTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION"] as const;
+const LEAD_STATUS_FILTER_OPTIONS = enumPickerOptions([...LEAD_STATUSES, "CONVERTED"]);
+const PRIORITY_FILTER_OPTIONS = enumPickerOptions(["LOW", "MEDIUM", "HIGH"]);
 
 export function LeadsPage() {
   const queryClient = useQueryClient();
@@ -86,6 +78,7 @@ export function LeadsPage() {
   const canAssign = useHasPermission("LEAD_ASSIGN");
   const canUpdate = useHasPermission("LEAD_UPDATE");
   const canExport = useHasPermission("LEAD_EXPORT");
+  const canImport = useHasPermission("LEAD_IMPORT");
   const canViewUsers = useHasPermission("USER_VIEW");
   const canViewDocs = useHasPermission("DOCUMENT_VIEW");
   const canUploadDocs = useHasPermission("DOCUMENT_UPLOAD");
@@ -94,16 +87,16 @@ export function LeadsPage() {
   const canCreateNotes = useHasPermission("NOTE_CREATE");
   const canDeleteNotes = useHasPermission("NOTE_DELETE");
   const canManageViews = useHasPermission("SAVED_VIEW_MANAGE");
+  const canPublishViews = useHasPermission("ORG_UPDATE");
   const canViewAudit = useHasPermission("AUDIT_VIEW");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
   const [showForm, setShowForm] = useState(false);
-  const [showMoreLeadFields, setShowMoreLeadFields] = useState(false);
+  const [showEdit, setShowEdit] = useState(false);
   const [selected, setSelected] = useState<Lead | null>(null);
   const [showConvert, setShowConvert] = useState(false);
   const [assignOwnerId, setAssignOwnerId] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [convertError, setConvertError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [convertError, setConvertError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -119,6 +112,7 @@ export function LeadsPage() {
   const [sortDir, setSortDir] = useState("DESC");
   const [noteBody, setNoteBody] = useState("");
   const [viewName, setViewName] = useState("");
+  const [viewVisibility, setViewVisibility] = useState<"PRIVATE" | "SHARED" | "PUBLIC">("PRIVATE");
   const [activeViewId, setActiveViewId] = useState("");
   const [filterOpen, setFilterOpen] = useState(true);
   const [viewMode, setViewMode] = useState<"list" | "tile">("list");
@@ -127,8 +121,9 @@ export function LeadsPage() {
   const [bulkOwnerId, setBulkOwnerId] = useState("");
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
-  const [dupWarning, setDupWarning] = useState<DuplicateCheckResult | null>(null);
-  const [pendingCreate, setPendingCreate] = useState<Parameters<typeof createLead>[0] | null>(null);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
+  const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
 
   const useAdvancedQuery = needsLeadQuery({
     ownerId: ownerFilter,
@@ -189,12 +184,6 @@ export function LeadsPage() {
     queryFn: () => (useAdvancedQuery ? queryLeads(queryBody) : listLeads(listParams)),
   });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
-  const leadFormBundleQuery = useQuery({
-    queryKey: ["metadata", "runtime", "lead", "form-bundle", "CREATE"],
-    queryFn: () => getPublishedFormBundle("lead", "CREATE"),
-    enabled: showForm,
-    staleTime: 60_000,
-  });
   const listLayoutQuery = useQuery({
     queryKey: ["metadata", "runtime", "lead", "list-layout"],
     queryFn: () => getPublishedListLayout("lead"),
@@ -208,7 +197,7 @@ export function LeadsPage() {
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => listUsers(),
-    enabled: canAssign || canViewUsers,
+    enabled: canCreate || canAssign || canViewUsers,
   });
   const accountsQuery = useQuery({
     queryKey: ["crm", "accounts"],
@@ -241,32 +230,6 @@ export function LeadsPage() {
     enabled: !!selected && canViewAudit,
   });
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting, isDirty },
-  } = useForm<LeadFormValues>({
-    resolver: zodResolver(leadSchema),
-    defaultValues: {
-      regionId: "",
-      firstName: "",
-      lastName: "",
-      companyName: "",
-      email: "",
-      phone: "",
-      source: "",
-      status: "NEW",
-      priority: "MEDIUM",
-      estimatedValue: "",
-      website: "",
-      industry: "",
-      designation: "",
-      expectedCloseDate: "",
-      description: "",
-    },
-  });
-
   const convertForm = useForm<ConvertFormValues>({
     resolver: zodResolver(convertSchema),
     defaultValues: {
@@ -290,25 +253,14 @@ export function LeadsPage() {
     ]);
   };
 
-  const createMutation = useMutation({
-    mutationFn: createLead,
-    onSuccess: async () => {
-      await refresh();
-      reset();
-      setShowForm(false);
-      setFormError(null);
-      setDupWarning(null);
-      setPendingCreate(null);
-    },
-    onError: () => setFormError("Could not create lead. Check required fields and region."),
-  });
-
   const bulkAssignMutation = useMutation({
     mutationFn: () => bulkAssignLeads(checkedIds, bulkOwnerId),
     onSuccess: async (result) => {
       await refresh();
       setBulkMessage(`Assigned ${result.succeeded}; failed ${result.failed}.`);
       setCheckedIds([]);
+      setShowBulkAssignDialog(false);
+      setBulkOwnerId("");
     },
     onError: () => setBulkMessage("Bulk assign failed."),
   });
@@ -319,44 +271,18 @@ export function LeadsPage() {
       await refresh();
       setBulkMessage(`Updated status for ${result.succeeded}; failed ${result.failed}.`);
       setCheckedIds([]);
+      setShowBulkStatusDialog(false);
+      setBulkStatus("");
     },
     onError: () => setBulkMessage("Bulk status update failed."),
   });
 
-  async function submitLeadCreate(values: z.infer<typeof leadSchema>, force = false) {
-    const body = {
-      regionId: values.regionId,
-      firstName: values.firstName,
-      lastName: values.lastName,
-      companyName: values.companyName,
-      email: values.email || undefined,
-      phone: values.phone || undefined,
-      source: values.source || undefined,
-      status: values.status || "NEW",
-      priority: values.priority || undefined,
-      estimatedValue: values.estimatedValue ? Number(values.estimatedValue) : undefined,
-      website: values.website || undefined,
-      industry: values.industry || undefined,
-      designation: values.designation || undefined,
-      expectedCloseDate: values.expectedCloseDate || undefined,
-      description: values.description || undefined,
-    };
-    if (!force) {
-      try {
-        const dup = await checkLeadDuplicates({
-          email: body.email,
-          companyName: body.companyName,
-        });
-        if (dup.hasDuplicates) {
-          setDupWarning(dup);
-          setPendingCreate(body);
-          return;
-        }
-      } catch {
-        // soft warn path — allow create if check fails
-      }
+  async function handleLeadCreated(lead: Lead, mode: "save" | "saveAndNew") {
+    await refresh();
+    if (mode === "save") {
+      setShowForm(false);
+      setSelected(lead);
     }
-    createMutation.mutate(body);
   }
 
   const convertMutation = useMutation({
@@ -473,7 +399,7 @@ export function LeadsPage() {
       createSavedView({
         module: "LEAD",
         name: viewName.trim(),
-        visibility: "PRIVATE",
+        visibility: viewVisibility,
         filter: {
           op: "AND",
           conditions: buildLeadFilterConditions({
@@ -582,6 +508,25 @@ export function LeadsPage() {
   };
 
   const leads = leadsQuery.data ?? [];
+  const recordNav = useRecordNavigation(leads, selected, setSelected);
+
+  const ownerName = useMemo(() => {
+    const map = new Map(
+      (usersQuery.data ?? []).map((user) => [user.id, `${user.firstName} ${user.lastName}`.trim()]),
+    );
+    return (id: string | null | undefined) => (id ? (map.get(id) ?? id.slice(0, 8)) : "—");
+  }, [usersQuery.data]);
+
+  const leadDisplayName = (lead: Lead) => {
+    const sal = lead.salutation ? `${lead.salutation} ` : "";
+    return `${sal}${lead.firstName ?? ""} ${lead.lastName ?? ""}`.trim() || "Lead";
+  };
+
+  const formatLeadMoney = (value: number | null | undefined) =>
+    value != null
+      ? value.toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 })
+      : "—";
+
   const activeViewName =
     activeViewId === ""
       ? "All Leads"
@@ -599,10 +544,467 @@ export function LeadsPage() {
     search,
   ].filter(Boolean).length;
 
+  const selectionHint =
+    checkedIds.length > 0 ? `${checkedIds.length} selected` : "Select rows in the list first";
+
+  const ownerOptions = useMemo(
+    () =>
+      buildOwnerOptions(usersQuery.data, {
+        userId: auth.userId,
+        displayName: auth.displayName,
+      }),
+    [usersQuery.data, auth.displayName, auth.userId],
+  );
+
+  const regionFilterOptions = useMemo(
+    () => optionsFromPairs((regionsQuery.data ?? []).map((region) => ({ value: region.id, label: region.name }))),
+    [regionsQuery.data],
+  );
+  const ownerFilterOptions = useMemo(
+    () => buildFilterOwnerOptions(usersQuery.data, auth.userId),
+    [usersQuery.data, auth.userId],
+  );
+
+  const timelineEntries = useMemo(
+    () =>
+      buildTimelineEntries(
+        auditQuery.data,
+        activitiesQuery.data,
+        (userId) => (userId === auth.userId ? auth.displayName : ownerName(userId)),
+        recordLifecycleInfo("Lead", selected),
+        notesQuery.data,
+      ),
+    [auditQuery.data, activitiesQuery.data, notesQuery.data, auth.displayName, auth.userId, ownerName, selected],
+  );
+
+  const createMenuItems: ModuleMenuItem[] = [
+    {
+      id: "import-csv",
+      label: "Import from CSV / Excel",
+      icon: "upload",
+      visible: canImport,
+      onClick: () => setShowImportDialog(true),
+    },
+  ];
+
+  const moreMenuItems: ModuleMenuItem[] = [
+    {
+      id: "import-csv-more",
+      label: "Import from CSV / Excel",
+      icon: "upload",
+      visible: canImport && !canCreate,
+      onClick: () => setShowImportDialog(true),
+    },
+    {
+      id: "export",
+      label: "Export leads",
+      icon: "export",
+      visible: canExport,
+      onClick: () => exportMutation.mutate(visibleColumns.map((column) => column.field)),
+      disabled: exportMutation.isPending,
+    },
+    {
+      id: "columns",
+      label: "Choose columns",
+      icon: "columns",
+      onClick: () => setColumnChooserOpen((value) => !value),
+    },
+    { id: "sep-bulk", label: "", separator: true, visible: canAssign || canUpdate },
+    {
+      id: "bulk-assign",
+      label: "Bulk assign owner…",
+      icon: "users",
+      visible: canAssign,
+      disabled: checkedIds.length === 0,
+      onClick: () => setShowBulkAssignDialog(true),
+    },
+    {
+      id: "bulk-status",
+      label: "Bulk update status…",
+      icon: "sort",
+      visible: canUpdate,
+      disabled: checkedIds.length === 0,
+      onClick: () => setShowBulkStatusDialog(true),
+    },
+  ];
+
   return (
     <>
       {exportError ? <div className="alert alert-danger py-2">{exportError}</div> : null}
 
+      {showForm && canCreate ? (
+        <LeadCreateView
+          regions={(regionsQuery.data ?? []).map((region) => ({ id: region.id, name: region.name }))}
+          users={ownerOptions}
+          defaultOwnerId={auth.userId}
+          defaultRegionId={auth.regionIds[0]}
+          onCancel={() => setShowForm(false)}
+          onCreated={(lead, mode) => void handleLeadCreated(lead, mode)}
+        />
+      ) : showEdit && selected && canUpdate ? (
+        <LeadEditView
+          lead={selected}
+          users={ownerOptions}
+          onCancel={() => setShowEdit(false)}
+          onUpdated={(lead) => {
+            setSelected(lead);
+            setShowEdit(false);
+            void refresh();
+          }}
+        />
+      ) : selected ? (
+        <RecordShell
+          layout="page"
+          title={leadDisplayName(selected)}
+          subtitle={selected.companyName ?? undefined}
+          avatarLabel={leadDisplayName(selected)}
+          status={<StatusBadge status={selected.status} />}
+          recordKey={selected.id}
+          onBack={() => {
+            setShowEdit(false);
+            setShowConvert(false);
+            recordNav.goBack();
+          }}
+          onPrev={recordNav.goPrev}
+          onNext={recordNav.goNext}
+          hasPrev={recordNav.hasPrev}
+          hasNext={recordNav.hasNext}
+          relatedLinks={[...DEFAULT_RELATED_LINKS]}
+          primaryAction={
+            selected.email ? (
+              <a className="btn btn-primary btn-sm" href={`mailto:${selected.email}`}>
+                Send Email
+              </a>
+            ) : (
+              <button type="button" className="btn btn-primary btn-sm" disabled>
+                Send Email
+              </button>
+            )
+          }
+          secondaryActions={
+            <>
+              {canConvert && selected.status !== "CONVERTED" ? (
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm"
+                  onClick={() => {
+                    setShowConvert((v) => !v);
+                    convertForm.reset({
+                      createAccount: true,
+                      createContact: true,
+                      createDeal: true,
+                      accountId: "",
+                      dealName: selected.companyName ? `${selected.companyName} deal` : "",
+                      dealValue: selected.estimatedValue != null ? String(selected.estimatedValue) : "",
+                      dealStage: "NEW",
+                    });
+                  }}
+                >
+                  {showConvert ? "Cancel convert" : "Convert"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="btn btn-outline-secondary btn-sm"
+                disabled={!canUpdate || selected.status === "CONVERTED"}
+                title={selected.status === "CONVERTED" ? "Converted leads cannot be edited" : undefined}
+                onClick={() => setShowEdit(true)}
+              >
+                Edit
+              </button>
+            </>
+          }
+          tabs={[
+            {
+              id: "overview",
+              label: "Overview",
+              content: (
+                <>
+                  <ZohoRecordSummaryStrip
+                    fields={[
+                      { label: "Lead Owner", value: ownerName(selected.ownerId) },
+                      { label: "Email", value: selected.email ?? "—" },
+                      { label: "Phone", value: selected.phone ?? "—" },
+                      { label: "Mobile", value: selected.mobile ?? "—" },
+                      { label: "Lead Status", value: <StatusBadge status={selected.status} /> },
+                    ]}
+                  />
+
+                  <ZohoRecordInfoSection
+                    title="Lead Information"
+                    fields={[
+                      { label: "Lead Owner", value: ownerName(selected.ownerId) },
+                      { label: "Company", value: selected.companyName ?? "—" },
+                      { label: "Title", value: selected.designation ?? "—" },
+                      {
+                        label: "Lead Name",
+                        value: `${selected.firstName ?? ""} ${selected.lastName ?? ""}`.trim() || "—",
+                      },
+                      { label: "Phone", value: selected.phone ?? "—" },
+                      { label: "Email", value: selected.email ?? "—" },
+                      { label: "Mobile", value: selected.mobile ?? "—" },
+                      { label: "Fax", value: selected.fax ?? "—" },
+                      { label: "Lead Source", value: selected.source ?? "—" },
+                      { label: "Website", value: selected.website ?? "—" },
+                      { label: "Industry", value: selected.industry ?? "—" },
+                      { label: "Lead Status", value: selected.status },
+                      { label: "Annual Revenue", value: formatLeadMoney(selected.estimatedValue) },
+                      { label: "No. of Employees", value: selected.noOfEmployees ?? "—" },
+                    ]}
+                  />
+
+                  {(selected.addressStreet ||
+                    selected.addressCity ||
+                    selected.addressState ||
+                    selected.addressCountry) ? (
+                    <ZohoRecordInfoSection
+                      title="Address Information"
+                      collapsible={false}
+                      fields={[
+                        {
+                          label: "Address",
+                          value: [
+                            selected.addressFlat,
+                            selected.addressStreet,
+                            selected.addressCity,
+                            selected.addressState,
+                            selected.addressCountry,
+                          ]
+                            .filter(Boolean)
+                            .join(", ") || "—",
+                        },
+                        { label: "Zip Code", value: selected.addressZip ?? "—" },
+                      ]}
+                    />
+                  ) : null}
+
+                  {selected.description ? (
+                    <ZohoRecordInfoSection
+                      title="Description Information"
+                      collapsible={false}
+                      fields={[{ label: "Description", value: selected.description }]}
+                    />
+                  ) : null}
+
+                  {actionError ? <div className="alert alert-danger py-2">{actionError}</div> : null}
+
+                  {canUpdate && selected.status !== "CONVERTED" ? (
+                    <div className="mb-3">
+                      <label className="form-label small mb-1">Update status</label>
+                      <select
+                        className="form-select form-select-sm"
+                        value={selected.status}
+                        onChange={(e) => statusMutation.mutate({ id: selected.id, status: e.target.value })}
+                        disabled={statusMutation.isPending}
+                      >
+                        {LEAD_STATUSES.map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+
+                  {canAssign && selected.status !== "CONVERTED" ? (
+                    <div className="mb-3">
+                      <label className="form-label small mb-1">Assign owner</label>
+                      <div className="d-flex gap-2">
+                        <select
+                          className="form-select form-select-sm"
+                          value={assignOwnerId}
+                          onChange={(e) => setAssignOwnerId(e.target.value)}
+                        >
+                          <option value="">Select owner</option>
+                          {(usersQuery.data ?? []).map((user) => (
+                            <option key={user.id} value={user.id}>
+                              {user.firstName} {user.lastName}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="btn btn-outline-primary btn-sm text-nowrap"
+                          disabled={!assignOwnerId || assignMutation.isPending}
+                          onClick={() => assignMutation.mutate({ id: selected.id, ownerId: assignOwnerId })}
+                        >
+                          Assign
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {showConvert && canConvert && selected.status !== "CONVERTED" ? (
+                    <form
+                      className="border rounded p-3 mb-3 bg-light"
+                      onSubmit={convertForm.handleSubmit((values) => {
+                        if (!values.createAccount && !values.accountId) {
+                          setConvertError("Select an existing account or enable Create account.");
+                          return;
+                        }
+                        convertMutation.mutate({
+                          id: selected.id,
+                          body: {
+                            createAccount: values.createAccount,
+                            createContact: values.createContact,
+                            createDeal: values.createDeal,
+                            accountId: values.createAccount ? undefined : values.accountId || undefined,
+                            dealName: values.dealName || undefined,
+                            dealValue: values.dealValue ? Number(values.dealValue) : undefined,
+                            dealStage: values.dealStage || undefined,
+                          },
+                        });
+                      })}
+                    >
+                      {convertError ? <div className="alert alert-danger py-2">{convertError}</div> : null}
+                      <div className="form-check mb-2">
+                        <input className="form-check-input" type="checkbox" id="createAccount" {...convertForm.register("createAccount")} />
+                        <label className="form-check-label" htmlFor="createAccount">Create account</label>
+                      </div>
+                      {!createAccountChecked ? (
+                        <div className="mb-2">
+                          <label className="form-label small">Existing account</label>
+                          <select className="form-select form-select-sm" {...convertForm.register("accountId")}>
+                            <option value="">Select account</option>
+                            {(accountsQuery.data ?? []).map((account) => (
+                              <option key={account.id} value={account.id}>{account.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : null}
+                      <div className="form-check mb-2">
+                        <input className="form-check-input" type="checkbox" id="createContact" {...convertForm.register("createContact")} />
+                        <label className="form-check-label" htmlFor="createContact">Create contact</label>
+                      </div>
+                      <div className="form-check mb-3">
+                        <input className="form-check-input" type="checkbox" id="createDeal" {...convertForm.register("createDeal")} />
+                        <label className="form-check-label" htmlFor="createDeal">Create deal</label>
+                      </div>
+                      <FormField label="Deal name" {...convertForm.register("dealName")} />
+                      <FormField label="Deal value" type="number" {...convertForm.register("dealValue")} />
+                      <label className="form-label">Deal stage</label>
+                      <select className="form-select mb-3" {...convertForm.register("dealStage")}>
+                        <option value="NEW">NEW</option>
+                        <option value="QUALIFICATION">QUALIFICATION</option>
+                        <option value="PROPOSAL">PROPOSAL</option>
+                      </select>
+                      <button type="submit" className="btn btn-success btn-sm" disabled={convertMutation.isPending}>
+                        Confirm convert
+                      </button>
+                    </form>
+                  ) : null}
+
+                  {selected.status === "CONVERTED" ? (
+                    <p className="small text-muted mb-3">
+                      Converted — account {selected.convertedAccountId?.slice(0, 8) ?? "—"}, deal{" "}
+                      {selected.convertedDealId?.slice(0, 8) ?? "—"}
+                    </p>
+                  ) : null}
+
+                  <ZohoRecordRelatedCard
+                    id="zoho-record-section-notes"
+                    title="Notes"
+                    isEmpty={!(notesQuery.data ?? []).length && !canCreateNotes}
+                    emptyLabel="No notes yet"
+                    actions={
+                      canCreateNotes ? (
+                        <button type="button" className="btn btn-outline-secondary btn-sm" disabled={!noteBody.trim() || noteMutation.isPending} onClick={() => noteMutation.mutate()}>
+                          Save
+                        </button>
+                      ) : null
+                    }
+                  >
+                    {canCreateNotes ? (
+                      <textarea
+                        className="form-control form-control-sm mb-2"
+                        rows={2}
+                        value={noteBody}
+                        onChange={(e) => setNoteBody(e.target.value)}
+                        placeholder="Add a note"
+                      />
+                    ) : null}
+                    <ul className="list-unstyled small mb-0">
+                      {(notesQuery.data ?? []).map((note) => (
+                        <li key={note.id} className="mb-2 border-bottom pb-2">
+                          <div>{note.body}</div>
+                          <div className="text-muted d-flex justify-content-between">
+                            <span>{new Date(note.createdAt).toLocaleString()}</span>
+                            {canDeleteNotes ? (
+                              <button type="button" className="btn btn-link btn-sm p-0" onClick={() => deleteNoteMutation.mutate(note.id)}>
+                                Delete
+                              </button>
+                            ) : null}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </ZohoRecordRelatedCard>
+
+                  {canViewDocs ? (
+                    <ZohoRecordRelatedCard
+                      id="zoho-record-section-attachments"
+                      title="Attachments"
+                      isEmpty={!(docsQuery.data ?? []).length}
+                      emptyLabel="No Attachment"
+                      actions={
+                        canUploadDocs ? (
+                          <label className="btn btn-outline-secondary btn-sm mb-0">
+                            Attach
+                            <input
+                              type="file"
+                              className="d-none"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  uploadMutation.mutate(file);
+                                  e.target.value = "";
+                                }
+                              }}
+                            />
+                          </label>
+                        ) : null
+                      }
+                    >
+                      <ul className="list-unstyled small mb-0">
+                        {(docsQuery.data ?? []).map((doc) => (
+                          <li key={doc.id} className="mb-2 d-flex justify-content-between gap-2">
+                            <button type="button" className="btn btn-link btn-sm p-0 text-start" onClick={() => openDownload(doc.id)}>
+                              {doc.fileName}
+                            </button>
+                            {canDeleteDocs ? (
+                              <button type="button" className="btn btn-link btn-sm p-0 text-danger" onClick={() => deleteDocMutation.mutate(doc.id)}>
+                                Delete
+                              </button>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </ZohoRecordRelatedCard>
+                  ) : null}
+
+                  <ZohoRecordRelatedCard id="zoho-record-section-emails" title="Emails" isEmpty emptyLabel="No records found" />
+                  <ZohoRecordRelatedCard id="zoho-record-section-open-activities" title="Open Activities" isEmpty emptyLabel="No records found" />
+                  <ZohoRecordRelatedCard id="zoho-record-section-closed-activities" title="Closed Activities" isEmpty emptyLabel="No records found" />
+                  <ZohoRecordRelatedCard id="zoho-record-section-meetings" title="Invited Meetings" isEmpty emptyLabel="No records found" />
+                  <ZohoRecordRelatedCard id="zoho-record-section-campaigns" title="Campaigns" isEmpty emptyLabel="No records found" />
+                  <ZohoRecordRelatedCard id="zoho-record-section-social" title="Social" isEmpty emptyLabel="No records found" />
+                </>
+              ),
+            },
+            {
+              id: "timeline",
+              label: "Timeline",
+              visible: true,
+              content: (
+                <ZohoRecordTimeline
+                  entries={timelineEntries}
+                  loading={auditQuery.isLoading || activitiesQuery.isLoading}
+                />
+              ),
+            },
+          ]}
+        />
+      ) : (
       <ModuleListShell
         title="Leads"
         filterOpen={filterOpen}
@@ -635,107 +1037,39 @@ export function LeadsPage() {
           </select>
         }
         toolbarActions={
-          <>
-            <button
-              type="button"
-              className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-              onClick={() => setFilterOpen((open) => !open)}
-            >
-              Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-            </button>
-            <select
-              className="form-select form-select-sm"
-              style={{ width: "auto" }}
-              value={`${sortBy}:${sortDir}`}
-              onChange={(e) => {
-                const [field, dir] = e.target.value.split(":");
-                setSortBy(field);
-                setSortDir(dir);
-              }}
-              aria-label="Sort leads"
-            >
-              <option value="createdAt:DESC">Sort: Newest</option>
-              <option value="createdAt:ASC">Sort: Oldest</option>
-              <option value="companyName:ASC">Sort: Company</option>
-              <option value="estimatedValue:DESC">Sort: Value</option>
-              <option value="status:ASC">Sort: Status</option>
-            </select>
-            {canExport ? (
-              <button
-                type="button"
-                className="btn btn-outline-secondary btn-sm"
-                disabled={exportMutation.isPending}
-                onClick={() => exportMutation.mutate(visibleColumns.map((c) => c.field))}
-              >
-                Export
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="btn btn-outline-secondary btn-sm"
-              onClick={() => setColumnChooserOpen((v) => !v)}
-            >
-              Columns
-            </button>
-            {checkedIds.length > 0 ? (
-              <span className="small text-muted align-self-center">{checkedIds.length} selected</span>
-            ) : null}
-            {canAssign && checkedIds.length > 0 ? (
-              <>
-                <select
-                  className="form-select form-select-sm"
-                  style={{ width: "auto" }}
-                  value={bulkOwnerId}
-                  onChange={(e) => setBulkOwnerId(e.target.value)}
-                >
-                  <option value="">Bulk owner…</option>
-                  {(usersQuery.data ?? []).map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.firstName} {user.lastName}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="btn btn-outline-primary btn-sm"
-                  disabled={!bulkOwnerId || bulkAssignMutation.isPending}
-                  onClick={() => bulkAssignMutation.mutate()}
-                >
-                  Bulk assign
-                </button>
-              </>
-            ) : null}
-            {canUpdate && checkedIds.length > 0 ? (
-              <>
-                <select
-                  className="form-select form-select-sm"
-                  style={{ width: "auto" }}
-                  value={bulkStatus}
-                  onChange={(e) => setBulkStatus(e.target.value)}
-                >
-                  <option value="">Bulk status…</option>
-                  {LEAD_STATUSES.map((status) => (
-                    <option key={status} value={status}>
-                      {status}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="btn btn-outline-primary btn-sm"
-                  disabled={!bulkStatus || bulkStatusMutation.isPending}
-                  onClick={() => bulkStatusMutation.mutate()}
-                >
-                  Bulk status
-                </button>
-              </>
-            ) : null}
-          </>
+          <select
+            className="form-select form-select-sm module-toolbar-sort"
+            value={`${sortBy}:${sortDir}`}
+            onChange={(event) => {
+              const [field, dir] = event.target.value.split(":");
+              setSortBy(field);
+              setSortDir(dir);
+            }}
+            aria-label="Sort leads"
+          >
+            <option value="createdAt:DESC">Sort: Newest</option>
+            <option value="createdAt:ASC">Sort: Oldest</option>
+            <option value="companyName:ASC">Sort: Company</option>
+            <option value="estimatedValue:DESC">Sort: Value</option>
+            <option value="status:ASC">Sort: Status</option>
+          </select>
         }
+        showSortButton={false}
+        filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
+        activeFilterCount={activeFilterCount}
+        createMenuItems={createMenuItems}
+        moreMenuItems={moreMenuItems}
         primaryAction={
           canCreate ? (
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-              {showForm ? "Cancel" : "Create Lead"}
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                setSelected(null);
+                setShowForm(true);
+              }}
+            >
+              Create Lead
             </button>
           ) : null
         }
@@ -753,20 +1087,13 @@ export function LeadsPage() {
             </div>
             <div className="module-filter-section">
               <h3>Filter by fields</h3>
-              <label className="form-label small mb-1">Status</label>
-              <select
-                className="form-select form-select-sm mb-2"
+              <ZohoFilterSelect
+                label="Status"
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="">All</option>
-                {LEAD_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-                <option value="CONVERTED">CONVERTED</option>
-              </select>
+                onChange={setStatusFilter}
+                options={LEAD_STATUS_FILTER_OPTIONS}
+                searchPlaceholder="Search Status"
+              />
               <label className="form-label small mb-1">Lead source</label>
               <input
                 className="form-control form-control-sm mb-2"
@@ -774,44 +1101,27 @@ export function LeadsPage() {
                 onChange={(e) => setSourceFilter(e.target.value)}
                 placeholder="e.g. Cold Call"
               />
-              <label className="form-label small mb-1">Priority</label>
-              <select
-                className="form-select form-select-sm mb-2"
+              <ZohoFilterSelect
+                label="Priority"
                 value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value)}
-              >
-                <option value="">All</option>
-                <option value="LOW">LOW</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="HIGH">HIGH</option>
-              </select>
-              <label className="form-label small mb-1">Region</label>
-              <select
-                className="form-select form-select-sm mb-2"
+                onChange={setPriorityFilter}
+                options={PRIORITY_FILTER_OPTIONS}
+                searchPlaceholder="Search Priority"
+              />
+              <ZohoFilterSelect
+                label="Region"
                 value={regionFilter}
-                onChange={(e) => setRegionFilter(e.target.value)}
-              >
-                <option value="">All</option>
-                {(regionsQuery.data ?? []).map((region) => (
-                  <option key={region.id} value={region.id}>
-                    {region.name}
-                  </option>
-                ))}
-              </select>
-              <label className="form-label small mb-1">Owner</label>
-              <select
-                className="form-select form-select-sm mb-2"
+                onChange={setRegionFilter}
+                options={regionFilterOptions}
+                searchPlaceholder="Search Regions"
+              />
+              <ZohoFilterSelect
+                label="Owner"
                 value={ownerFilter}
-                onChange={(e) => setOwnerFilter(e.target.value)}
-              >
-                <option value="">All</option>
-                {auth.userId ? <option value={auth.userId}>Current user</option> : null}
-                {(usersQuery.data ?? []).map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.firstName} {user.lastName}
-                  </option>
-                ))}
-              </select>
+                onChange={setOwnerFilter}
+                options={ownerFilterOptions}
+                searchPlaceholder="Search Owners"
+              />
               <label className="form-label small mb-1">Min est. value</label>
               <input
                 type="number"
@@ -856,6 +1166,20 @@ export function LeadsPage() {
                   onChange={(e) => setViewName(e.target.value)}
                   placeholder={`Name for “${activeViewName}” filters`}
                 />
+                {canPublishViews ? (
+                  <>
+                    <label className="form-label small mb-1">Visibility</label>
+                    <select
+                      className="form-select form-select-sm mb-2"
+                      value={viewVisibility}
+                      onChange={(e) => setViewVisibility(e.target.value as "PRIVATE" | "SHARED" | "PUBLIC")}
+                    >
+                      <option value="PRIVATE">Private (only me)</option>
+                      <option value="SHARED">Shared (org users)</option>
+                      <option value="PUBLIC">Public (org default)</option>
+                    </select>
+                  </>
+                ) : null}
                 <div className="d-flex gap-2 flex-wrap">
                   <button
                     type="button"
@@ -902,94 +1226,7 @@ export function LeadsPage() {
         footerLeft={<span>Total Records: {leads.length}</span>}
         footerRight={<span>View: {activeViewName}</span>}
       >
-        {showForm ? (
-          <form
-            className="border-bottom p-3 bg-white"
-            onSubmit={handleSubmit((values) => void submitLeadCreate(values))}
-          >
-            {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-            {bulkMessage ? <div className="alert alert-info py-2">{bulkMessage}</div> : null}
-            {dupWarning?.hasDuplicates ? (
-              <div className="alert alert-warning py-2">
-                <div className="fw-semibold mb-1">Possible duplicates found</div>
-                <ul className="mb-2 small">
-                  {dupWarning.matches.slice(0, 5).map((m) => (
-                    <li key={m.id}>
-                      {m.firstName} {m.lastName} · {m.companyName ?? "—"} · {m.email ?? "—"} ({m.status})
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-warning me-2"
-                  onClick={() => {
-                    if (pendingCreate) createMutation.mutate(pendingCreate);
-                  }}
-                >
-                  Create anyway
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-outline-secondary"
-                  onClick={() => {
-                    setDupWarning(null);
-                    setPendingCreate(null);
-                  }}
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : null}
-            <UnsavedGuard when={isDirty && showForm} />
-            {leadFormBundleQuery.isLoading ? <LoadingState label="Loading form layout..." /> : null}
-            {leadFormBundleQuery.error ? (
-              <ErrorState title="Form layout unavailable" message="Published Lead CREATE layout is required." />
-            ) : null}
-            {leadFormBundleQuery.data ? (
-              <DynamicForm
-                layout={leadFormBundleQuery.data.layout.layout}
-                fields={leadFormBundleQuery.data.fields}
-                register={register}
-                errors={errors}
-                moreOpen={showMoreLeadFields}
-                onMoreToggle={() => setShowMoreLeadFields((v) => !v)}
-                fieldConfig={{
-                  regionId: {
-                    options: (regionsQuery.data ?? []).map((region) => ({
-                      value: region.id,
-                      label: region.name,
-                    })),
-                    colClass: "col-md-3",
-                  },
-                  status: {
-                    options: LEAD_STATUSES.map((status) => ({ value: status, label: status })),
-                    colClass: "col-md-4",
-                  },
-                  priority: {
-                    options: [
-                      { value: "LOW", label: "LOW" },
-                      { value: "MEDIUM", label: "MEDIUM" },
-                      { value: "HIGH", label: "HIGH" },
-                    ],
-                  },
-                  email: { typeOverride: "email", colClass: "col-md-4" },
-                  firstName: { colClass: "col-md-3" },
-                  lastName: { colClass: "col-md-3" },
-                  companyName: { colClass: "col-md-3" },
-                }}
-              />
-            ) : null}
-
-            <FormActions
-              submitting={isSubmitting || createMutation.isPending}
-              onCancel={() => {
-                if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-                setShowForm(false);
-                setShowMoreLeadFields(false);
-              }}
-            />
-          </form>
-        ) : null}
+        {bulkMessage ? <div className="alert alert-info py-2 mx-3 mt-3 mb-0">{bulkMessage}</div> : null}
 
         {leadsQuery.isLoading ? <LoadingState label="Loading leads..." /> : null}
         {!leadsQuery.isLoading && leadsQuery.error ? (
@@ -997,7 +1234,7 @@ export function LeadsPage() {
         ) : null}
 
         {!leadsQuery.isLoading && !leadsQuery.error ? (
-          <div className={selected ? "module-list-split" : undefined} style={selected ? undefined : { flex: 1, display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
             {viewMode === "tile" ? (
               <div className="module-tile-grid">
                 {leads.map((lead) => (
@@ -1117,337 +1354,100 @@ export function LeadsPage() {
               </table>
             </div>
             )}
-
-            {selected ? (
-              <RecordShell
-                title={`${selected.firstName} ${selected.lastName}`}
-                subtitle={selected.companyName ?? undefined}
-                badges={<StatusBadge status={selected.status} />}
-                onClose={() => {
-                  setSelected(null);
-                  setShowConvert(false);
-                }}
-                tabs={[
-                  {
-                    id: "overview",
-                    label: "Overview",
-                    content: (
-                      <>
-<p className="small mb-1">Email: {selected.email ?? "—"}</p>
-                <p className="small mb-1">Phone: {selected.phone ?? "—"}</p>
-                <p className="small mb-3">
-                  Est. value: {selected.estimatedValue != null ? selected.estimatedValue : "—"}
-                </p>
-
-                {actionError ? <div className="alert alert-danger py-2">{actionError}</div> : null}
-
-                {canUpdate && selected.status !== "CONVERTED" ? (
-                  <div className="mb-3">
-                    <label className="form-label small mb-1">Update status</label>
-                    <select
-                      className="form-select form-select-sm"
-                      value={selected.status}
-                      onChange={(e) => statusMutation.mutate({ id: selected.id, status: e.target.value })}
-                      disabled={statusMutation.isPending}
-                    >
-                      {LEAD_STATUSES.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : null}
-
-                {canAssign && selected.status !== "CONVERTED" ? (
-                  <div className="mb-3">
-                    <label className="form-label small mb-1">Assign owner</label>
-                    <div className="d-flex gap-2">
-                      <select
-                        className="form-select form-select-sm"
-                        value={assignOwnerId}
-                        onChange={(e) => setAssignOwnerId(e.target.value)}
-                      >
-                        <option value="">Select owner</option>
-                        {(usersQuery.data ?? []).map((user) => (
-                          <option key={user.id} value={user.id}>
-                            {user.firstName} {user.lastName}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        type="button"
-                        className="btn btn-outline-primary btn-sm text-nowrap"
-                        disabled={!assignOwnerId || assignMutation.isPending}
-                        onClick={() => assignMutation.mutate({ id: selected.id, ownerId: assignOwnerId })}
-                      >
-                        Assign
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
-                {canConvert && selected.status !== "CONVERTED" ? (
-                  <>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm mb-2"
-                      onClick={() => {
-                        setShowConvert((v) => !v);
-                        convertForm.reset({
-                          createAccount: true,
-                          createContact: true,
-                          createDeal: true,
-                          accountId: "",
-                          dealName: selected.companyName ? `${selected.companyName} deal` : "",
-                          dealValue: selected.estimatedValue != null ? String(selected.estimatedValue) : "",
-                          dealStage: "NEW",
-                        });
-                      }}
-                    >
-                      {showConvert ? "Cancel convert" : "Convert"}
-                    </button>
-
-                    {showConvert ? (
-                      <form
-                        className="border-top pt-3 mt-2"
-                        onSubmit={convertForm.handleSubmit((values) => {
-                          if (!values.createAccount && !values.accountId) {
-                            setConvertError("Select an existing account or enable Create account.");
-                            return;
-                          }
-                          convertMutation.mutate({
-                            id: selected.id,
-                            body: {
-                              createAccount: values.createAccount,
-                              createContact: values.createContact,
-                              createDeal: values.createDeal,
-                              accountId: values.createAccount ? undefined : values.accountId || undefined,
-                              dealName: values.dealName || undefined,
-                              dealValue: values.dealValue ? Number(values.dealValue) : undefined,
-                              dealStage: values.dealStage || undefined,
-                            },
-                          });
-                        })}
-                      >
-                        {convertError ? <div className="alert alert-danger py-2">{convertError}</div> : null}
-                        <div className="form-check mb-2">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            id="createAccount"
-                            {...convertForm.register("createAccount")}
-                          />
-                          <label className="form-check-label" htmlFor="createAccount">
-                            Create account
-                          </label>
-                        </div>
-                        {!createAccountChecked ? (
-                          <div className="mb-2">
-                            <label className="form-label small">Existing account</label>
-                            <select className="form-select form-select-sm" {...convertForm.register("accountId")}>
-                              <option value="">Select account</option>
-                              {(accountsQuery.data ?? []).map((account) => (
-                                <option key={account.id} value={account.id}>
-                                  {account.name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        ) : null}
-                        <div className="form-check mb-2">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            id="createContact"
-                            {...convertForm.register("createContact")}
-                          />
-                          <label className="form-check-label" htmlFor="createContact">
-                            Create contact
-                          </label>
-                        </div>
-                        <div className="form-check mb-3">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            id="createDeal"
-                            {...convertForm.register("createDeal")}
-                          />
-                          <label className="form-check-label" htmlFor="createDeal">
-                            Create deal
-                          </label>
-                        </div>
-                        <FormField label="Deal name" {...convertForm.register("dealName")} />
-                        <FormField label="Deal value" type="number" {...convertForm.register("dealValue")} />
-                        <label className="form-label">Deal stage</label>
-                        <select className="form-select mb-3" {...convertForm.register("dealStage")}>
-                          <option value="NEW">NEW</option>
-                          <option value="QUALIFICATION">QUALIFICATION</option>
-                          <option value="PROPOSAL">PROPOSAL</option>
-                        </select>
-                        <button type="submit" className="btn btn-success btn-sm" disabled={convertMutation.isPending}>
-                          Confirm convert
-                        </button>
-                      </form>
-                    ) : null}
-                  </>
-                ) : null}
-
-                {selected.status === "CONVERTED" ? (
-                  <p className="small text-muted mb-0">
-                    Converted — account {selected.convertedAccountId?.slice(0, 8) ?? "—"}, deal{" "}
-                    {selected.convertedDealId?.slice(0, 8) ?? "—"}
-                  </p>
-                ) : null}
-
-                {canViewNotes ? (
-                  <div className="border-top pt-3 mt-3">
-                    <div className="fw-semibold small mb-2">Notes</div>
-                    {canCreateNotes ? (
-                      <div className="mb-2">
-                        <textarea
-                          className="form-control form-control-sm mb-2"
-                          rows={2}
-                          value={noteBody}
-                          onChange={(e) => setNoteBody(e.target.value)}
-                          placeholder="Add a note…"
-                        />
-                        <button
-                          type="button"
-                          className="btn btn-outline-primary btn-sm"
-                          disabled={!noteBody.trim() || noteMutation.isPending}
-                          onClick={() => noteMutation.mutate()}
-                        >
-                          Add note
-                        </button>
-                      </div>
-                    ) : null}
-                    <ul className="list-unstyled small mb-0">
-                      {(notesQuery.data ?? []).map((note) => (
-                        <li key={note.id} className="mb-2 border-bottom pb-2">
-                          <div>{note.body}</div>
-                          <div className="text-muted d-flex justify-content-between">
-                            <span>{new Date(note.createdAt).toLocaleString()}</span>
-                            {canDeleteNotes ? (
-                              <button
-                                type="button"
-                                className="btn btn-link btn-sm p-0"
-                                onClick={() => deleteNoteMutation.mutate(note.id)}
-                              >
-                                Delete
-                              </button>
-                            ) : null}
-                          </div>
-                        </li>
-                      ))}
-                      {!notesQuery.data?.length ? <li className="text-muted">No notes yet.</li> : null}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {canViewDocs ? (
-                  <div className="border-top pt-3 mt-3">
-                    <div className="fw-semibold small mb-2">Documents</div>
-                    {canUploadDocs ? (
-                      <input
-                        type="file"
-                        className="form-control form-control-sm mb-2"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) {
-                            uploadMutation.mutate(file);
-                            e.target.value = "";
-                          }
-                        }}
-                      />
-                    ) : null}
-                    <ul className="list-unstyled small mb-0">
-                      {(docsQuery.data ?? []).map((doc) => (
-                        <li key={doc.id} className="mb-2 d-flex justify-content-between gap-2">
-                          <button
-                            type="button"
-                            className="btn btn-link btn-sm p-0 text-start"
-                            onClick={() => openDownload(doc.id)}
-                          >
-                            {doc.fileName}
-                          </button>
-                          {canDeleteDocs ? (
-                            <button
-                              type="button"
-                              className="btn btn-link btn-sm p-0 text-danger"
-                              onClick={() => deleteDocMutation.mutate(doc.id)}
-                            >
-                              Delete
-                            </button>
-                          ) : null}
-                        </li>
-                      ))}
-                      {!docsQuery.data?.length ? <li className="text-muted">No documents yet.</li> : null}
-                    </ul>
-                  </div>
-                ) : null}
-                      </>
-                    ),
-                  },
-                  {
-                    id: "related",
-                    label: "Related",
-                    content: (
-                      <p className="small text-muted mb-0">
-                        {selected.status === "CONVERTED"
-                          ? `Linked account ${selected.convertedAccountId?.slice(0, 8) ?? "—"} · deal ${selected.convertedDealId?.slice(0, 8) ?? "—"}`
-                          : "Convert this lead to link account, contact, and deal."}
-                      </p>
-                    ),
-                  },
-                  {
-                    id: "activities",
-                    label: "Activities",
-                    visible: canViewActivities,
-                    content: (
-                      <ul className="list-unstyled small mb-0">
-                        {(activitiesQuery.data ?? []).map((a) => (
-                          <li key={a.id} className="mb-2">
-                            {a.subject} — <StatusBadge status={a.status} />
-                          </li>
-                        ))}
-                        {!activitiesQuery.data?.length ? <li className="text-muted">No related activities.</li> : null}
-                      </ul>
-                    ),
-                  },
-                  {
-                    id: "notes",
-                    label: "Notes",
-                    visible: canViewNotes,
-                    content: <p className="small text-muted mb-0">Use Overview tab for notes on this lead.</p>,
-                  },
-                  {
-                    id: "documents",
-                    label: "Documents",
-                    visible: canViewDocs,
-                    content: <p className="small text-muted mb-0">Use Overview tab for documents on this lead.</p>,
-                  },
-                  {
-                    id: "audit",
-                    label: "Audit",
-                    visible: canViewAudit,
-                    content: (
-                      <ul className="list-unstyled small mb-0">
-                        {(auditQuery.data ?? []).map((log) => (
-                          <li key={log.id} className="mb-2">
-                            {log.action} · {new Date(log.createdAt).toLocaleString()}
-                          </li>
-                        ))}
-                        {!auditQuery.data?.length ? <li className="text-muted">No audit events for this lead.</li> : null}
-                      </ul>
-                    ),
-                  },
-                ]}
-              />
-            ) : null}
           </div>
         ) : null}
       </ModuleListShell>
+      )}
+
+      <LeadBulkImportDialog
+        open={showImportDialog}
+        regions={(regionsQuery.data ?? []).map((region) => ({ id: region.id, name: region.name }))}
+        onClose={() => setShowImportDialog(false)}
+        onImported={async (count) => {
+          setBulkMessage(`Imported ${count} leads.`);
+          await refresh();
+        }}
+      />
+
+      {showBulkAssignDialog ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => setShowBulkAssignDialog(false)}>
+          <div className="module-modal" role="dialog" onClick={(event) => event.stopPropagation()}>
+            <div className="module-modal-header">
+              <h2 className="h5 mb-0">Bulk assign owner</h2>
+              <button type="button" className="btn-close" aria-label="Close" onClick={() => setShowBulkAssignDialog(false)} />
+            </div>
+            <div className="module-modal-body">
+              <p className="small text-muted">{selectionHint}</p>
+              <label className="form-label">Owner</label>
+              <select
+                className="form-select form-select-sm"
+                value={bulkOwnerId}
+                onChange={(event) => setBulkOwnerId(event.target.value)}
+              >
+                <option value="">Select owner</option>
+                {(usersQuery.data ?? []).map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.firstName} {user.lastName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="module-modal-footer">
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowBulkAssignDialog(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!bulkOwnerId || bulkAssignMutation.isPending}
+                onClick={() => bulkAssignMutation.mutate()}
+              >
+                Assign owner
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showBulkStatusDialog ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => setShowBulkStatusDialog(false)}>
+          <div className="module-modal" role="dialog" onClick={(event) => event.stopPropagation()}>
+            <div className="module-modal-header">
+              <h2 className="h5 mb-0">Bulk update status</h2>
+              <button type="button" className="btn-close" aria-label="Close" onClick={() => setShowBulkStatusDialog(false)} />
+            </div>
+            <div className="module-modal-body">
+              <p className="small text-muted">{selectionHint}</p>
+              <label className="form-label">Status</label>
+              <select
+                className="form-select form-select-sm"
+                value={bulkStatus}
+                onChange={(event) => setBulkStatus(event.target.value)}
+              >
+                <option value="">Select status</option>
+                {LEAD_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="module-modal-footer">
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowBulkStatusDialog(false)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!bulkStatus || bulkStatusMutation.isPending}
+                onClick={() => bulkStatusMutation.mutate()}
+              >
+                Update status
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

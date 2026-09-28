@@ -4,7 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormSection } from "@/components/FormKit";
+import { ZohoFormKitCreateView, useZohoCreateFlow } from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -28,7 +29,6 @@ export function DepartmentsPage() {
     useModuleWorkspace();
   const [statusFilter, setStatusFilter] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-  const [saveAndNew, setSaveAndNew] = useState(false);
 
   const departmentsQuery = useQuery({ queryKey: ["admin", "departments"], queryFn: listDepartments });
 
@@ -42,21 +42,36 @@ export function DepartmentsPage() {
     defaultValues: DEPT_DEFAULTS,
   });
 
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: DEPT_DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+  });
+
   const createMutation = useMutation({
     mutationFn: createDepartment,
-    onSuccess: async () => {
+    onSuccess: async (department) => {
       await queryClient.invalidateQueries({ queryKey: ["admin", "departments"] });
       setFormError(null);
-      if (saveAndNew) {
-        reset(DEPT_DEFAULTS);
-        setSaveAndNew(false);
-      } else {
-        reset(DEPT_DEFAULTS);
-        setShowForm(false);
-      }
+      await afterCreateSuccess(department, "DEPARTMENT");
     },
     onError: () => setFormError("Could not create department."),
   });
+
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate({ name: values.name });
+  };
+
+  function openCreate() {
+    reset(DEPT_DEFAULTS);
+    setShowForm(true);
+  }
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -67,7 +82,35 @@ export function DepartmentsPage() {
     });
   }, [departmentsQuery.data, search, statusFilter]);
 
+  const departmentFormFields = (
+    <FormSection title="Primary details" description="Department name">
+      <div className="col-md-6">
+        <FormField label="Name" required error={errors.name} {...register("name")} />
+      </div>
+    </FormSection>
+  );
+
   return (
+    <>
+      {showForm && canManage ? (
+        <ZohoFormKitCreateView
+          title="Create Department"
+          entityLabel="Department"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          {departmentFormFields}
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Departments"
       filterOpen={filterOpen}
@@ -85,8 +128,8 @@ export function DepartmentsPage() {
       }
       primaryAction={
         canManage ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Add department"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Add department
           </button>
         ) : null
       }
@@ -118,35 +161,6 @@ export function DepartmentsPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => createMutation.mutate({ name: values.name }))}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Primary details" description="Department name">
-            <div className="col-md-6">
-              <FormField label="Name" required error={errors.name} {...register("name")} />
-            </div>
-          </FormSection>
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={isSubmitting || createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) => createMutation.mutate({ name: values.name }))();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              reset(DEPT_DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {departmentsQuery.isLoading ? <LoadingState label="Loading departments..." /> : null}
       {departmentsQuery.error ? (
         <ErrorState title="Unable to load departments" message="Try again." />
@@ -195,5 +209,7 @@ export function DepartmentsPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

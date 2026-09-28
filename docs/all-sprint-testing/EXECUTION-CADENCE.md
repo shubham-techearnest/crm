@@ -39,7 +39,12 @@ node update-backlog-status.js --done US-S3-001 --notes "Shipped"
 | 15 | US-S13-001 … US-S13-004, US-S14-001 | Project health, over-alloc UX, rate FLS, Account related, Approval schema |
 | 16 | US-S14-002, US-S14-003, US-S15-001, US-S15-002, US-S16-001 | Timesheet dual-write, Approvals inbox, Outbox/Workflow Deal WON, Tax rates |
 | 17 | US-S16-002, US-S16-003, US-S17-001 … US-S17-003 | Invoices draft/time-pull, Issue/Void/Overdue, payments, advanced filters |
-| 18 | US-S18-001, US-S18-002, US-S19-001 … US-S19-003 | Credit notes, Invoice RecordShell/CSV, Contracts CRUD + expiry reminders + filters |
+| 19 | US-S20-001 … US-S21-002 | Expenses, Vendors, PO draft + Approval Engine |
+| 20 | US-S22-001 … US-S23-003 | PO lifecycle, filters, Reports shell + sales/project analytics |
+| 21 | US-S24-001 … US-S25-002 | AR aging, profitability, portal auth + read APIs |
+| 22 | US-S26-001 … US-CX-002 | Portal UI, hardening checklist, UAT doc, UI states audit, saved view visibility |
+| 23 | US-S5-008, US-S6-008, US-S12-007 … US-S15-003 | Timesheet polish, settings form, activity manage, skill matrix, workflow admin |
+| 24 | US-S18-003, US-S23-004, US-S24-004, US-S3-005, US-CX-004, US-CX-005 | Finance nav, utilization/spend reports, prospect notes/docs, a11y, isolation tests |
 
 ## Working Excel file
 

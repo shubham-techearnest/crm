@@ -72,4 +72,21 @@ public class WorkflowDefinition {
     public String getEventType() {
         return eventType;
     }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public int getVersion() {
+        return version;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
+        this.updatedAt = Instant.now();
+    }
 }

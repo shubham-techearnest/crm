@@ -1,13 +1,21 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormSection } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  optionsFromPairs,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
-import { RecordShell } from "@/components/RecordShell";
+import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
+import { useRecordNavigation } from "@/components/ZohoRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -27,26 +35,21 @@ import {
 } from "./expenseApi";
 import { buildExpenseFilterConditions, needsExpenseQuery } from "./expenseFilterCatalog";
 
-const EXPENSE_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "REIMBURSED"] as const;
-const EXPENSE_TYPES = ["EMPLOYEE", "PROJECT", "TRAVEL"] as const;
+const EXPENSE_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED"] as const;
 const CATEGORIES = ["Travel", "Meals", "Lodging", "Supplies", "Software", "Other"] as const;
 
-const itemSchema = z.object({
-  category: z.string().min(1, "Category required"),
-  description: z.string().optional(),
-  amount: z.string().min(1, "Amount required"),
-  taxAmount: z.string().optional(),
-});
+const categoryOptions = enumPickerOptions(CATEGORIES);
 
 const schema = z.object({
   regionId: z.string().min(1, "Region is required"),
   resourceId: z.string().optional(),
   projectId: z.string().optional(),
-  expenseType: z.string().min(1, "Type is required"),
-  incurredOn: z.string().min(1, "Date is required"),
+  category: z.string().min(1, "Category is required"),
+  description: z.string().optional(),
+  amount: z.string().min(1, "Amount is required"),
+  expenseDate: z.string().min(1, "Date is required"),
   billable: z.boolean().optional(),
   notes: z.string().optional(),
-  items: z.array(itemSchema).min(1, "Add at least one line"),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -55,11 +58,12 @@ const DEFAULTS: FormValues = {
   regionId: "",
   resourceId: "",
   projectId: "",
-  expenseType: "EMPLOYEE",
-  incurredOn: new Date().toISOString().slice(0, 10),
+  category: "Travel",
+  description: "",
+  amount: "",
+  expenseDate: new Date().toISOString().slice(0, 10),
   billable: false,
   notes: "",
-  items: [{ category: "Travel", description: "", amount: "", taxAmount: "" }],
 };
 
 export function ExpensesPage() {
@@ -69,17 +73,17 @@ export function ExpensesPage() {
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
   const [statusFilter, setStatusFilter] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [resourceFilter, setResourceFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [billableFilter, setBillableFilter] = useState<"" | "true" | "false">("");
-  const [incurredFrom, setIncurredFrom] = useState("");
-  const [incurredTo, setIncurredTo] = useState("");
+  const [expenseFrom, setExpenseFrom] = useState("");
+  const [expenseTo, setExpenseTo] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const billableBool =
     billableFilter === "true" ? true : billableFilter === "false" ? false : ("" as const);
@@ -87,32 +91,32 @@ export function ExpensesPage() {
     category: categoryFilter,
     billable: billableBool,
     regionId: regionFilter,
-    incurredFrom,
-    incurredTo,
+    expenseFrom,
+    expenseTo,
   });
 
   const listParams = useMemo(
     () => ({
       search: search || undefined,
       status: statusFilter || undefined,
-      expenseType: typeFilter || undefined,
+      category: categoryFilter || undefined,
       projectId: projectFilter || undefined,
       resourceId: resourceFilter || undefined,
+      billable: billableBool === "" ? undefined : billableBool,
     }),
-    [search, statusFilter, typeFilter, projectFilter, resourceFilter],
+    [search, statusFilter, categoryFilter, projectFilter, resourceFilter, billableBool],
   );
 
   const queryBody = useMemo(() => {
     const conditions = buildExpenseFilterConditions({
       status: statusFilter || undefined,
-      expenseType: typeFilter || undefined,
+      category: categoryFilter || undefined,
       projectId: projectFilter || undefined,
       resourceId: resourceFilter || undefined,
       regionId: regionFilter || undefined,
       billable: billableBool,
-      category: categoryFilter || undefined,
-      incurredFrom: incurredFrom || undefined,
-      incurredTo: incurredTo || undefined,
+      expenseFrom: expenseFrom || undefined,
+      expenseTo: expenseTo || undefined,
     });
     return {
       search: search || undefined,
@@ -121,14 +125,13 @@ export function ExpensesPage() {
   }, [
     search,
     statusFilter,
-    typeFilter,
+    categoryFilter,
     projectFilter,
     resourceFilter,
     regionFilter,
     billableBool,
-    categoryFilter,
-    incurredFrom,
-    incurredTo,
+    expenseFrom,
+    expenseTo,
   ]);
 
   const expensesQuery = useQuery({
@@ -154,7 +157,14 @@ export function ExpensesPage() {
     resolver: zodResolver(schema),
     defaultValues: DEFAULTS,
   });
-  const { fields, append, remove } = useFieldArray({ control, name: "items" });
+
+  const { photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+    defaults: DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+    setSelected: (entity) => setSelectedId(entity.id),
+  });
 
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["expenses"] });
@@ -165,12 +175,43 @@ export function ExpensesPage() {
     onSuccess: async (expense) => {
       await invalidate();
       setFormError(null);
-      reset(DEFAULTS);
-      setShowForm(false);
-      setSelectedId(expense.id);
+      await afterCreateSuccess(expense, "EXPENSE");
     },
     onError: () => setFormError("Could not create expense."),
   });
+
+  const regionOptions = useMemo(
+    () => optionsFromPairs((regionsQuery.data ?? []).map((r) => ({ value: r.id, label: r.name }))),
+    [regionsQuery.data],
+  );
+  const resourceOptions = useMemo(
+    () =>
+      optionsFromPairs(
+        (resourcesQuery.data ?? []).map((r) => ({
+          value: r.id,
+          label: r.employeeCode ?? r.designation ?? r.id.slice(0, 8),
+        })),
+      ),
+    [resourcesQuery.data],
+  );
+  const projectOptions = useMemo(
+    () => optionsFromPairs((projectsQuery.data ?? []).map((p) => ({ value: p.id, label: p.name }))),
+    [projectsQuery.data],
+  );
+
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate({
+      regionId: values.regionId,
+      resourceId: values.resourceId || undefined,
+      projectId: values.projectId || undefined,
+      category: values.category,
+      description: values.description || undefined,
+      amount: Number(values.amount),
+      expenseDate: values.expenseDate,
+      billable: values.billable,
+      notes: values.notes || undefined,
+    });
+  };
 
   const submitMutation = useMutation({
     mutationFn: (id: string) => submitExpense(id),
@@ -183,14 +224,21 @@ export function ExpensesPage() {
     onError: () => setActionError("Could not approve expense."),
   });
   const rejectMutation = useMutation({
-    mutationFn: (id: string) => rejectExpense(id),
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => rejectExpense(id, { reason }),
     onSuccess: invalidate,
     onError: () => setActionError("Could not reject expense."),
   });
 
   const rows = expensesQuery.data ?? [];
+  const selectedRow = rows.find((row) => row.id === selectedId) ?? null;
+  const recordNav = useRecordNavigation(rows, selectedRow, (item) => {
+    setSelectedId(item?.id ?? null);
+    setActionError(null);
+    setRejectReason("");
+  });
   const selected: Expense | undefined = detailQuery.data;
-  const resourceLabel = (id: string) => {
+  const resourceLabel = (id: string | null) => {
+    if (!id) return "—";
     const r = resourcesQuery.data?.find((x) => x.id === id);
     return r?.employeeCode ?? r?.designation ?? id.slice(0, 8);
   };
@@ -199,17 +247,190 @@ export function ExpensesPage() {
   const activeFilterCount = [
     search,
     statusFilter,
-    typeFilter,
     projectFilter,
     resourceFilter,
     regionFilter,
     categoryFilter,
     billableFilter,
-    incurredFrom,
-    incurredTo,
+    expenseFrom,
+    expenseTo,
   ].filter(Boolean).length;
 
   return (
+    <>
+      {showForm && canCreate ? (
+        <ZohoFormKitCreateView
+          title="Create Expense"
+          tableCode="expense"
+          entityLabel="Expense"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          <FormSection title="Expense" description="Employee or project cost with category and billable flag">
+            <div className="col-md-3">
+              <label className="form-label required">Region</label>
+              <ZohoFormSelect
+                control={control}
+                name="regionId"
+                options={regionOptions}
+                searchPlaceholder="Search Regions"
+                allowEmpty={false}
+                placeholder="Select"
+                invalid={!!errors.regionId}
+              />
+              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
+            </div>
+            <div className="col-md-2">
+              <label className="form-label required">Category</label>
+              <ZohoFormSelect
+                control={control}
+                name="category"
+                options={categoryOptions}
+                searchPlaceholder="Search Categories"
+                allowEmpty={false}
+                invalid={!!errors.category}
+              />
+            </div>
+            <div className="col-md-2">
+              <FormField
+                label="Expense date"
+                type="date"
+                required
+                error={errors.expenseDate}
+                {...register("expenseDate")}
+              />
+            </div>
+            <div className="col-md-2">
+              <FormField label="Amount" type="number" required error={errors.amount} {...register("amount")} />
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Employee</label>
+              <ZohoFormSelect
+                control={control}
+                name="resourceId"
+                options={resourceOptions}
+                searchPlaceholder="Search Employees"
+                lookupIcon="users"
+                placeholder="Self / default"
+              />
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Project</label>
+              <ZohoFormSelect
+                control={control}
+                name="projectId"
+                options={projectOptions}
+                searchPlaceholder="Search Projects"
+                lookupIcon="apps"
+                placeholder="Optional"
+              />
+            </div>
+            <div className="col-md-4">
+              <FormField label="Description" {...register("description")} />
+            </div>
+            <div className="col-md-4">
+              <FormField label="Notes" {...register("notes")} />
+            </div>
+            <div className="col-md-2 form-check mt-4">
+              <input className="form-check-input" type="checkbox" id="expBillable" {...register("billable")} />
+              <label className="form-check-label" htmlFor="expBillable">
+                Billable
+              </label>
+            </div>
+          </FormSection>
+        </ZohoFormKitCreateView>
+      ) : selectedId ? (
+        detailQuery.isLoading ? (
+          <LoadingState label="Loading expense…" />
+        ) : selected ? (
+          <RecordShell
+            layout="page"
+            title={`${selected.category} · ${selected.expenseDate}`}
+            subtitle={`${selected.currencyCode} ${selected.amount}`}
+            avatarLabel={`${selected.category} · ${selected.expenseDate}`}
+            meta={selected.billable ? "Billable" : undefined}
+            status={<StatusBadge status={selected.status} />}
+            recordKey={selected.id}
+            onBack={recordNav.goBack}
+            onPrev={recordNav.goPrev}
+            onNext={recordNav.goNext}
+            hasPrev={recordNav.hasPrev}
+            hasNext={recordNav.hasNext}
+            relatedLinks={[...DEFAULT_RELATED_LINKS]}
+            primaryAction={
+              canCreate && (selected.status === "DRAFT" || selected.status === "REJECTED") ? (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  disabled={submitMutation.isPending}
+                  onClick={() => submitMutation.mutate(selected.id)}
+                >
+                  Submit
+                </button>
+              ) : null
+            }
+            secondaryActions={
+              canApprove && selected.status === "SUBMITTED" ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-success"
+                    disabled={approveMutation.isPending}
+                    onClick={() => approveMutation.mutate(selected.id)}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-danger"
+                    disabled={rejectMutation.isPending || !rejectReason.trim()}
+                    onClick={() => rejectMutation.mutate({ id: selected.id, reason: rejectReason.trim() })}
+                  >
+                    Reject
+                  </button>
+                </>
+              ) : null
+            }
+            tabs={[
+              {
+                id: "overview",
+                label: "Overview",
+                content: (
+                  <>
+                    {actionError ? <div className="alert alert-danger py-2 small">{actionError}</div> : null}
+                    <p className="small mb-1">Employee: {resourceLabel(selected.resourceId)}</p>
+                    <p className="small mb-1">Project: {projectName(selected.projectId)}</p>
+                    <p className="small mb-1">{selected.description ?? "No description"}</p>
+                    <p className="small mb-3">{selected.notes ?? "No notes"}</p>
+                    {selected.status === "REJECTED" && selected.rejectionReason ? (
+                      <p className="small text-danger mb-3">Rejected: {selected.rejectionReason}</p>
+                    ) : null}
+                    {canApprove && selected.status === "SUBMITTED" ? (
+                      <div className="mb-3">
+                        <label className="form-label small">Rejection reason</label>
+                        <input
+                          className="form-control form-control-sm"
+                          value={rejectReason}
+                          onChange={(e) => setRejectReason(e.target.value)}
+                          placeholder="Required to reject"
+                        />
+                      </div>
+                    ) : null}
+                    {selected.approvalRequestId ? (
+                      <p className="small text-muted mb-0">Approval request linked</p>
+                    ) : null}
+                  </>
+                ),
+              },
+            ]}
+          />
+        ) : null
+      ) : (
     <ModuleListShell
       title="Expenses"
       filterOpen={filterOpen}
@@ -227,8 +448,15 @@ export function ExpensesPage() {
       }
       primaryAction={
         canCreate ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Expense"}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              reset(DEFAULTS);
+              setShowForm(true);
+            }}
+          >
+            Create Expense
           </button>
         ) : null
       }
@@ -241,7 +469,7 @@ export function ExpensesPage() {
               className="form-control form-control-sm"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Notes or category"
+              placeholder="Notes or description"
             />
           </div>
           <div className="module-filter-section">
@@ -255,21 +483,6 @@ export function ExpensesPage() {
               {EXPENSE_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {s}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="module-filter-section">
-            <h3>Type</h3>
-            <select
-              className="form-select form-select-sm"
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {EXPENSE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
                 </option>
               ))}
             </select>
@@ -347,177 +560,39 @@ export function ExpensesPage() {
             </select>
           </div>
           <div className="module-filter-section">
-            <h3>Incurred from</h3>
+            <h3>Expense from</h3>
             <input
               className="form-control form-control-sm"
               type="date"
-              value={incurredFrom}
-              onChange={(e) => setIncurredFrom(e.target.value)}
+              value={expenseFrom}
+              onChange={(e) => setExpenseFrom(e.target.value)}
             />
-            <h3 className="mt-2">Incurred to</h3>
+            <h3 className="mt-2">Expense to</h3>
             <input
               className="form-control form-control-sm"
               type="date"
-              value={incurredTo}
-              onChange={(e) => setIncurredTo(e.target.value)}
+              value={expenseTo}
+              onChange={(e) => setExpenseTo(e.target.value)}
             />
           </div>
         </>
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) =>
-            createMutation.mutate({
-              regionId: values.regionId,
-              resourceId: values.resourceId || undefined,
-              projectId: values.projectId || undefined,
-              expenseType: values.expenseType,
-              incurredOn: values.incurredOn,
-              billable: values.billable,
-              notes: values.notes || undefined,
-              items: values.items.map((item) => ({
-                category: item.category,
-                description: item.description || undefined,
-                amount: Number(item.amount),
-                taxAmount: item.taxAmount ? Number(item.taxAmount) : undefined,
-              })),
-            }),
-          )}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Expense" description="Employee/project cost with categories and billable flag">
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <select className="form-select" {...register("regionId")}>
-                <option value="">Select</option>
-                {(regionsQuery.data ?? []).map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-            </div>
-            <div className="col-md-2">
-              <label className="form-label required">Type</label>
-              <select className="form-select" {...register("expenseType")}>
-                {EXPENSE_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-2">
-              <FormField label="Incurred on" type="date" required error={errors.incurredOn} {...register("incurredOn")} />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Employee</label>
-              <select className="form-select" {...register("resourceId")}>
-                <option value="">Self / default</option>
-                {(resourcesQuery.data ?? []).map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.employeeCode ?? r.designation ?? r.id.slice(0, 8)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Project</label>
-              <select className="form-select" {...register("projectId")}>
-                <option value="">Optional</option>
-                {(projectsQuery.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-1 form-check mt-4">
-              <input className="form-check-input" type="checkbox" id="expBillable" {...register("billable")} />
-              <label className="form-check-label" htmlFor="expBillable">
-                Billable
-              </label>
-            </div>
-          </FormSection>
-          <FormSection title="Line items" description="Category, amount; receipt upload via Documents in a later slice">
-            {fields.map((field, index) => (
-              <div key={field.id} className="row g-2 mb-2 align-items-end">
-                <div className="col-md-2">
-                  <label className="form-label">Category</label>
-                  <select className="form-select" {...register(`items.${index}.category`)}>
-                    {CATEGORIES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="col-md-4">
-                  <FormField label="Description" {...register(`items.${index}.description`)} />
-                </div>
-                <div className="col-md-2">
-                  <FormField
-                    label="Amount"
-                    type="number"
-                    required
-                    error={errors.items?.[index]?.amount}
-                    {...register(`items.${index}.amount`)}
-                  />
-                </div>
-                <div className="col-md-2">
-                  <FormField label="Tax" type="number" {...register(`items.${index}.taxAmount`)} />
-                </div>
-                <div className="col-md-2">
-                  {fields.length > 1 ? (
-                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => remove(index)}>
-                      Remove
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-            {errors.items?.root ? (
-              <div className="invalid-feedback d-block">{errors.items.root.message}</div>
-            ) : null}
-            <button
-              type="button"
-              className="btn btn-sm btn-outline-secondary"
-              onClick={() => append({ category: "Other", description: "", amount: "", taxAmount: "" })}
-            >
-              Add line
-            </button>
-          </FormSection>
-          <FormActions
-            submitLabel="Save draft"
-            submitting={isSubmitting || createMutation.isPending}
-            onCancel={() => {
-              setShowForm(false);
-              reset(DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {expensesQuery.isLoading ? <LoadingState label="Loading expenses..." /> : null}
       {expensesQuery.error ? <ErrorState title="Unable to load expenses" message="Try again." /> : null}
 
       {!expensesQuery.isLoading && !expensesQuery.error ? (
-        <div className="d-flex" style={{ flex: 1, minHeight: 0 }}>
-          <div className="module-list-table-wrap" style={{ flex: 1 }}>
+        <div className="module-list-table-wrap">
             <table className="table module-list-table align-middle">
               <thead>
                 <tr>
                   <th>Date</th>
+                  <th>Category</th>
                   <th>Employee</th>
-                  <th>Type</th>
                   <th>Project</th>
                   <th>Status</th>
-                  <th>Total</th>
+                  <th>Amount</th>
                   <th>Billable</th>
                 </tr>
               </thead>
@@ -530,17 +605,18 @@ export function ExpensesPage() {
                     onClick={() => {
                       setSelectedId(row.id);
                       setActionError(null);
+                      setRejectReason("");
                     }}
                   >
-                    <td className="lead-name">{row.incurredOn}</td>
+                    <td className="lead-name">{row.expenseDate}</td>
+                    <td>{row.category}</td>
                     <td>{resourceLabel(row.resourceId)}</td>
-                    <td>{row.expenseType}</td>
                     <td>{projectName(row.projectId)}</td>
                     <td>
                       <StatusBadge status={row.status} />
                     </td>
                     <td>
-                      {row.currencyCode} {row.total}
+                      {row.currencyCode} {row.amount}
                     </td>
                     <td>{row.billable ? "Yes" : "No"}</td>
                   </tr>
@@ -554,87 +630,10 @@ export function ExpensesPage() {
                 ) : null}
               </tbody>
             </table>
-          </div>
-
-          {selectedId ? (
-            <div style={{ width: 380, overflow: "auto" }}>
-              {detailQuery.isLoading ? <LoadingState label="Loading…" /> : null}
-              {selected ? (
-                <RecordShell
-                  title={`${selected.expenseType} · ${selected.incurredOn}`}
-                  subtitle={`${selected.currencyCode} ${selected.total}${selected.billable ? " · Billable" : ""}`}
-                  badges={<StatusBadge status={selected.status} />}
-                  onClose={() => setSelectedId(null)}
-                  actions={
-                    <div className="d-flex flex-wrap gap-1">
-                      {canCreate && selected.status === "DRAFT" ? (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-primary"
-                          disabled={submitMutation.isPending}
-                          onClick={() => submitMutation.mutate(selected.id)}
-                        >
-                          Submit
-                        </button>
-                      ) : null}
-                      {canApprove && selected.status === "SUBMITTED" ? (
-                        <>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-success"
-                            disabled={approveMutation.isPending}
-                            onClick={() => approveMutation.mutate(selected.id)}
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-outline-danger"
-                            disabled={rejectMutation.isPending}
-                            onClick={() => {
-                              if (window.confirm("Reject this expense?")) {
-                                rejectMutation.mutate(selected.id);
-                              }
-                            }}
-                          >
-                            Reject
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-                  }
-                  tabs={[
-                    {
-                      id: "overview",
-                      label: "Overview",
-                      content: (
-                        <>
-                          {actionError ? <div className="alert alert-danger py-2 small">{actionError}</div> : null}
-                          <p className="small mb-1">Employee: {resourceLabel(selected.resourceId)}</p>
-                          <p className="small mb-1">Project: {projectName(selected.projectId)}</p>
-                          <p className="small mb-3">{selected.notes ?? "No notes"}</p>
-                          <h3 className="h6">Lines</h3>
-                          <ul className="small mb-0">
-                            {(selected.items ?? []).map((item) => (
-                              <li key={item.id}>
-                                {item.category}: {item.amount}
-                                {item.taxAmount ? ` (+tax ${item.taxAmount})` : ""}
-                                {item.description ? ` — ${item.description}` : ""}
-                                {item.documentId ? " (receipt)" : ""}
-                              </li>
-                            ))}
-                            {!selected.items?.length ? <li className="text-muted">No lines</li> : null}
-                          </ul>
-                        </>
-                      ),
-                    },
-                  ]}
-                />
-              ) : null}
-            </div>
-          ) : null}
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

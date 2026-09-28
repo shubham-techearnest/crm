@@ -4,7 +4,13 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import {
+  optionsFromPairs,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -31,18 +37,31 @@ export function RegionsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
 
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: REGION_DEFAULTS,
+  });
+
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: REGION_DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+    onResetExtras: () => setShowMore(false),
   });
 
   const buildBody = (values: FormValues) => ({
@@ -53,21 +72,22 @@ export function RegionsPage() {
 
   const createMutation = useMutation({
     mutationFn: createRegion,
-    onSuccess: async () => {
+    onSuccess: async (region) => {
       await queryClient.invalidateQueries({ queryKey: ["admin", "regions"] });
       setFormError(null);
-      if (saveAndNew) {
-        reset(REGION_DEFAULTS);
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        reset(REGION_DEFAULTS);
-        setShowForm(false);
-        setShowMore(false);
-      }
+      await afterCreateSuccess(region, "REGION");
     },
     onError: () => setFormError("Could not create region. Check the code is unique."),
   });
+
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate(buildBody(values));
+  };
+
+  function openCreate() {
+    reset(REGION_DEFAULTS);
+    setShowForm(true);
+  }
 
   const parentName = useMemo(() => {
     const map = new Map((regionsQuery.data ?? []).map((r) => [r.id, r.name]));
@@ -87,7 +107,59 @@ export function RegionsPage() {
     });
   }, [regionsQuery.data, search, statusFilter, parentName]);
 
+  const parentRegionOptions = useMemo(
+    () => optionsFromPairs((regionsQuery.data ?? []).map((r) => ({ value: r.id, label: r.name }))),
+    [regionsQuery.data],
+  );
+
+  const regionFormFields = (
+    <>
+      <FormSection title="Primary details" description="Region identity">
+        <div className="col-md-5">
+          <FormField label="Name" required error={errors.name} {...register("name")} />
+        </div>
+        <div className="col-md-3">
+          <FormField label="Code" required error={errors.code} {...register("code")} />
+        </div>
+      </FormSection>
+      <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
+        <FormSection title="Hierarchy">
+          <div className="col-md-4">
+            <label className="form-label">Parent region</label>
+            <ZohoFormSelect
+              control={control}
+              name="parentId"
+              options={parentRegionOptions}
+              searchPlaceholder="Search Regions"
+              placeholder="None"
+            />
+          </div>
+        </FormSection>
+      </FormMoreDetails>
+    </>
+  );
+
   return (
+    <>
+      {showForm && canManage ? (
+        <ZohoFormKitCreateView
+          title="Create Region"
+          entityLabel="Region"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          {regionFormFields}
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Regions"
       filterOpen={filterOpen}
@@ -105,8 +177,8 @@ export function RegionsPage() {
       }
       primaryAction={
         canManage ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Add region"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Add region
           </button>
         ) : null
       }
@@ -138,54 +210,6 @@ export function RegionsPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => createMutation.mutate(buildBody(values)))}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Primary details" description="Region identity">
-            <div className="col-md-5">
-              <FormField label="Name" required error={errors.name} {...register("name")} />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Code" required error={errors.code} {...register("code")} />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Hierarchy">
-              <div className="col-md-4">
-                <label className="form-label">Parent region</label>
-                <select className="form-select" {...register("parentId")}>
-                  <option value="">None</option>
-                  {(regionsQuery.data ?? []).map((region) => (
-                    <option key={region.id} value={region.id}>
-                      {region.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </FormSection>
-          </FormMoreDetails>
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={isSubmitting || createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) => createMutation.mutate(buildBody(values)))();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              reset(REGION_DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {regionsQuery.isLoading ? <LoadingState label="Loading regions..." /> : null}
       {regionsQuery.error ? <ErrorState title="Unable to load regions" message="Try again." /> : null}
 
@@ -240,5 +264,7 @@ export function RegionsPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

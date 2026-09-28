@@ -19,13 +19,31 @@ export interface Lead {
   organizationId: string;
   regionId: string;
   ownerId: string | null;
+  salutation: string | null;
   firstName: string | null;
   lastName: string | null;
   companyName: string | null;
   email: string | null;
   phone: string | null;
+  mobile: string | null;
+  fax: string | null;
   website: string | null;
   source: string | null;
+  emailOptOut: boolean;
+  noOfEmployees: number | null;
+  rating: string | null;
+  skypeId: string | null;
+  secondaryEmail: string | null;
+  twitter: string | null;
+  addressCountry: string | null;
+  addressFlat: string | null;
+  addressStreet: string | null;
+  addressCity: string | null;
+  addressState: string | null;
+  addressZip: string | null;
+  addressLatitude: number | null;
+  addressLongitude: number | null;
+  photoDocumentId: string | null;
   status: string;
   priority: string | null;
   industry: string | null;
@@ -45,13 +63,31 @@ export interface Lead {
 export interface CreateLeadBody {
   regionId: string;
   ownerId?: string | null;
+  salutation?: string;
   firstName?: string;
   lastName?: string;
   companyName?: string;
   email?: string;
   phone?: string;
+  mobile?: string;
+  fax?: string;
   website?: string;
   source?: string;
+  emailOptOut?: boolean;
+  noOfEmployees?: number | null;
+  rating?: string;
+  skypeId?: string;
+  secondaryEmail?: string;
+  twitter?: string;
+  addressCountry?: string;
+  addressFlat?: string;
+  addressStreet?: string;
+  addressCity?: string;
+  addressState?: string;
+  addressZip?: string;
+  addressLatitude?: number | null;
+  addressLongitude?: number | null;
+  photoDocumentId?: string | null;
   status?: string;
   priority?: string;
   industry?: string;
@@ -64,13 +100,31 @@ export interface CreateLeadBody {
 export interface UpdateLeadBody {
   regionId?: string;
   ownerId?: string | null;
+  salutation?: string;
   firstName?: string;
   lastName?: string;
   companyName?: string;
   email?: string;
   phone?: string;
+  mobile?: string;
+  fax?: string;
   website?: string;
   source?: string;
+  emailOptOut?: boolean;
+  noOfEmployees?: number | null;
+  rating?: string;
+  skypeId?: string;
+  secondaryEmail?: string;
+  twitter?: string;
+  addressCountry?: string;
+  addressFlat?: string;
+  addressStreet?: string;
+  addressCity?: string;
+  addressState?: string;
+  addressZip?: string;
+  addressLatitude?: number | null;
+  addressLongitude?: number | null;
+  photoDocumentId?: string | null;
   status?: string;
   priority?: string;
   industry?: string;
@@ -428,6 +482,11 @@ export async function exportLeads(columns?: string[]): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
+export async function importLeads(rows: CreateLeadBody[]): Promise<{ imported: number }> {
+  const { data } = await api.post<ApiResponse<{ imported: number }>>("/leads/import", rows);
+  return unwrap(data);
+}
+
 // —— Accounts ——
 
 export async function listAccounts(params?: {
@@ -503,6 +562,11 @@ export async function listContacts(params?: {
   return unwrap(data);
 }
 
+export async function getContact(id: string): Promise<Contact> {
+  const { data } = await api.get<ApiResponse<Contact>>(`/contacts/${id}`);
+  return unwrap(data);
+}
+
 export async function createContact(body: CreateContactBody): Promise<Contact> {
   const { data } = await api.post<ApiResponse<Contact>>("/contacts", body);
   return unwrap(data);
@@ -562,6 +626,19 @@ export async function changeDealStage(
   return unwrap(data);
 }
 
+export interface DealStageHistoryEntry {
+  id: string;
+  fromStage: string | null;
+  toStage: string;
+  changedBy: string;
+  changedAt: string;
+}
+
+export async function listDealStageHistory(dealId: string): Promise<DealStageHistoryEntry[]> {
+  const { data } = await api.get<ApiResponse<DealStageHistoryEntry[]>>(`/deals/${dealId}/stage-history`);
+  return unwrap(data);
+}
+
 export async function getPipeline(): Promise<PipelineColumn[]> {
   const { data } = await api.get<ApiResponse<PipelineColumn[]>>("/deals/pipeline");
   return unwrap(data);
@@ -604,5 +681,25 @@ export async function createActivity(body: CreateActivityBody): Promise<Activity
 
 export async function completeActivity(id: string): Promise<Activity> {
   const { data } = await api.post<ApiResponse<Activity>>(`/activities/${id}/complete`);
+  return unwrap(data);
+}
+
+export interface UpdateActivityBody {
+  type?: string;
+  subject: string;
+  description?: string;
+  status?: string;
+  priority?: string;
+  dueDate?: string | null;
+  assignedTo?: string | null;
+  location?: string;
+  attendees?: string;
+  outcome?: string;
+  callDirection?: string;
+  durationSeconds?: number;
+}
+
+export async function updateActivity(id: string, body: UpdateActivityBody): Promise<Activity> {
+  const { data } = await api.put<ApiResponse<Activity>>(`/activities/${id}`, body);
   return unwrap(data);
 }

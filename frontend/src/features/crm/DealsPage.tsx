@@ -1,58 +1,41 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "react-router-dom";
-import { z } from "zod";
 import axios from "axios";
-import { FormField } from "@/components/FormField/FormField";
-import { DynamicForm, FormActions, UnsavedGuard } from "@/components/FormKit";
+import { DealCreateView } from "./DealCreateView";
+import { DealEditView } from "./DealEditView";
+import { DealRecordOverview, DEAL_STAGES } from "./DealRecordOverview";
+import { buildOwnerOptions, enumPickerOptions, optionsFromPairs, ZohoFilterSelect } from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
-import { RecordShell } from "@/components/RecordShell";
+import { RecordShell, DEAL_RELATED_LINKS } from "@/components/RecordShell";
+import { buildTimelineEntries, buildDealTimelineEntries, recordLifecycleInfo, useRecordNavigation, ZohoRecordTimeline } from "@/components/ZohoRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import type { ApiResponse } from "@/types/api";
 import { listAuditLogs, listUsers } from "@/features/admin/adminApi";
-import { getPublishedFormBundle } from "@/features/admin/studio/metadataApi";
 import { createProjectFromDeal } from "@/features/projects/projectApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import {
   changeDealStage,
-  createDeal,
   getPipeline,
   listAccounts,
   listActivities,
+  listContacts,
+  listDealStageHistory,
   listDeals,
   type Deal,
 } from "./crmApi";
-import { listDocuments, listNotes, uploadDocument, documentDownloadUrl } from "./foundationApi";
+import { createNote, listDocuments, listNotes, uploadDocument, documentDownloadUrl } from "./foundationApi";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 
-const DEAL_STAGES = [
-  "NEW",
-  "QUALIFICATION",
-  "REQUIREMENT",
-  "PROPOSAL",
-  "NEGOTIATION",
-  "WON",
-  "LOST",
-] as const;
+const DEAL_STAGE_OPTIONS = enumPickerOptions(DEAL_STAGES);
 
-const schema = z.object({
-  accountId: z.string().min(1, "Account is required"),
-  name: z.string().min(1, "Name is required"),
-  stage: z.string().optional(),
-  value: z.string().optional(),
-  source: z.string().optional(),
-  probability: z.string().optional(),
-  expectedCloseDate: z.string().optional(),
-  description: z.string().optional(),
-  competitor: z.string().optional(),
-});
-
-type FormValues = z.infer<typeof schema>;
+function formatDealMoney(value: number | null | undefined) {
+  if (value == null) return "—";
+  return value.toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 });
+}
 
 function errorMessage(err: unknown, fallback: string): string {
   if (axios.isAxiosError(err)) {
@@ -68,9 +51,11 @@ export function DealsPage() {
   const navigate = useNavigate();
   const auth = useAuth();
   const canCreate = useHasPermission("DEAL_CREATE");
+  const canUpdate = useHasPermission("DEAL_UPDATE");
   const canStage = useHasPermission("DEAL_STAGE");
   const canCreateProject = useHasPermission("PROJECT_CREATE");
   const canViewNotes = useHasPermission("NOTE_VIEW");
+  const canCreateNotes = useHasPermission("NOTE_CREATE");
   const canViewDocs = useHasPermission("DOCUMENT_VIEW");
   const canUploadDocs = useHasPermission("DOCUMENT_UPLOAD");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
@@ -78,7 +63,6 @@ export function DealsPage() {
   const canViewUsers = useHasPermission("USER_VIEW");
   const [view, setView] = useState<"list" | "pipeline">("list");
   const [selected, setSelected] = useState<Deal | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
   const [stageError, setStageError] = useState<string | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [projectSuccess, setProjectSuccess] = useState<string | null>(null);
@@ -90,8 +74,8 @@ export function DealsPage() {
   const [minValueFilter, setMinValueFilter] = useState("");
   const [closeFrom, setCloseFrom] = useState("");
   const [closeTo, setCloseTo] = useState("");
-  const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
+  const [noteBody, setNoteBody] = useState("");
+  const [showEdit, setShowEdit] = useState(false);
   const { filterOpen, setFilterOpen, search, setSearch, showForm, setShowForm } = useModuleWorkspace();
 
   const listParams = useMemo(
@@ -120,7 +104,7 @@ export function DealsPage() {
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => listUsers(),
-    enabled: canViewUsers,
+    enabled: canViewUsers || (showForm && canCreate),
   });
   const activeFilterCount = [
     search,
@@ -148,14 +132,18 @@ export function DealsPage() {
   });
   const auditQuery = useQuery({
     queryKey: ["admin", "audit-logs", "DEAL", selected?.id],
-    queryFn: () => listAuditLogs({ entityType: "DEAL", entityId: selected!.id, size: 30 }),
+    queryFn: () => listAuditLogs({ entityType: "DEAL", entityId: selected!.id, size: 50 }),
     enabled: !!selected && canViewAudit,
   });
-  const dealFormBundleQuery = useQuery({
-    queryKey: ["metadata", "runtime", "deal", "form-bundle", "CREATE"],
-    queryFn: () => getPublishedFormBundle("deal", "CREATE"),
-    enabled: showForm,
-    staleTime: 60_000,
+  const stageHistoryQuery = useQuery({
+    queryKey: ["crm", "deals", "stage-history", selected?.id],
+    queryFn: () => listDealStageHistory(selected!.id),
+    enabled: !!selected,
+  });
+  const contactsQuery = useQuery({
+    queryKey: ["crm", "contacts", "deal-record", selected?.accountId],
+    queryFn: () => listContacts({ accountId: selected!.accountId }),
+    enabled: !!selected,
   });
 
   const accountName = useMemo(() => {
@@ -163,62 +151,52 @@ export function DealsPage() {
     return (id: string) => map.get(id) ?? id.slice(0, 8);
   }, [accountsQuery.data]);
 
-  const {
-    register,
-    handleSubmit,
-    reset,
-    formState: { errors, isSubmitting, isDirty },
-  } = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      accountId: "",
-      name: "",
-      stage: "NEW",
-      value: "",
-      source: "",
-      probability: "",
-      expectedCloseDate: "",
-      description: "",
-      competitor: "",
-    },
-  });
+  const ownerName = useMemo(() => {
+    const map = new Map(
+      (usersQuery.data ?? []).map((user) => [user.id, `${user.firstName} ${user.lastName}`.trim()]),
+    );
+    return (id: string | null | undefined) => (id ? (map.get(id) ?? id.slice(0, 8)) : "—");
+  }, [usersQuery.data]);
+
+  const contactName = useMemo(() => {
+    if (!selected?.contactId) return undefined;
+    const contact = (contactsQuery.data ?? []).find((item) => item.id === selected.contactId);
+    return contact ? `${contact.firstName} ${contact.lastName}`.trim() : selected.contactId.slice(0, 8);
+  }, [contactsQuery.data, selected?.contactId]);
+
+  const accountOptions = useMemo(
+    () => optionsFromPairs((accountsQuery.data ?? []).map((account) => ({ value: account.id, label: account.name }))),
+    [accountsQuery.data],
+  );
+  const ownerFilterOptions = useMemo(
+    () =>
+      optionsFromPairs(
+        (usersQuery.data ?? []).map((user) => ({
+          value: user.id,
+          label: `${user.firstName} ${user.lastName}`.trim(),
+          subtitle: user.email,
+        })),
+      ),
+    [usersQuery.data],
+  );
 
   const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ["crm", "deals"] });
     await queryClient.invalidateQueries({ queryKey: ["dashboards"] });
   };
 
-  function buildDealBody(values: FormValues) {
-    return {
-      accountId: values.accountId,
-      name: values.name,
-      stage: values.stage || "NEW",
-      value: values.value ? Number(values.value) : undefined,
-      source: values.source || undefined,
-      probability: values.probability ? Number(values.probability) : undefined,
-      expectedCloseDate: values.expectedCloseDate || undefined,
-      description: values.description || undefined,
-      competitor: values.competitor || undefined,
-    };
+  async function handleDealCreated(deal: Deal, mode: "save" | "saveAndNew") {
+    await refresh();
+    if (mode === "save") {
+      setShowForm(false);
+      setSelected(deal);
+    }
   }
 
-  const createMutation = useMutation({
-    mutationFn: createDeal,
-    onSuccess: async () => {
-      await refresh();
-      setFormError(null);
-      if (saveAndNew) {
-        reset();
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        reset();
-        setShowForm(false);
-        setShowMore(false);
-      }
-    },
-    onError: () => setFormError("Could not create deal."),
-  });
+  function openCreate() {
+    setSelected(null);
+    setShowForm(true);
+  }
 
   const stageMutation = useMutation({
     mutationFn: ({
@@ -238,6 +216,8 @@ export function DealsPage() {
       setStageError(null);
       setLostReason("");
       setWonCloseDate("");
+      await queryClient.invalidateQueries({ queryKey: ["admin", "audit-logs", "DEAL", deal.id] });
+      await queryClient.invalidateQueries({ queryKey: ["crm", "deals", "stage-history", deal.id] });
     },
     onError: (err) => setStageError(errorMessage(err, "Could not change stage.")),
   });
@@ -256,11 +236,195 @@ export function DealsPage() {
     },
   });
 
+  const noteMutation = useMutation({
+    mutationFn: () => createNote("DEAL", selected!.id, noteBody),
+    onSuccess: async () => {
+      setNoteBody("");
+      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "DEAL", selected?.id] });
+    },
+  });
+
   const loading = view === "list" ? dealsQuery.isLoading : pipelineQuery.isLoading;
   const error = view === "list" ? dealsQuery.error : pipelineQuery.error;
   const deals = dealsQuery.data ?? [];
+  const recordNav = useRecordNavigation(deals, selected, setSelected);
+
+  const ownerOptions = useMemo(
+    () =>
+      buildOwnerOptions(usersQuery.data, {
+        userId: auth.userId,
+        displayName: auth.displayName,
+      }),
+    [usersQuery.data, auth.displayName, auth.userId],
+  );
+
+  const timelineEntries = useMemo(
+    () =>
+      buildDealTimelineEntries(
+        auditQuery.data,
+        activitiesQuery.data,
+        stageHistoryQuery.data,
+        (userId) => (userId === auth.userId ? auth.displayName : ownerName(userId)),
+        recordLifecycleInfo("Deal", selected),
+        notesQuery.data,
+      ),
+    [
+      auditQuery.data,
+      activitiesQuery.data,
+      stageHistoryQuery.data,
+      notesQuery.data,
+      auth.displayName,
+      auth.userId,
+      ownerName,
+      selected,
+    ],
+  );
+
+  function handleStageClick(stage: string) {
+    if (!selected) return;
+    if (stage === selected.stage) return;
+    if (selected.stage === "WON" || selected.stage === "LOST") {
+      setStageError("Stage cannot be changed after the deal is closed.");
+      return;
+    }
+    if (stage === "LOST" && !lostReason.trim()) {
+      setStageError("Lost reason is required when stage is LOST.");
+      return;
+    }
+    const closeDate = stage === "WON" ? wonCloseDate || selected.expectedCloseDate || "" : undefined;
+    if (stage === "WON" && !closeDate) {
+      setStageError("Expected close date is required when stage is WON.");
+      return;
+    }
+    stageMutation.mutate({
+      id: selected.id,
+      toStage: stage,
+      lostReason: stage === "LOST" ? lostReason || undefined : undefined,
+      expectedCloseDate: closeDate || undefined,
+    });
+  }
+
+  async function openDownload(id: string) {
+    const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+    const response = await fetch(documentDownloadUrl(id), {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!response.ok) return;
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "document";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
+    <>
+      {showForm && canCreate ? (
+        <DealCreateView
+          accounts={(accountsQuery.data ?? []).map((account) => ({ id: account.id, name: account.name }))}
+          users={ownerOptions}
+          defaultOwnerId={auth.userId}
+          onCancel={() => setShowForm(false)}
+          onCreated={(deal, mode) => void handleDealCreated(deal, mode)}
+        />
+      ) : showEdit && selected && canUpdate ? (
+        <DealEditView
+          deal={selected}
+          accountName={accountName(selected.accountId)}
+          users={ownerOptions}
+          onCancel={() => setShowEdit(false)}
+          onUpdated={(deal) => {
+            setSelected(deal);
+            setShowEdit(false);
+            void refresh();
+          }}
+        />
+      ) : selected ? (
+        <RecordShell
+          layout="page"
+          title={`${selected.name}${selected.value != null ? ` - ${formatDealMoney(selected.value)}` : ""}`}
+          subtitle={accountName(selected.accountId)}
+          avatarLabel={selected.name}
+          meta={<span className="small text-muted">Last Update: {new Date(selected.updatedAt).toLocaleString()}</span>}
+          status={<StatusBadge status={selected.stage} />}
+          recordKey={selected.id}
+          onBack={() => {
+            setShowEdit(false);
+            recordNav.goBack();
+          }}
+          onPrev={recordNav.goPrev}
+          onNext={recordNav.goNext}
+          hasPrev={recordNav.hasPrev}
+          hasNext={recordNav.hasNext}
+          relatedLinks={[...DEAL_RELATED_LINKS]}
+          primaryAction={
+            <button type="button" className="btn btn-primary btn-sm" disabled>
+              Send Email
+            </button>
+          }
+          secondaryActions={
+            canUpdate ? (
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowEdit(true)}>
+                Edit
+              </button>
+            ) : null
+          }
+          tabs={[
+            {
+              id: "overview",
+              label: "Overview",
+              content: (
+                <DealRecordOverview
+                  deal={selected}
+                  ownerName={ownerName(selected.ownerId)}
+                  accountName={accountName(selected.accountId)}
+                  contactName={contactName}
+                  canStage={canStage}
+                  canCreateProject={canCreateProject}
+                  canViewNotes={canViewNotes}
+                  canCreateNotes={canCreateNotes}
+                  canViewDocs={canViewDocs}
+                  canUploadDocs={canUploadDocs}
+                  stageError={stageError}
+                  projectError={projectError}
+                  projectSuccess={projectSuccess}
+                  lostReason={lostReason}
+                  wonCloseDate={wonCloseDate}
+                  noteBody={noteBody}
+                  notes={notesQuery.data ?? []}
+                  documents={docsQuery.data ?? []}
+                  stagePending={stageMutation.isPending}
+                  projectPending={projectMutation.isPending}
+                  onLostReasonChange={setLostReason}
+                  onWonCloseDateChange={setWonCloseDate}
+                  onNoteBodyChange={setNoteBody}
+                  onStageClick={handleStageClick}
+                  onCreateProject={() => projectMutation.mutate(selected.id)}
+                  onSaveNote={() => noteMutation.mutate()}
+                  onUploadDocument={async (file) => {
+                    await uploadDocument("DEAL", selected.id, file);
+                    await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "DEAL", selected.id] });
+                  }}
+                  onDownloadDocument={openDownload}
+                />
+              ),
+            },
+            {
+              id: "timeline",
+              label: "Timeline",
+              visible: true,
+              content: (
+                <ZohoRecordTimeline
+                  entries={timelineEntries}
+                  loading={auditQuery.isLoading || stageHistoryQuery.isLoading || activitiesQuery.isLoading}
+                />
+              ),
+            },
+          ]}
+        />
+      ) : (
     <ModuleListShell
       title="Deals"
       filterOpen={filterOpen}
@@ -294,8 +458,8 @@ export function DealsPage() {
       }
       primaryAction={
         canCreate ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Deal"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Create Deal
           </button>
         ) : null
       }
@@ -313,47 +477,30 @@ export function DealsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Stage</label>
-            <select className="form-select form-select-sm mb-2" value={stageFilter} onChange={(e) => setStageFilter(e.target.value)}>
-              <option value="">All</option>
-              {DEAL_STAGES.map((stage) => (
-                <option key={stage} value={stage}>
-                  {stage}
-                </option>
-              ))}
-            </select>
-            <label className="form-label small mb-1">Account</label>
-            <select
-              className="form-select form-select-sm mb-2"
+            <ZohoFilterSelect
+              label="Stage"
+              value={stageFilter}
+              onChange={setStageFilter}
+              options={DEAL_STAGE_OPTIONS}
+              searchPlaceholder="Search Stages"
+            />
+            <ZohoFilterSelect
+              label="Account"
               value={accountFilter}
-              onChange={(e) => setAccountFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(accountsQuery.data ?? []).map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
+              onChange={setAccountFilter}
+              options={accountOptions}
+              searchPlaceholder="Search Accounts"
+            />
             {canViewUsers ? (
-              <>
-                <label className="form-label small mb-1">Owner</label>
-                <select
-                  className="form-select form-select-sm mb-2"
-                  value={ownerFilter}
-                  onChange={(e) => setOwnerFilter(e.target.value)}
-                >
-                  <option value="">All</option>
-                  {auth.userId ? <option value={auth.userId}>Current user</option> : null}
-                  {(usersQuery.data ?? []).map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.firstName} {user.lastName}
-                    </option>
-                  ))}
-                </select>
-              </>
+              <ZohoFilterSelect
+                label="Owner"
+                value={ownerFilter}
+                onChange={setOwnerFilter}
+                options={ownerFilterOptions}
+                searchPlaceholder="Search Owners"
+              />
             ) : null}
-            <label className="form-label small mb-1">Min value</label>
+            <label className="form-label">Min value</label>
             <input
               className="form-control form-control-sm mb-2"
               type="number"
@@ -361,14 +508,14 @@ export function DealsPage() {
               onChange={(e) => setMinValueFilter(e.target.value)}
               placeholder="0"
             />
-            <label className="form-label small mb-1">Close from</label>
+            <label className="form-label">Close from</label>
             <input
               className="form-control form-control-sm mb-2"
               type="date"
               value={closeFrom}
               onChange={(e) => setCloseFrom(e.target.value)}
             />
-            <label className="form-label small mb-1">Close to</label>
+            <label className="form-label">Close to</label>
             <input
               className="form-control form-control-sm"
               type="date"
@@ -380,66 +527,11 @@ export function DealsPage() {
       }
       footerLeft={<span>Total Records: {view === "list" ? deals.length : "—"}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => createMutation.mutate(buildDealBody(values)))}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          {dealFormBundleQuery.isLoading ? <LoadingState label="Loading form layout..." /> : null}
-          {dealFormBundleQuery.error ? (
-            <ErrorState title="Form layout unavailable" message="Published Deal CREATE layout is required." />
-          ) : null}
-          {dealFormBundleQuery.data ? (
-            <DynamicForm
-              layout={dealFormBundleQuery.data.layout.layout}
-              fields={dealFormBundleQuery.data.fields}
-              register={register}
-              errors={errors}
-              moreOpen={showMore}
-              onMoreToggle={() => setShowMore((v) => !v)}
-              fieldConfig={{
-                accountId: {
-                  options: (accountsQuery.data ?? []).map((account) => ({
-                    value: account.id,
-                    label: account.name,
-                  })),
-                  colClass: "col-md-4",
-                },
-                stage: {
-                  options: DEAL_STAGES.map((stage) => ({ value: stage, label: stage })),
-                  colClass: "col-md-2",
-                },
-                name: { colClass: "col-md-4" },
-                value: { typeOverride: "number", colClass: "col-md-2" },
-                probability: { typeOverride: "number" },
-                expectedCloseDate: { typeOverride: "date" },
-              }}
-            />
-          ) : null}
-          <FormActions
-            submitting={isSubmitting || createMutation.isPending}
-            showSaveAndNew
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void handleSubmit((values) => createMutation.mutate(buildDealBody(values)))();
-            }}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              reset();
-            }}
-          />
-        </form>
-      ) : null}
-
       {loading ? <LoadingState label="Loading deals..." /> : null}
       {error ? <ErrorState title="Unable to load deals" message="Try again." /> : null}
 
       {!loading && !error ? (
-        <div className={selected ? "module-list-split" : undefined} style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {view === "list" ? (
             <div className="module-list-table-wrap">
               <table className="table module-list-table align-middle">
@@ -508,194 +600,10 @@ export function DealsPage() {
               ))}
             </div>
           )}
-
-          {selected ? (
-            <RecordShell
-              title={selected.name}
-              subtitle={accountName(selected.accountId)}
-              badges={<StatusBadge status={selected.stage} />}
-              onClose={() => setSelected(null)}
-              tabs={[
-                {
-                  id: "overview",
-                  label: "Overview",
-                  content: (
-                    <>
-                      <p className="small mb-3">Value: {selected.value ?? "—"}</p>
-                      {stageError ? <div className="alert alert-danger py-2">{stageError}</div> : null}
-                      {projectError ? <div className="alert alert-danger py-2">{projectError}</div> : null}
-                      {projectSuccess ? <div className="alert alert-success py-2">{projectSuccess}</div> : null}
-                      {canStage ? (
-                        <div className="mb-3">
-                          <div className="form-label">Change stage</div>
-                          <div className="d-flex flex-wrap gap-1 mb-2">
-                            {DEAL_STAGES.map((stage) => (
-                              <button
-                                key={stage}
-                                type="button"
-                                className="btn btn-outline-primary btn-sm"
-                                disabled={stage === selected.stage || stageMutation.isPending}
-                                onClick={() => {
-                                  if (stage === "LOST" && !lostReason.trim()) {
-                                    setStageError("Lost reason is required when stage is LOST.");
-                                    return;
-                                  }
-                                  const closeDate =
-                                    stage === "WON"
-                                      ? wonCloseDate || selected.expectedCloseDate || ""
-                                      : undefined;
-                                  if (stage === "WON" && !closeDate) {
-                                    setStageError("Expected close date is required when stage is WON.");
-                                    return;
-                                  }
-                                  stageMutation.mutate({
-                                    id: selected.id,
-                                    toStage: stage,
-                                    lostReason: stage === "LOST" ? lostReason || undefined : undefined,
-                                    expectedCloseDate: closeDate || undefined,
-                                  });
-                                }}
-                              >
-                                {stage}
-                              </button>
-                            ))}
-                          </div>
-                          <FormField
-                            label="Lost reason (if LOST)"
-                            value={lostReason}
-                            onChange={(e) => setLostReason(e.target.value)}
-                          />
-                          <FormField
-                            label="Close date (if WON)"
-                            type="date"
-                            value={wonCloseDate || selected.expectedCloseDate?.slice(0, 10) || ""}
-                            onChange={(e) => setWonCloseDate(e.target.value)}
-                          />
-                        </div>
-                      ) : null}
-                      {canCreateProject && selected.stage === "WON" ? (
-                        <button
-                          type="button"
-                          className="btn btn-success btn-sm"
-                          disabled={projectMutation.isPending}
-                          onClick={() => projectMutation.mutate(selected.id)}
-                        >
-                          Create project
-                        </button>
-                      ) : null}
-                    </>
-                  ),
-                },
-                {
-                  id: "related",
-                  label: "Related",
-                  content: (
-                    <p className="small text-muted mb-0">Account: {accountName(selected.accountId)}</p>
-                  ),
-                },
-                {
-                  id: "activities",
-                  label: "Activities",
-                  visible: canViewActivities,
-                  content: (
-                    <ul className="small mb-0">
-                      {(activitiesQuery.data ?? []).map((a) => (
-                        <li key={a.id}>
-                          {a.subject} — <StatusBadge status={a.status} />
-                        </li>
-                      ))}
-                      {!activitiesQuery.data?.length ? <li className="text-muted">No activities</li> : null}
-                    </ul>
-                  ),
-                },
-                {
-                  id: "notes",
-                  label: "Notes",
-                  visible: canViewNotes,
-                  content: (
-                    <ul className="small mb-0">
-                      {(notesQuery.data ?? []).map((n) => (
-                        <li key={n.id}>{n.body}</li>
-                      ))}
-                      {!notesQuery.data?.length ? <li className="text-muted">No notes</li> : null}
-                    </ul>
-                  ),
-                },
-                {
-                  id: "documents",
-                  label: "Documents",
-                  visible: canViewDocs,
-                  content: (
-                    <>
-                      {canUploadDocs ? (
-                        <input
-                          className="form-control form-control-sm mb-2"
-                          type="file"
-                          onChange={async (e) => {
-                            const file = e.target.files?.[0];
-                            if (!file || !selected) return;
-                            try {
-                              await uploadDocument("DEAL", selected.id, file);
-                              await queryClient.invalidateQueries({
-                                queryKey: ["crm", "documents", "DEAL", selected.id],
-                              });
-                            } catch {
-                              /* ignore */
-                            }
-                            e.target.value = "";
-                          }}
-                        />
-                      ) : null}
-                      <ul className="small mb-0">
-                        {(docsQuery.data ?? []).map((d) => (
-                          <li key={d.id}>
-                            <button
-                              type="button"
-                              className="btn btn-link btn-sm px-0"
-                              onClick={async () => {
-                                const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
-                                const response = await fetch(documentDownloadUrl(d.id), {
-                                  headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-                                });
-                                if (!response.ok) return;
-                                const blob = await response.blob();
-                                const url = URL.createObjectURL(blob);
-                                const anchor = document.createElement("a");
-                                anchor.href = url;
-                                anchor.download = d.fileName;
-                                anchor.click();
-                                URL.revokeObjectURL(url);
-                              }}
-                            >
-                              {d.fileName}
-                            </button>
-                          </li>
-                        ))}
-                        {!docsQuery.data?.length ? <li className="text-muted">No documents</li> : null}
-                      </ul>
-                    </>
-                  ),
-                },
-                {
-                  id: "audit",
-                  label: "Audit",
-                  visible: canViewAudit,
-                  content: (
-                    <ul className="small mb-0">
-                      {(auditQuery.data ?? []).map((log) => (
-                        <li key={log.id}>
-                          {log.action} · {new Date(log.createdAt).toLocaleString()}
-                        </li>
-                      ))}
-                      {!auditQuery.data?.length ? <li className="text-muted">No audit events</li> : null}
-                    </ul>
-                  ),
-                },
-              ]}
-            />
-          ) : null}
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

@@ -5,6 +5,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { FormActions, FormSection, UnsavedGuard } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  optionsFromPairs,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -27,6 +34,9 @@ const schema = z.object({
 });
 
 type FormValues = z.infer<typeof schema>;
+
+const VENDOR_STATUSES = ["ACTIVE", "INACTIVE"] as const;
+const vendorStatusOptions = enumPickerOptions(VENDOR_STATUSES);
 
 const DEFAULTS: FormValues = {
   regionId: "",
@@ -67,6 +77,7 @@ export function VendorsPage() {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting, isDirty },
@@ -75,21 +86,46 @@ export function VendorsPage() {
     defaultValues: DEFAULTS,
   });
 
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow({
+    defaults: DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+  });
+
+  const buildVendorBody = (values: FormValues) => ({
+    regionId: values.regionId,
+    name: values.name,
+    taxNumber: values.taxNumber || undefined,
+    email: values.email || undefined,
+    phone: values.phone || undefined,
+    accountId: values.accountId || undefined,
+    paymentTermsDays: values.paymentTermsDays ? Number(values.paymentTermsDays) : undefined,
+    status: values.status || "ACTIVE",
+  });
+
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["vendors"] });
   };
 
   const createMutation = useMutation({
     mutationFn: createVendor,
-    onSuccess: async () => {
+    onSuccess: async (vendor) => {
       await invalidate();
       setFormError(null);
-      reset(DEFAULTS);
-      setShowForm(false);
-      setEditingId(null);
+      await afterCreateSuccess(vendor, "VENDOR");
     },
     onError: () => setFormError("Could not create vendor."),
   });
+
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate(buildVendorBody(values));
+  };
 
   const updateMutation = useMutation({
     mutationFn: ({ id, body }: { id: string; body: Parameters<typeof updateVendor>[1] }) =>
@@ -106,6 +142,15 @@ export function VendorsPage() {
 
   const rows = vendorsQuery.data ?? [];
   const regionName = (id: string) => regionsQuery.data?.find((r) => r.id === id)?.name ?? id.slice(0, 8);
+
+  const regionOptions = useMemo(
+    () => optionsFromPairs((regionsQuery.data ?? []).map((r) => ({ value: r.id, label: r.name }))),
+    [regionsQuery.data],
+  );
+  const accountOptions = useMemo(
+    () => optionsFromPairs((accountsQuery.data ?? []).map((a) => ({ value: a.id, label: a.name }))),
+    [accountsQuery.data],
+  );
   const activeFilterCount = [search, statusFilter, regionFilter].filter(Boolean).length;
 
   function openCreate() {
@@ -131,7 +176,86 @@ export function VendorsPage() {
     setShowForm(true);
   }
 
+  const vendorFormFields = (
+    <FormSection title={editingId ? "Edit vendor" : "Vendor"} description="Procurement master; optional link to CRM account">
+      <div className="col-md-3">
+        <label className="form-label required">Region</label>
+        <ZohoFormSelect
+          control={control}
+          name="regionId"
+          options={regionOptions}
+          searchPlaceholder="Search Regions"
+          allowEmpty={false}
+          placeholder="Select"
+          invalid={!!errors.regionId}
+        />
+        {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
+      </div>
+      <div className="col-md-3">
+        <FormField label="Name" required error={errors.name} {...register("name")} />
+      </div>
+      <div className="col-md-2">
+        <FormField label="Tax number" error={errors.taxNumber} {...register("taxNumber")} />
+      </div>
+      <div className="col-md-2">
+        <FormField label="Email" error={errors.email} {...register("email")} />
+      </div>
+      <div className="col-md-2">
+        <FormField label="Phone" error={errors.phone} {...register("phone")} />
+      </div>
+      <div className="col-md-3">
+        <label className="form-label">CRM account</label>
+        <ZohoFormSelect
+          control={control}
+          name="accountId"
+          options={accountOptions}
+          searchPlaceholder="Search Accounts"
+          lookupIcon="building"
+          placeholder="Optional"
+        />
+      </div>
+      <div className="col-md-2">
+        <FormField
+          label="Payment terms (days)"
+          type="number"
+          error={errors.paymentTermsDays}
+          {...register("paymentTermsDays")}
+        />
+      </div>
+      <div className="col-md-2">
+        <label className="form-label">Status</label>
+        <ZohoFormSelect
+          control={control}
+          name="status"
+          options={vendorStatusOptions}
+          searchPlaceholder="Search Statuses"
+          allowEmpty={false}
+        />
+      </div>
+    </FormSection>
+  );
+
   return (
+    <>
+      {showForm && canManage && !editingId ? (
+        <ZohoFormKitCreateView
+          title="Create Vendor"
+          entityLabel="Vendor"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          {vendorFormFields}
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Vendors"
       filterOpen={filterOpen}
@@ -149,20 +273,8 @@ export function VendorsPage() {
       }
       primaryAction={
         canManage ? (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              if (showForm) {
-                setShowForm(false);
-                setEditingId(null);
-                reset(DEFAULTS);
-              } else {
-                openCreate();
-              }
-            }}
-          >
-            {showForm ? "Cancel" : "Create Vendor"}
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
+            Create Vendor
           </button>
         ) : null
       }
@@ -209,87 +321,19 @@ export function VendorsPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
+      {showForm && editingId ? (
         <form
           className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) => {
-            const body = {
-              regionId: values.regionId,
-              name: values.name,
-              taxNumber: values.taxNumber || undefined,
-              email: values.email || undefined,
-              phone: values.phone || undefined,
-              accountId: values.accountId || undefined,
-              paymentTermsDays: values.paymentTermsDays ? Number(values.paymentTermsDays) : undefined,
-              status: values.status || "ACTIVE",
-            };
-            if (editingId) {
-              updateMutation.mutate({ id: editingId, body });
-            } else {
-              createMutation.mutate(body);
-            }
-          })}
+          onSubmit={handleSubmit((values) =>
+            updateMutation.mutate({ id: editingId, body: buildVendorBody(values) }),
+          )}
         >
           <UnsavedGuard when={isDirty && showForm} />
           {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection
-            title={editingId ? "Edit vendor" : "Vendor"}
-            description="Procurement master; optional link to CRM account"
-          >
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <select className="form-select" {...register("regionId")}>
-                <option value="">Select</option>
-                {(regionsQuery.data ?? []).map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <FormField label="Name" required error={errors.name} {...register("name")} />
-            </div>
-            <div className="col-md-2">
-              <FormField label="Tax number" error={errors.taxNumber} {...register("taxNumber")} />
-            </div>
-            <div className="col-md-2">
-              <FormField label="Email" error={errors.email} {...register("email")} />
-            </div>
-            <div className="col-md-2">
-              <FormField label="Phone" error={errors.phone} {...register("phone")} />
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">CRM account</label>
-              <select className="form-select" {...register("accountId")}>
-                <option value="">Optional</option>
-                {(accountsQuery.data ?? []).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="Payment terms (days)"
-                type="number"
-                error={errors.paymentTermsDays}
-                {...register("paymentTermsDays")}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <select className="form-select" {...register("status")}>
-                <option value="ACTIVE">ACTIVE</option>
-                <option value="INACTIVE">INACTIVE</option>
-              </select>
-            </div>
-          </FormSection>
+          {vendorFormFields}
           <FormActions
-            submitLabel={editingId ? "Update" : "Save"}
-            submitting={isSubmitting || createMutation.isPending || updateMutation.isPending}
+            submitLabel="Update"
+            submitting={isSubmitting || updateMutation.isPending}
             onCancel={() => {
               setShowForm(false);
               setEditingId(null);
@@ -345,5 +389,7 @@ export function VendorsPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { ZohoFormKitCreateView, useZohoCreateFlow } from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -32,6 +33,8 @@ const createSchema = z.object({
 });
 
 type CreateFormValues = z.infer<typeof createSchema>;
+
+const TIMESHEET_DEFAULTS: CreateFormValues = { weekStartDate: mondayOf() };
 
 const entrySchema = z.object({
   projectId: z.string().min(1, "Project is required"),
@@ -118,7 +121,15 @@ export function TimesheetsPage() {
     formState: { errors, isSubmitting, isDirty },
   } = useForm<CreateFormValues>({
     resolver: zodResolver(createSchema),
-    defaultValues: { weekStartDate: mondayOf() },
+    defaultValues: TIMESHEET_DEFAULTS,
+  });
+
+  const { photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+    defaults: TIMESHEET_DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+    setSelected: (entity) => setSelectedId(entity.id),
   });
 
   const entryForm = useForm<EntryFormValues>({
@@ -128,12 +139,10 @@ export function TimesheetsPage() {
 
   const createMutation = useMutation({
     mutationFn: createTimesheet,
-    onSuccess: (sheet) => {
-      queryClient.invalidateQueries({ queryKey: ["timesheets"] });
-      setShowForm(false);
-      reset({ weekStartDate: mondayOf() });
-      setSelectedId(sheet.id);
+    onSuccess: async (sheet) => {
+      await queryClient.invalidateQueries({ queryKey: ["timesheets"] });
       setFormError(null);
+      await afterCreateSuccess(sheet, "TIMESHEET");
     },
     onError: (err: Error) => setFormError(err.message),
   });
@@ -244,6 +253,33 @@ export function TimesheetsPage() {
   const ownSheet = selected && auth.resourceId && selected.resourceId === auth.resourceId;
 
   return (
+    <>
+      {showForm && canCreate ? (
+        <ZohoFormKitCreateView
+          title="Create Timesheet"
+          tableCode="timesheet"
+          entityLabel="Timesheet"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void onCreate()}
+          onSubmit={() => void onCreate()}
+          photo={photo}
+        >
+          <FormSection title="Primary details" description="Start a weekly timesheet">
+            <div className="col-md-3">
+              <FormField
+                label="Week start (Monday)"
+                type="date"
+                required
+                error={errors.weekStartDate}
+                {...register("weekStartDate")}
+              />
+            </div>
+          </FormSection>
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Timesheets"
       filterOpen={filterOpen}
@@ -272,11 +308,12 @@ export function TimesheetsPage() {
             type="button"
             className="btn btn-primary btn-sm"
             onClick={() => {
-              setShowForm((v) => !v);
+              reset(TIMESHEET_DEFAULTS);
               setFormError(null);
+              setShowForm(true);
             }}
           >
-            {showForm ? "Cancel" : "Create Timesheet"}
+            Create Timesheet
           </button>
         ) : null
       }
@@ -343,33 +380,6 @@ export function TimesheetsPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form className="border-bottom p-3 bg-white" onSubmit={onCreate}>
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Primary details" description="Start a weekly timesheet">
-            <div className="col-md-3">
-              <FormField
-                label="Week start (Monday)"
-                type="date"
-                required
-                error={errors.weekStartDate}
-                {...register("weekStartDate")}
-              />
-            </div>
-          </FormSection>
-          <FormActions
-            submitLabel="Save"
-            submitting={isSubmitting || createMutation.isPending}
-            onCancel={() => {
-              if (isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              reset({ weekStartDate: mondayOf() });
-            }}
-          />
-        </form>
-      ) : null}
-
       {listQuery.isLoading ? <LoadingState label="Loading timesheets..." /> : null}
       {listQuery.error ? <ErrorState title="Unable to load timesheets" message="Try again." /> : null}
 
@@ -461,6 +471,16 @@ export function TimesheetsPage() {
                   {selected.rejectionReason ? (
                     <div className="alert alert-warning py-2">Rejected: {selected.rejectionReason}</div>
                   ) : null}
+                  <div className="alert alert-light border py-2 small mb-3" role="status">
+                    Workflow:{" "}
+                    {selected.status === "DRAFT" || selected.status === "REJECTED"
+                      ? "1. Add entries → 2. Submit for approval"
+                      : selected.status === "SUBMITTED"
+                        ? "Awaiting manager approval"
+                        : selected.status === "APPROVED"
+                          ? "Approved — locked for billing"
+                          : selected.status}
+                  </div>
                   {actionError ? <div className="alert alert-danger py-2">{actionError}</div> : null}
 
                   <div className="table-responsive mb-3">
@@ -650,5 +670,7 @@ export function TimesheetsPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

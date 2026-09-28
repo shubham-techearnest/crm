@@ -2,6 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { PLATFORM_NAV_SECTIONS } from "@/constants/nav";
+import { NavIcon } from "@/components/NavIcon/NavIcon";
+import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import { logout } from "@/features/auth/authApi";
 import { useAuth } from "@/features/auth/AuthContext";
 
@@ -36,9 +38,9 @@ export function PlatformShell() {
       <aside className={`app-sidebar ${sidebarOpen ? "open" : ""}`}>
         <div className="app-brand">
           <span className="app-brand-mark">TE</span>
-          <span>Platform Console</span>
+          <span className="app-brand-name">Platform Console</span>
         </div>
-        <nav className="pb-4" aria-label="Platform">
+        <nav className="app-sidebar-nav" aria-label="Platform">
           {PLATFORM_NAV_SECTIONS.map((section) => (
             <div key={section.title}>
               <div className="nav-section-label">{section.title}</div>
@@ -52,6 +54,7 @@ export function PlatformShell() {
                   }
                   onClick={() => setSidebarOpen(false)}
                 >
+                  <NavIcon name={item.icon} colored />
                   <span>{item.label}</span>
                   {item.comingSoon ? <span className="nav-badge">Soon</span> : null}
                 </NavLink>
@@ -63,21 +66,36 @@ export function PlatformShell() {
 
       <div className="app-main d-flex flex-column">
         <header className="app-topbar">
-          <div className="d-flex align-items-center gap-2">
+          <div className="app-topbar-left">
             <button
               type="button"
-              className="btn btn-outline-secondary btn-sm d-lg-none"
+              className="app-topbar-icon-btn d-lg-none"
+              aria-label="Open navigation"
               onClick={() => setSidebarOpen(true)}
             >
-              Menu
+              <ToolbarIcon name="menu" />
             </button>
-            <span className="text-muted small d-none d-md-inline">PLATFORM</span>
+            <span className="app-topbar-scope d-none d-md-inline">PLATFORM</span>
           </div>
-          <div className="d-flex align-items-center gap-2">
-            <span className="small d-none d-sm-inline">{user.displayName}</span>
-            <button type="button" className="btn btn-outline-secondary btn-sm" onClick={signOut} disabled={signingOut}>
-              Sign out
-            </button>
+          <div className="app-topbar-right">
+            <div className="app-topbar-account">
+              <span className="app-topbar-avatar" title={user.displayName} aria-hidden="true">
+                {user.displayName
+                  .split(/\s+/)
+                  .slice(0, 2)
+                  .map((part) => part[0]?.toUpperCase() ?? "")
+                  .join("")}
+              </span>
+              <span className="app-topbar-user d-none d-sm-inline">{user.displayName}</span>
+              <button
+                type="button"
+                className="btn btn-link btn-sm app-topbar-signout"
+                onClick={signOut}
+                disabled={signingOut}
+              >
+                Sign out
+              </button>
+            </div>
           </div>
         </header>
 

@@ -13,6 +13,7 @@ export function ApprovalsPage() {
   const canAct =
     useHasPermission("APPROVAL_ACT") ||
     useHasPermission("TIMESHEET_APPROVE") ||
+    useHasPermission("EXPENSE_APPROVE") ||
     useHasPermission("APPROVAL_ADMIN");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch } = useModuleWorkspace();
   const [targetType, setTargetType] = useState("");
@@ -48,6 +49,7 @@ export function ApprovalsPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["approvals"] }),
         queryClient.invalidateQueries({ queryKey: ["timesheets"] }),
+        queryClient.invalidateQueries({ queryKey: ["expenses"] }),
       ]);
     },
     onError: () => setActionError("Could not record approval action."),

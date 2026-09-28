@@ -5,6 +5,13 @@ import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
+import { FormActions } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
@@ -19,6 +26,7 @@ import {
 } from "./platformProspectApi";
 
 const STAGES = ["NEW", "QUALIFIED", "PROPOSAL", "WON", "LOST"] as const;
+const stageOptions = enumPickerOptions(STAGES);
 
 const schema = z.object({
   name: z.string().min(1, "Required"),
@@ -34,6 +42,51 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+const PROSPECT_DEFAULTS: FormValues = {
+  name: "",
+  legalName: "",
+  website: "",
+  email: "",
+  phone: "",
+  source: "",
+  stage: "NEW",
+  estimatedArr: "",
+  notes: "",
+};
+
+type ProspectDocument = { name: string; url: string };
+
+function parseProspectPayload(notes: string | null | undefined): { text: string; documents: ProspectDocument[] } {
+  if (!notes?.trim()) {
+    return { text: "", documents: [] };
+  }
+  const marker = "---DOCS---";
+  const idx = notes.indexOf(marker);
+  if (idx < 0) {
+    return { text: notes, documents: [] };
+  }
+  const text = notes.slice(0, idx).trim();
+  const raw = notes.slice(idx + marker.length).trim();
+  try {
+    const parsed = JSON.parse(raw) as { documents?: ProspectDocument[] };
+    return { text, documents: parsed.documents ?? [] };
+  } catch {
+    return { text: notes, documents: [] };
+  }
+}
+
+function serializeProspectPayload(text: string, documents: ProspectDocument[]): string | undefined {
+  const trimmed = text.trim();
+  const docs = documents.filter((doc) => doc.name.trim() && doc.url.trim());
+  if (!trimmed && !docs.length) {
+    return undefined;
+  }
+  if (!docs.length) {
+    return trimmed || undefined;
+  }
+  return `${trimmed}\n---DOCS---\n${JSON.stringify({ documents: docs })}`;
+}
+
 export function PlatformProspectsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -47,6 +100,11 @@ export function PlatformProspectsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<PlatformProspect | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailNotes, setDetailNotes] = useState("");
+  const [detailDocs, setDetailDocs] = useState<ProspectDocument[]>([]);
+  const [detailDocName, setDetailDocName] = useState("");
+  const [detailDocUrl, setDetailDocUrl] = useState("");
 
   const query = useQuery({
     queryKey: ["platform", "prospects", applied],
@@ -77,57 +135,100 @@ export function PlatformProspectsPage() {
   });
 
   const rows = useMemo(() => query.data?.items ?? [], [query.data]);
+  const selected = useMemo(() => rows.find((row) => row.id === selectedId) ?? null, [rows, selectedId]);
   const {
     register,
+    control,
     handleSubmit,
     reset,
-    formState: { errors, isSubmitting },
+    formState: { errors, isSubmitting, isDirty },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { name: "", stage: "NEW", estimatedArr: "" },
+    defaultValues: PROSPECT_DEFAULTS,
   });
 
-  const saveMutation = useMutation({
-    mutationFn: async (values: FormValues) => {
-      const body = {
-        name: values.name,
-        legalName: values.legalName || undefined,
-        website: values.website || undefined,
-        email: values.email || undefined,
-        phone: values.phone || undefined,
-        source: values.source || undefined,
-        stage: values.stage,
-        estimatedArr: values.estimatedArr ? Number(values.estimatedArr) : undefined,
-        notes: values.notes || undefined,
-      };
-      if (editing) {
-        return updatePlatformProspect(editing.id, body);
-      }
-      return createPlatformProspect(body);
+  const { setSaveAndNew, photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+    defaults: PROSPECT_DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+    setSelected: (entity) => setSelectedId(entity.id),
+  });
+
+  const buildProspectBody = (values: FormValues) => ({
+    name: values.name,
+    legalName: values.legalName || undefined,
+    website: values.website || undefined,
+    email: values.email || undefined,
+    phone: values.phone || undefined,
+    source: values.source || undefined,
+    stage: values.stage,
+    estimatedArr: values.estimatedArr ? Number(values.estimatedArr) : undefined,
+    notes: values.notes || undefined,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: (values: FormValues) => createPlatformProspect(buildProspectBody(values)),
+    onSuccess: async (prospect) => {
+      await queryClient.invalidateQueries({ queryKey: ["platform", "prospects"] });
+      setFormError(null);
+      await afterCreateSuccess(prospect, "PLATFORM_PROSPECT");
     },
-    onSuccess: () => {
+    onError: (err: Error) => setFormError(err.message || "Could not create prospect."),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (values: FormValues) => updatePlatformProspect(editing!.id, buildProspectBody(values)),
+    onSuccess: async () => {
       setShowForm(false);
       setEditing(null);
       setFormError(null);
-      reset({ name: "", stage: "NEW", estimatedArr: "" });
-      queryClient.invalidateQueries({ queryKey: ["platform", "prospects"] });
+      reset(PROSPECT_DEFAULTS);
+      await queryClient.invalidateQueries({ queryKey: ["platform", "prospects"] });
     },
     onError: (err: Error) => setFormError(err.message || "Save failed"),
   });
+
+  const onCreateSubmit = (values: FormValues) => {
+    createMutation.mutate(values);
+  };
 
   const deleteMutation = useMutation({
     mutationFn: deletePlatformProspect,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["platform", "prospects"] }),
   });
 
+  const detailMutation = useMutation({
+    mutationFn: async () => {
+      if (!selected) {
+        return;
+      }
+      return updatePlatformProspect(selected.id, {
+        name: selected.name,
+        legalName: selected.legalName ?? undefined,
+        website: selected.website ?? undefined,
+        email: selected.email ?? undefined,
+        phone: selected.phone ?? undefined,
+        source: selected.source ?? undefined,
+        stage: selected.stage,
+        estimatedArr: selected.estimatedArr ?? undefined,
+        notes: serializeProspectPayload(detailNotes, detailDocs),
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["platform", "prospects"] });
+    },
+  });
+
   function openCreate() {
     setEditing(null);
-    reset({ name: "", stage: "NEW", estimatedArr: "", legalName: "", email: "", phone: "", website: "", source: "", notes: "" });
+    reset(PROSPECT_DEFAULTS);
     setShowForm(true);
   }
 
   function openEdit(p: PlatformProspect) {
     setEditing(p);
+    const payload = parseProspectPayload(p.notes);
     reset({
       name: p.name,
       legalName: p.legalName ?? "",
@@ -137,9 +238,16 @@ export function PlatformProspectsPage() {
       source: p.source ?? "",
       stage: p.stage,
       estimatedArr: p.estimatedArr != null ? String(p.estimatedArr) : "",
-      notes: p.notes ?? "",
+      notes: payload.text,
     });
     setShowForm(true);
+  }
+
+  function openDetail(p: PlatformProspect) {
+    setSelectedId(p.id);
+    const payload = parseProspectPayload(p.notes);
+    setDetailNotes(payload.text);
+    setDetailDocs(payload.documents);
   }
 
   function convertToOrg(p: PlatformProspect) {
@@ -154,7 +262,63 @@ export function PlatformProspectsPage() {
     navigate(`/platform/organizations/new?${params.toString()}`);
   }
 
+  const prospectFormFields = (
+    <div className="row g-2">
+      <div className="col-md-4">
+        <FormField label="Company name" required error={errors.name} {...register("name")} />
+      </div>
+      <div className="col-md-4">
+        <FormField label="Legal name" error={errors.legalName} {...register("legalName")} />
+      </div>
+      <div className="col-md-4">
+        <label className="form-label">Stage</label>
+        <ZohoFormSelect
+          control={control}
+          name="stage"
+          options={stageOptions}
+          searchPlaceholder="Search Stages"
+          allowEmpty={false}
+        />
+      </div>
+      <div className="col-md-3">
+        <FormField label="Email" error={errors.email} {...register("email")} />
+      </div>
+      <div className="col-md-3">
+        <FormField label="Phone" error={errors.phone} {...register("phone")} />
+      </div>
+      <div className="col-md-3">
+        <FormField label="Source" error={errors.source} {...register("source")} />
+      </div>
+      <div className="col-md-3">
+        <FormField label="Est. ARR" type="number" error={errors.estimatedArr} {...register("estimatedArr")} />
+      </div>
+      <div className="col-12">
+        <FormField label="Notes" error={errors.notes} {...register("notes")} />
+      </div>
+    </div>
+  );
+
   return (
+    <>
+      {showForm && !editing ? (
+        <ZohoFormKitCreateView
+          title="Create Prospect"
+          entityLabel="Prospect"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          {prospectFormFields}
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Prospect Orgs"
       filterOpen={filterOpen}
@@ -220,65 +384,27 @@ export function PlatformProspectsPage() {
       }
       footerLeft={<span className="small text-muted">{query.data?.total ?? 0} prospects · SaaS pipeline (not tenant Leads)</span>}
     >
-      {showForm ? (
+      {showForm && editing ? (
         <form
           className="border-bottom p-3 bg-white mb-2"
-          onSubmit={handleSubmit((values) => saveMutation.mutate(values))}
+          onSubmit={handleSubmit((values) => updateMutation.mutate(values))}
         >
           {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <div className="row g-2">
-            <div className="col-md-4">
-              <FormField label="Company name" required error={errors.name} {...register("name")} />
-            </div>
-            <div className="col-md-4">
-              <FormField label="Legal name" error={errors.legalName} {...register("legalName")} />
-            </div>
-            <div className="col-md-4">
-              <label className="form-label">Stage</label>
-              <select className="form-select" {...register("stage")}>
-                {STAGES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-3">
-              <FormField label="Email" error={errors.email} {...register("email")} />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Phone" error={errors.phone} {...register("phone")} />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Source" error={errors.source} {...register("source")} />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Est. ARR" type="number" error={errors.estimatedArr} {...register("estimatedArr")} />
-            </div>
-            <div className="col-12">
-              <FormField label="Notes" error={errors.notes} {...register("notes")} />
-            </div>
-          </div>
-          <div className="d-flex gap-2 mt-2">
-            <button type="submit" className="btn btn-primary btn-sm" disabled={isSubmitting || saveMutation.isPending}>
-              {editing ? "Save" : "Create"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-outline-secondary btn-sm"
-              onClick={() => {
-                setShowForm(false);
-                setEditing(null);
-              }}
-            >
-              Cancel
-            </button>
-          </div>
+          {prospectFormFields}
+          <FormActions
+            submitLabel="Save"
+            submitting={isSubmitting || updateMutation.isPending}
+            onCancel={() => {
+              setShowForm(false);
+              setEditing(null);
+              reset(PROSPECT_DEFAULTS);
+            }}
+          />
         </form>
       ) : null}
 
       {query.isLoading ? <LoadingState label="Loading prospects…" /> : null}
-      {query.isError ? <ErrorState title="Unable to load prospects" /> : null}
+      {query.isError ? <ErrorState title="Unable to load prospects" message="Try again." /> : null}
 
       {!query.isLoading && !query.isError ? (
         <div className="table-responsive">
@@ -295,7 +421,12 @@ export function PlatformProspectsPage() {
             </thead>
             <tbody>
               {rows.map((p) => (
-                <tr key={p.id}>
+                <tr
+                  key={p.id}
+                  className={selectedId === p.id ? "table-active" : undefined}
+                  onClick={() => openDetail(p)}
+                  style={{ cursor: "pointer" }}
+                >
                   <td className="fw-medium">{p.name}</td>
                   <td>
                     <StatusBadge status={p.stage} />
@@ -309,7 +440,7 @@ export function PlatformProspectsPage() {
                       "—"
                     )}
                   </td>
-                  <td className="text-end text-nowrap">
+                  <td className="text-end text-nowrap" onClick={(e) => e.stopPropagation()}>
                     <button type="button" className="btn btn-outline-secondary btn-sm me-1" onClick={() => openEdit(p)}>
                       Edit
                     </button>
@@ -343,6 +474,95 @@ export function PlatformProspectsPage() {
           </table>
         </div>
       ) : null}
+
+      {selected ? (
+        <div className="border-top p-3 bg-white">
+          <div className="d-flex justify-content-between align-items-start mb-3">
+            <div>
+              <h2 className="h6 mb-1">{selected.name}</h2>
+              <div className="small text-muted">Notes and proposal documents</div>
+            </div>
+            <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setSelectedId(null)}>
+              Close
+            </button>
+          </div>
+          <div className="row g-3">
+            <div className="col-md-6">
+              <label className="form-label small">Notes</label>
+              <textarea
+                className="form-control form-control-sm"
+                rows={5}
+                value={detailNotes}
+                onChange={(e) => setDetailNotes(e.target.value)}
+              />
+            </div>
+            <div className="col-md-6">
+              <label className="form-label small">Proposal documents</label>
+              <ul className="list-group list-group-flush mb-2">
+                {detailDocs.map((doc, index) => (
+                  <li key={`${doc.name}-${index}`} className="list-group-item px-0 d-flex justify-content-between gap-2">
+                    <a href={doc.url} target="_blank" rel="noreferrer">
+                      {doc.name}
+                    </a>
+                    <button
+                      type="button"
+                      className="btn btn-link btn-sm text-danger p-0"
+                      onClick={() => setDetailDocs((items) => items.filter((_, i) => i !== index))}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+                {!detailDocs.length ? <li className="list-group-item px-0 text-muted small">No documents linked</li> : null}
+              </ul>
+              <div className="row g-2">
+                <div className="col-md-5">
+                  <input
+                    className="form-control form-control-sm"
+                    placeholder="Document name"
+                    value={detailDocName}
+                    onChange={(e) => setDetailDocName(e.target.value)}
+                  />
+                </div>
+                <div className="col-md-5">
+                  <input
+                    className="form-control form-control-sm"
+                    placeholder="URL"
+                    value={detailDocUrl}
+                    onChange={(e) => setDetailDocUrl(e.target.value)}
+                  />
+                </div>
+                <div className="col-md-2">
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary btn-sm w-100"
+                    onClick={() => {
+                      if (!detailDocName.trim() || !detailDocUrl.trim()) {
+                        return;
+                      }
+                      setDetailDocs((items) => [...items, { name: detailDocName.trim(), url: detailDocUrl.trim() }]);
+                      setDetailDocName("");
+                      setDetailDocUrl("");
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm mt-3"
+            disabled={detailMutation.isPending}
+            onClick={() => detailMutation.mutate()}
+          >
+            Save notes & documents
+          </button>
+        </div>
+      ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

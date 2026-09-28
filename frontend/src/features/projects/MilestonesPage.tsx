@@ -5,7 +5,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import {
+  enumPickerOptions,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -21,6 +27,8 @@ import {
 } from "./projectApi";
 
 const MILESTONE_STATUSES = ["PLANNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
+
+const milestoneStatusOptions = enumPickerOptions(MILESTONE_STATUSES);
 
 const createSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -64,7 +72,6 @@ export function MilestonesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
-  const [saveAndNew, setSaveAndNew] = useState(false);
 
   useEffect(() => {
     const fromQuery = searchParams.get("projectId") ?? "";
@@ -98,6 +105,20 @@ export function MilestonesPage() {
     defaultValues: MILESTONE_DEFAULTS,
   });
 
+  const {
+    setSaveAndNew,
+    photo,
+    cancelCreate,
+    afterCreateSuccess,
+  } = useZohoCreateFlow<CreateFormValues, Milestone>({
+    defaults: MILESTONE_DEFAULTS,
+    reset: createForm.reset,
+    setShowForm,
+    setFormError,
+    setSelected,
+    onResetExtras: () => setShowMore(false),
+  });
+
   const buildMilestoneBody = (values: CreateFormValues) => ({
     name: values.name,
     description: values.description || undefined,
@@ -124,22 +145,18 @@ export function MilestonesPage() {
 
   const createMutation = useMutation({
     mutationFn: (body: Parameters<typeof createMilestone>[1]) => createMilestone(projectId, body),
-    onSuccess: async () => {
+    onSuccess: async (milestone) => {
       await queryClient.invalidateQueries({ queryKey: ["projects", projectId, "milestones"] });
       await queryClient.invalidateQueries({ queryKey: ["milestones"] });
       setFormError(null);
-      if (saveAndNew) {
-        createForm.reset(MILESTONE_DEFAULTS);
-        setSaveAndNew(false);
-        setShowMore(false);
-      } else {
-        createForm.reset(MILESTONE_DEFAULTS);
-        setShowForm(false);
-        setShowMore(false);
-      }
+      await afterCreateSuccess(milestone, "MILESTONE");
     },
     onError: () => setFormError("Could not create milestone."),
   });
+
+  const onCreateSubmit = (values: CreateFormValues) => {
+    createMutation.mutate(buildMilestoneBody(values));
+  };
 
   const updateMutation = useMutation({
     mutationFn: ({ id, body }: { id: string; body: Parameters<typeof updateMilestone>[1] }) =>
@@ -170,6 +187,59 @@ export function MilestonesPage() {
   const hasError = projectsQuery.error || milestonesQuery.error;
 
   return (
+    <>
+      {showForm && canManage && projectId ? (
+        <ZohoFormKitCreateView
+          title="Create Milestone"
+          tableCode="milestone"
+          entityLabel="Milestone"
+          pending={createForm.formState.isSubmitting || createMutation.isPending}
+          isDirty={createForm.formState.isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(createForm.formState.isDirty)}
+          onSave={() => void createForm.handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void createForm.handleSubmit(onCreateSubmit)();
+          }}
+          onSubmit={() => void createForm.handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          <FormSection title="Primary details" description="Milestone name and timing">
+            <div className="col-md-5">
+              <FormField
+                label="Name"
+                required
+                error={createForm.formState.errors.name}
+                {...createForm.register("name")}
+              />
+            </div>
+            <div className="col-md-3">
+              <FormField label="Due date" type="date" {...createForm.register("dueDate")} />
+            </div>
+            <div className="col-md-2">
+              <label className="form-label">Status</label>
+              <ZohoFormSelect
+                control={createForm.control}
+                name="status"
+                options={milestoneStatusOptions}
+                searchPlaceholder="Search Statuses"
+                allowEmpty={false}
+              />
+            </div>
+          </FormSection>
+          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
+            <FormSection title="Additional details">
+              <div className="col-md-2">
+                <FormField label="Sort order" type="number" {...createForm.register("sortOrder")} />
+              </div>
+              <div className="col-12">
+                <FormField label="Description" {...createForm.register("description")} />
+              </div>
+            </FormSection>
+          </FormMoreDetails>
+        </ZohoFormKitCreateView>
+      ) : (
     <ModuleListShell
       title="Milestones"
       filterOpen={filterOpen}
@@ -187,8 +257,15 @@ export function MilestonesPage() {
       }
       primaryAction={
         canManage && projectId ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Milestone"}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              setSelected(null);
+              setShowForm(true);
+            }}
+          >
+            Create Milestone
           </button>
         ) : null
       }
@@ -251,68 +328,6 @@ export function MilestonesPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm && projectId ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={createForm.handleSubmit((values) =>
-            createMutation.mutate(buildMilestoneBody(values)),
-          )}
-        >
-          <UnsavedGuard when={createForm.formState.isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Primary details" description="Milestone name and timing">
-            <div className="col-md-5">
-              <FormField
-                label="Name"
-                required
-                error={createForm.formState.errors.name}
-                {...createForm.register("name")}
-              />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Due date" type="date" {...createForm.register("dueDate")} />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <select className="form-select" {...createForm.register("status")}>
-                {MILESTONE_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Additional details">
-              <div className="col-md-2">
-                <FormField label="Sort order" type="number" {...createForm.register("sortOrder")} />
-              </div>
-              <div className="col-12">
-                <FormField label="Description" {...createForm.register("description")} />
-              </div>
-            </FormSection>
-          </FormMoreDetails>
-          <FormActions
-            submitLabel="Save"
-            showSaveAndNew
-            submitting={createMutation.isPending}
-            onSaveAndNew={() => {
-              setSaveAndNew(true);
-              void createForm.handleSubmit((values) =>
-                createMutation.mutate(buildMilestoneBody(values)),
-              )();
-            }}
-            onCancel={() => {
-              if (createForm.formState.isDirty && !window.confirm("Discard unsaved changes?")) return;
-              setShowForm(false);
-              setShowMore(false);
-              createForm.reset(MILESTONE_DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {isLoading ? <LoadingState label="Loading milestones..." /> : null}
       {hasError ? <ErrorState title="Unable to load milestones" message="Try again." /> : null}
 
@@ -462,5 +477,7 @@ export function MilestonesPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

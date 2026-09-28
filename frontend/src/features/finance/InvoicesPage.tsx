@@ -4,10 +4,17 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormSection } from "@/components/FormKit";
+import {
+  optionsFromPairs,
+  ZohoFormKitCreateView,
+  ZohoFormSelect,
+  useZohoCreateFlow,
+} from "@/components/ZohoCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
-import { RecordShell } from "@/components/RecordShell";
+import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
+import { useRecordNavigation } from "@/components/ZohoRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -141,12 +148,21 @@ export function InvoicesPage() {
 
   const {
     register,
+    control,
     handleSubmit,
     reset,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<CreateFormValues>({
     resolver: zodResolver(createSchema),
     defaultValues: CREATE_DEFAULTS,
+  });
+
+  const { photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+    defaults: CREATE_DEFAULTS,
+    reset,
+    setShowForm,
+    setFormError,
+    setSelected: (entity) => setSelectedId(entity.id),
   });
 
   const invalidate = async () => {
@@ -158,12 +174,33 @@ export function InvoicesPage() {
     onSuccess: async (invoice) => {
       await invalidate();
       setFormError(null);
-      reset(CREATE_DEFAULTS);
-      setShowForm(false);
-      setSelectedId(invoice.id);
+      await afterCreateSuccess(invoice, "INVOICE");
     },
     onError: () => setFormError("Could not create invoice draft."),
   });
+
+  const regionOptions = useMemo(
+    () => optionsFromPairs((regionsQuery.data ?? []).map((r) => ({ value: r.id, label: r.name }))),
+    [regionsQuery.data],
+  );
+  const accountOptions = useMemo(
+    () => optionsFromPairs((accountsQuery.data ?? []).map((a) => ({ value: a.id, label: a.name }))),
+    [accountsQuery.data],
+  );
+  const projectOptions = useMemo(
+    () => optionsFromPairs((projectsQuery.data ?? []).map((p) => ({ value: p.id, label: p.name }))),
+    [projectsQuery.data],
+  );
+
+  const onCreateSubmit = (values: CreateFormValues) => {
+    createMutation.mutate({
+      regionId: values.regionId,
+      accountId: values.accountId,
+      projectId: values.projectId || undefined,
+      dueDate: values.dueDate || undefined,
+      notes: values.notes || undefined,
+    });
+  };
 
   const issueMutation = useMutation({
     mutationFn: (id: string) => issueInvoice(id),
@@ -216,6 +253,14 @@ export function InvoicesPage() {
   }
 
   const rows = invoicesQuery.data ?? [];
+  const selectedRow = rows.find((row) => row.id === selectedId) ?? null;
+  const recordNav = useRecordNavigation(rows, selectedRow, (item) => {
+    setSelectedId(item?.id ?? null);
+    setActionError(null);
+    setPayAmount("");
+    setCreditAmount("");
+    setSelectedTimeIds([]);
+  });
   const selected: Invoice | undefined = detailQuery.data;
   const accountName = (id: string) =>
     accountsQuery.data?.find((a) => a.id === id)?.name ?? id.slice(0, 8);
@@ -232,6 +277,264 @@ export function InvoicesPage() {
   ].filter(Boolean).length;
 
   return (
+    <>
+      {showForm && canCreate ? (
+        <ZohoFormKitCreateView
+          title="Create Invoice"
+          tableCode="invoice"
+          entityLabel="Invoice"
+          pending={isSubmitting || createMutation.isPending}
+          isDirty={isDirty}
+          formError={formError}
+          onCancel={() => cancelCreate(isDirty)}
+          onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          photo={photo}
+        >
+          <FormSection title="Draft invoice" description="Account, optional project, due date">
+            <div className="col-md-3">
+              <label className="form-label required">Region</label>
+              <ZohoFormSelect
+                control={control}
+                name="regionId"
+                options={regionOptions}
+                searchPlaceholder="Search Regions"
+                allowEmpty={false}
+                placeholder="Select"
+                invalid={!!errors.regionId}
+              />
+              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
+            </div>
+            <div className="col-md-3">
+              <label className="form-label required">Account</label>
+              <ZohoFormSelect
+                control={control}
+                name="accountId"
+                options={accountOptions}
+                searchPlaceholder="Search Accounts"
+                lookupIcon="building"
+                allowEmpty={false}
+                placeholder="Select"
+                invalid={!!errors.accountId}
+              />
+              {errors.accountId ? <div className="invalid-feedback d-block">{errors.accountId.message}</div> : null}
+            </div>
+            <div className="col-md-3">
+              <label className="form-label">Project</label>
+              <ZohoFormSelect
+                control={control}
+                name="projectId"
+                options={projectOptions}
+                searchPlaceholder="Search Projects"
+                lookupIcon="apps"
+                placeholder="Optional"
+              />
+            </div>
+            <div className="col-md-3">
+              <FormField label="Due date" type="date" error={errors.dueDate} {...register("dueDate")} />
+            </div>
+          </FormSection>
+        </ZohoFormKitCreateView>
+      ) : selectedId ? (
+        detailQuery.isLoading ? (
+          <LoadingState label="Loading invoice…" />
+        ) : selected ? (
+        <RecordShell
+            title={selected.invoiceNumber ?? "Draft invoice"}
+            subtitle={`${selected.currencyCode} ${selected.total}`}
+            meta={`Balance ${selected.balanceDue}`}
+            status={<StatusBadge status={selected.status} />}
+            recordKey={selected.id}
+            layout="page"
+            avatarLabel={selected.invoiceNumber ?? "Draft invoice"}
+            onBack={recordNav.goBack}
+            onPrev={recordNav.goPrev}
+            onNext={recordNav.goNext}
+            hasPrev={recordNav.hasPrev}
+            hasNext={recordNav.hasNext}
+            relatedLinks={[...DEFAULT_RELATED_LINKS]}
+            primaryAction={
+              canUpdate && selected.status === "DRAFT" ? (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  disabled={issueMutation.isPending}
+                  onClick={() => issueMutation.mutate(selected.id)}
+                >
+                  Issue
+                </button>
+              ) : null
+            }
+            secondaryActions={
+              canVoid && ["DRAFT", "ISSUED", "OVERDUE"].includes(selected.status) ? (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-danger"
+                  disabled={voidMutation.isPending}
+                  onClick={() => {
+                    if (window.confirm("Void this invoice?")) voidMutation.mutate(selected.id);
+                  }}
+                >
+                  Void
+                </button>
+              ) : null
+            }
+            tabs={[
+              {
+                id: "overview",
+                label: "Overview",
+                content: (
+                  <>
+                    {actionError ? <div className="alert alert-danger py-2 small">{actionError}</div> : null}
+                    <p className="small mb-1">Account: {accountName(selected.accountId)}</p>
+                    <p className="small mb-1">Due: {selected.dueDate ?? "—"}</p>
+                    <p className="small mb-3">
+                      Paid {selected.amountPaid} · Credited {selected.amountCredited ?? 0}
+                    </p>
+                    <h3 className="h6">Lines</h3>
+                    <ul className="small mb-3">
+                      {(selected.lines ?? []).map((l) => (
+                        <li key={l.id}>
+                          {l.description} — {l.amount}
+                          {l.timeEntryId ? " (time)" : ""}
+                        </li>
+                      ))}
+                      {!selected.lines?.length ? <li className="text-muted">No lines</li> : null}
+                    </ul>
+                    {selected.status === "DRAFT" && canUpdate ? (
+                      <>
+                        <h3 className="h6">Pull billable time</h3>
+                        <ul className="small mb-2 list-unstyled">
+                          {(unbilledQuery.data ?? []).map((e) => (
+                            <li key={e.id} className="form-check">
+                              <input
+                                className="form-check-input"
+                                type="checkbox"
+                                id={`te-${e.id}`}
+                                checked={selectedTimeIds.includes(e.id)}
+                                onChange={(ev) => {
+                                  setSelectedTimeIds((prev) =>
+                                    ev.target.checked
+                                      ? [...prev, e.id]
+                                      : prev.filter((x) => x !== e.id),
+                                  );
+                                }}
+                              />
+                              <label className="form-check-label" htmlFor={`te-${e.id}`}>
+                                {e.workDate} · {e.hours}h @ {e.billingRate ?? 0}
+                              </label>
+                            </li>
+                          ))}
+                          {!unbilledQuery.data?.length ? (
+                            <li className="text-muted">No unbilled approved time</li>
+                          ) : null}
+                        </ul>
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-outline-primary"
+                          disabled={!selectedTimeIds.length || pullMutation.isPending}
+                          onClick={() =>
+                            pullMutation.mutate({ id: selected.id, ids: selectedTimeIds })
+                          }
+                        >
+                          Add selected time
+                        </button>
+                      </>
+                    ) : null}
+                  </>
+                ),
+              },
+              {
+                id: "payments",
+                label: "Payments",
+                content: (
+                  <>
+                    {canPay &&
+                    ["ISSUED", "PARTIALLY_PAID", "OVERDUE"].includes(selected.status) &&
+                    selected.balanceDue > 0 ? (
+                      <div className="input-group input-group-sm mb-3">
+                        <input
+                          className="form-control"
+                          type="number"
+                          placeholder="Amount"
+                          value={payAmount}
+                          onChange={(e) => setPayAmount(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-success"
+                          disabled={!payAmount || payMutation.isPending}
+                          onClick={() =>
+                            payMutation.mutate({ id: selected.id, amount: Number(payAmount) })
+                          }
+                        >
+                          Pay
+                        </button>
+                      </div>
+                    ) : null}
+                    <ul className="small mb-0">
+                      {(selected.payments ?? []).map((p) => (
+                        <li key={p.id}>
+                          {p.paidAt}: {p.amount} {p.method ? `(${p.method})` : ""}
+                        </li>
+                      ))}
+                      {!selected.payments?.length ? (
+                        <li className="text-muted">No payments</li>
+                      ) : null}
+                    </ul>
+                  </>
+                ),
+              },
+              {
+                id: "credits",
+                label: "Credits",
+                content: (
+                  <>
+                    {canCredit &&
+                    ["ISSUED", "PARTIALLY_PAID", "OVERDUE"].includes(selected.status) &&
+                    selected.balanceDue > 0 ? (
+                      <div className="input-group input-group-sm mb-3">
+                        <input
+                          className="form-control"
+                          type="number"
+                          placeholder="Credit amount"
+                          value={creditAmount}
+                          onChange={(e) => setCreditAmount(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-warning"
+                          disabled={!creditAmount || creditMutation.isPending}
+                          onClick={() =>
+                            creditMutation.mutate({
+                              id: selected.id,
+                              amount: Number(creditAmount),
+                            })
+                          }
+                        >
+                          Apply credit
+                        </button>
+                      </div>
+                    ) : null}
+                    <ul className="small mb-0">
+                      {(selected.creditNotes ?? []).map((c) => (
+                        <li key={c.id}>
+                          {c.creditNumber ?? "Draft"} · {c.amount} ·{" "}
+                          <StatusBadge status={c.status} />
+                        </li>
+                      ))}
+                      {!selected.creditNotes?.length ? (
+                        <li className="text-muted">No credit notes</li>
+                      ) : null}
+                    </ul>
+                  </>
+                ),
+              },
+            ]}
+                />
+
+        ) : null
+      ) : (
     <ModuleListShell
       title="Invoices"
       filterOpen={filterOpen}
@@ -254,8 +557,15 @@ export function InvoicesPage() {
       }
       primaryAction={
         canCreate ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "Create Invoice"}
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => {
+              reset(CREATE_DEFAULTS);
+              setShowForm(true);
+            }}
+          >
+            Create Invoice
           </button>
         ) : null
       }
@@ -348,78 +658,11 @@ export function InvoicesPage() {
       }
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
-      {showForm ? (
-        <form
-          className="border-bottom p-3 bg-white"
-          onSubmit={handleSubmit((values) =>
-            createMutation.mutate({
-              regionId: values.regionId,
-              accountId: values.accountId,
-              projectId: values.projectId || undefined,
-              dueDate: values.dueDate || undefined,
-              notes: values.notes || undefined,
-            }),
-          )}
-        >
-          <UnsavedGuard when={isDirty && showForm} />
-          {formError ? <div className="alert alert-danger py-2">{formError}</div> : null}
-          <FormSection title="Draft invoice" description="Account, optional project, due date">
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <select className="form-select" {...register("regionId")}>
-                <option value="">Select</option>
-                {(regionsQuery.data ?? []).map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Account</label>
-              <select className="form-select" {...register("accountId")}>
-                <option value="">Select</option>
-                {(accountsQuery.data ?? []).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-              {errors.accountId ? <div className="invalid-feedback d-block">{errors.accountId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">Project</label>
-              <select className="form-select" {...register("projectId")}>
-                <option value="">Optional</option>
-                {(projectsQuery.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="col-md-3">
-              <FormField label="Due date" type="date" error={errors.dueDate} {...register("dueDate")} />
-            </div>
-          </FormSection>
-          <FormActions
-            submitLabel="Create draft"
-            submitting={isSubmitting || createMutation.isPending}
-            onCancel={() => {
-              setShowForm(false);
-              reset(CREATE_DEFAULTS);
-            }}
-          />
-        </form>
-      ) : null}
-
       {invoicesQuery.isLoading ? <LoadingState label="Loading invoices..." /> : null}
       {invoicesQuery.error ? <ErrorState title="Unable to load invoices" message="Try again." /> : null}
 
       {!invoicesQuery.isLoading && !invoicesQuery.error ? (
-        <div className="d-flex" style={{ flex: 1, minHeight: 0 }}>
-          <div className="module-list-table-wrap" style={{ flex: 1 }}>
+        <div className="module-list-table-wrap">
             <table className="table module-list-table align-middle">
               <thead>
                 <tr>
@@ -464,200 +707,9 @@ export function InvoicesPage() {
               </tbody>
             </table>
           </div>
-
-          {selectedId ? (
-            <div style={{ width: 400, overflow: "auto" }}>
-              {detailQuery.isLoading ? <LoadingState label="Loading…" /> : null}
-              {selected ? (
-                <RecordShell
-                  title={selected.invoiceNumber ?? "Draft invoice"}
-                  subtitle={`${selected.currencyCode} ${selected.total} · Balance ${selected.balanceDue}`}
-                  badges={<StatusBadge status={selected.status} />}
-                  onClose={() => setSelectedId(null)}
-                  actions={
-                    <div className="d-flex flex-wrap gap-1">
-                      {canUpdate && selected.status === "DRAFT" ? (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-primary"
-                          disabled={issueMutation.isPending}
-                          onClick={() => issueMutation.mutate(selected.id)}
-                        >
-                          Issue
-                        </button>
-                      ) : null}
-                      {canVoid && ["DRAFT", "ISSUED", "OVERDUE"].includes(selected.status) ? (
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-danger"
-                          disabled={voidMutation.isPending}
-                          onClick={() => {
-                            if (window.confirm("Void this invoice?")) voidMutation.mutate(selected.id);
-                          }}
-                        >
-                          Void
-                        </button>
-                      ) : null}
-                    </div>
-                  }
-                  tabs={[
-                    {
-                      id: "overview",
-                      label: "Overview",
-                      content: (
-                        <>
-                          {actionError ? <div className="alert alert-danger py-2 small">{actionError}</div> : null}
-                          <p className="small mb-1">Account: {accountName(selected.accountId)}</p>
-                          <p className="small mb-1">Due: {selected.dueDate ?? "—"}</p>
-                          <p className="small mb-3">
-                            Paid {selected.amountPaid} · Credited {selected.amountCredited ?? 0}
-                          </p>
-                          <h3 className="h6">Lines</h3>
-                          <ul className="small mb-3">
-                            {(selected.lines ?? []).map((l) => (
-                              <li key={l.id}>
-                                {l.description} — {l.amount}
-                                {l.timeEntryId ? " (time)" : ""}
-                              </li>
-                            ))}
-                            {!selected.lines?.length ? <li className="text-muted">No lines</li> : null}
-                          </ul>
-                          {selected.status === "DRAFT" && canUpdate ? (
-                            <>
-                              <h3 className="h6">Pull billable time</h3>
-                              <ul className="small mb-2 list-unstyled">
-                                {(unbilledQuery.data ?? []).map((e) => (
-                                  <li key={e.id} className="form-check">
-                                    <input
-                                      className="form-check-input"
-                                      type="checkbox"
-                                      id={`te-${e.id}`}
-                                      checked={selectedTimeIds.includes(e.id)}
-                                      onChange={(ev) => {
-                                        setSelectedTimeIds((prev) =>
-                                          ev.target.checked
-                                            ? [...prev, e.id]
-                                            : prev.filter((x) => x !== e.id),
-                                        );
-                                      }}
-                                    />
-                                    <label className="form-check-label" htmlFor={`te-${e.id}`}>
-                                      {e.workDate} · {e.hours}h @ {e.billingRate ?? 0}
-                                    </label>
-                                  </li>
-                                ))}
-                                {!unbilledQuery.data?.length ? (
-                                  <li className="text-muted">No unbilled approved time</li>
-                                ) : null}
-                              </ul>
-                              <button
-                                type="button"
-                                className="btn btn-sm btn-outline-primary"
-                                disabled={!selectedTimeIds.length || pullMutation.isPending}
-                                onClick={() =>
-                                  pullMutation.mutate({ id: selected.id, ids: selectedTimeIds })
-                                }
-                              >
-                                Add selected time
-                              </button>
-                            </>
-                          ) : null}
-                        </>
-                      ),
-                    },
-                    {
-                      id: "payments",
-                      label: "Payments",
-                      content: (
-                        <>
-                          {canPay &&
-                          ["ISSUED", "PARTIALLY_PAID", "OVERDUE"].includes(selected.status) &&
-                          selected.balanceDue > 0 ? (
-                            <div className="input-group input-group-sm mb-3">
-                              <input
-                                className="form-control"
-                                type="number"
-                                placeholder="Amount"
-                                value={payAmount}
-                                onChange={(e) => setPayAmount(e.target.value)}
-                              />
-                              <button
-                                type="button"
-                                className="btn btn-success"
-                                disabled={!payAmount || payMutation.isPending}
-                                onClick={() =>
-                                  payMutation.mutate({ id: selected.id, amount: Number(payAmount) })
-                                }
-                              >
-                                Pay
-                              </button>
-                            </div>
-                          ) : null}
-                          <ul className="small mb-0">
-                            {(selected.payments ?? []).map((p) => (
-                              <li key={p.id}>
-                                {p.paidAt}: {p.amount} {p.method ? `(${p.method})` : ""}
-                              </li>
-                            ))}
-                            {!selected.payments?.length ? (
-                              <li className="text-muted">No payments</li>
-                            ) : null}
-                          </ul>
-                        </>
-                      ),
-                    },
-                    {
-                      id: "credits",
-                      label: "Credits",
-                      content: (
-                        <>
-                          {canCredit &&
-                          ["ISSUED", "PARTIALLY_PAID", "OVERDUE"].includes(selected.status) &&
-                          selected.balanceDue > 0 ? (
-                            <div className="input-group input-group-sm mb-3">
-                              <input
-                                className="form-control"
-                                type="number"
-                                placeholder="Credit amount"
-                                value={creditAmount}
-                                onChange={(e) => setCreditAmount(e.target.value)}
-                              />
-                              <button
-                                type="button"
-                                className="btn btn-warning"
-                                disabled={!creditAmount || creditMutation.isPending}
-                                onClick={() =>
-                                  creditMutation.mutate({
-                                    id: selected.id,
-                                    amount: Number(creditAmount),
-                                  })
-                                }
-                              >
-                                Apply credit
-                              </button>
-                            </div>
-                          ) : null}
-                          <ul className="small mb-0">
-                            {(selected.creditNotes ?? []).map((c) => (
-                              <li key={c.id}>
-                                {c.creditNumber ?? "Draft"} · {c.amount} ·{" "}
-                                <StatusBadge status={c.status} />
-                              </li>
-                            ))}
-                            {!selected.creditNotes?.length ? (
-                              <li className="text-muted">No credit notes</li>
-                            ) : null}
-                          </ul>
-                        </>
-                      ),
-                    },
-                  ]}
-                />
-              ) : null}
-            </div>
-          ) : null}
-        </div>
       ) : null}
     </ModuleListShell>
+      )}
+    </>
   );
 }

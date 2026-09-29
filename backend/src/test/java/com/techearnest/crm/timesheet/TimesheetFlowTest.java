@@ -10,7 +10,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.techearnest.crm.auth.api.dto.LoginRequest;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.temporal.TemporalAdjusters;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -41,8 +45,9 @@ class TimesheetFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
+        LocalDate monday = uniqueMonday();
         ObjectNode createBody = objectMapper.createObjectNode();
-        createBody.put("weekStartDate", "2027-01-04");
+        createBody.put("weekStartDate", monday.toString());
         MvcResult createResult = mockMvc.perform(post("/api/v1/timesheets")
                         .header("Authorization", "Bearer " + employeeToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -57,7 +62,7 @@ class TimesheetFlowTest {
 
         ObjectNode entryBody = objectMapper.createObjectNode();
         entryBody.put("projectId", SEED_PROJECT_ID.toString());
-        entryBody.put("workDate", "2027-01-05");
+        entryBody.put("workDate", monday.plusDays(1).toString());
         entryBody.put("hours", 6);
         entryBody.put("description", "Implementation work");
         entryBody.put("billable", true);
@@ -119,8 +124,9 @@ class TimesheetFlowTest {
         }
         assertThat(resourceId).isNotBlank();
 
+        LocalDate monday = uniqueMonday();
         ObjectNode createBody = objectMapper.createObjectNode();
-        createBody.put("weekStartDate", "2027-02-01");
+        createBody.put("weekStartDate", monday.toString());
         MvcResult createResult = mockMvc.perform(post("/api/v1/timesheets")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -134,7 +140,7 @@ class TimesheetFlowTest {
 
         ObjectNode entryBody = objectMapper.createObjectNode();
         entryBody.put("projectId", SEED_PROJECT_ID.toString());
-        entryBody.put("workDate", "2027-02-01");
+        entryBody.put("workDate", monday.toString());
         entryBody.put("hours", 4);
         entryBody.put("description", "Self sheet");
         mockMvc.perform(post("/api/v1/timesheets/" + timesheetId + "/entries")
@@ -164,8 +170,9 @@ class TimesheetFlowTest {
     void rejectRequiresReasonAndAllowsResubmit() throws Exception {
         String employeeToken = login("employee@example.com");
 
+        LocalDate monday = uniqueMonday();
         ObjectNode createBody = objectMapper.createObjectNode();
-        createBody.put("weekStartDate", "2027-01-18");
+        createBody.put("weekStartDate", monday.toString());
         MvcResult createResult = mockMvc.perform(post("/api/v1/timesheets")
                         .header("Authorization", "Bearer " + employeeToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -179,7 +186,7 @@ class TimesheetFlowTest {
 
         ObjectNode entryBody = objectMapper.createObjectNode();
         entryBody.put("projectId", SEED_PROJECT_ID.toString());
-        entryBody.put("workDate", "2027-01-19");
+        entryBody.put("workDate", monday.plusDays(1).toString());
         entryBody.put("hours", 5);
         entryBody.put("description", "To be rejected");
         mockMvc.perform(post("/api/v1/timesheets/" + timesheetId + "/entries")
@@ -207,6 +214,13 @@ class TimesheetFlowTest {
                         .header("Authorization", "Bearer " + employeeToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("SUBMITTED"));
+    }
+
+    /** Tests share a persistent database, so each run needs a week no earlier run has used. */
+    private static LocalDate uniqueMonday() {
+        return LocalDate.of(2040, 1, 2)
+                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                .plusWeeks(ThreadLocalRandom.current().nextInt(0, 50_000));
     }
 
     private String login(String email) throws Exception {

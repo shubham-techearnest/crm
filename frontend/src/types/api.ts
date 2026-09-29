@@ -9,4 +9,6 @@ export interface ApiResponse<T> {
     totalPages: number;
   };
   errors?: Array<{ field: string; code: string; message: string }>;
+  /** Machine-readable error code on failures, e.g. `DEAL_CLOSE_DATE_LOCKED`. */
+  code?: string;
 }

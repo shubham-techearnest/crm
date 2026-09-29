@@ -112,6 +112,6 @@ public class AccountController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         var result = accountService.listProjects(id, PageRequest.of(page, Math.min(size, 100)));
-        return new ApiResponse<>(true, result.data(), result.message(), result.pagination(), null);
+        return ApiResponse.page(result.data(), result.message(), result.pagination());
     }
 }

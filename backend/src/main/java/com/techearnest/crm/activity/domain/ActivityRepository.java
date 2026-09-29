@@ -24,8 +24,8 @@ public interface ActivityRepository extends JpaRepository<Activity, UUID> {
               and (:status is null or a.status = :status)
               and (:outcome is null or a.outcome = :outcome)
               and (:callDirection is null or a.callDirection = :callDirection)
-              and (:dueFrom is null or a.dueDate >= :dueFrom)
-              and (:dueTo is null or a.dueDate <= :dueTo)
+              and (cast(:dueFrom as timestamp) is null or a.dueDate >= :dueFrom)
+              and (cast(:dueTo as timestamp) is null or a.dueDate <= :dueTo)
             """)
     Page<Activity> search(
             @Param("organizationId") UUID organizationId,

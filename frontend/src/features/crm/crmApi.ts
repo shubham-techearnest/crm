@@ -1,5 +1,6 @@
 import type { ApiResponse } from "@/types/api";
 import api from "@/api/client";
+import type { Project } from "@/features/projects/projectApi";
 
 function unwrap<T>(response: ApiResponse<T>, fallback = "Request failed"): T {
   if (!response.data) {
@@ -533,6 +534,13 @@ export async function listAccountContacts(accountId: string): Promise<Contact[]>
 
 export async function listAccountDeals(accountId: string): Promise<Deal[]> {
   const { data } = await api.get<ApiResponse<Deal[]>>(`/accounts/${accountId}/deals`, {
+    params: { size: 100 },
+  });
+  return unwrap(data);
+}
+
+export async function listAccountProjects(accountId: string): Promise<Project[]> {
+  const { data } = await api.get<ApiResponse<Project[]>>(`/accounts/${accountId}/projects`, {
     params: { size: 100 },
   });
   return unwrap(data);

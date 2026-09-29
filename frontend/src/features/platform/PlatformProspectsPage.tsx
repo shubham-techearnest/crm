@@ -8,10 +8,10 @@ import { FormField } from "@/components/FormField/FormField";
 import { FormActions } from "@/components/FormKit";
 import {
   enumPickerOptions,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
@@ -147,7 +147,7 @@ export function PlatformProspectsPage() {
     defaultValues: PROSPECT_DEFAULTS,
   });
 
-  const { setSaveAndNew, photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+  const { setSaveAndNew, photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: PROSPECT_DEFAULTS,
     reset,
     setShowForm,
@@ -272,7 +272,7 @@ export function PlatformProspectsPage() {
       </div>
       <div className="col-md-4">
         <label className="form-label">Stage</label>
-        <ZohoFormSelect
+        <TechEarnestFormSelect
           control={control}
           name="stage"
           options={stageOptions}
@@ -301,7 +301,7 @@ export function PlatformProspectsPage() {
   return (
     <>
       {showForm && !editing ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Prospect"
           entityLabel="Prospect"
           pending={isSubmitting || createMutation.isPending}
@@ -317,7 +317,7 @@ export function PlatformProspectsPage() {
           photo={photo}
         >
           {prospectFormFields}
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Prospect Orgs"

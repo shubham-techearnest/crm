@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListShell, ModuleMenuDropdown } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import type { ModuleMenuItem } from "@/components/ModuleListShell/ModuleListShell";
-import { buildOwnerOptions, buildFilterOwnerOptions, enumPickerOptions, optionsFromPairs, ZohoFilterSelect } from "@/components/ZohoCreate";
+import { buildOwnerOptions, buildFilterOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilterSelect, TechEarnestFormSelect } from "@/components/TechEarnestCreate";
 import { LeadBulkImportDialog } from "./LeadBulkImportDialog";
 import { LeadCreateView } from "./LeadCreateView";
 import { LeadEditView } from "./LeadEditView";
@@ -15,24 +18,26 @@ import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import {
   buildTimelineEntries,
   recordLifecycleInfo,
-  ZohoRecordInfoSection,
-  ZohoRecordRelatedCard,
-  ZohoRecordSummaryStrip,
-  ZohoRecordTimeline,
+  TechEarnestRecordInfoSection,
+  TechEarnestRecordRelatedCard,
+  TechEarnestRecordSummaryStrip,
+  TechEarnestRecordTimeline,
   useRecordNavigation,
-} from "@/components/ZohoRecord";
+} from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
-import { getPublishedListLayout, getUserListPref, saveUserListPref, type ListLayoutColumn } from "@/features/admin/studio/metadataApi";
+import { getPublishedListLayout, getUserListPref, type ListLayoutColumn } from "@/features/admin/studio/metadataApi";
 import {
   assignLead,
   bulkAssignLeads,
   bulkStatusLeads,
   convertLead,
+  deleteLead,
   exportLeads,
+  getLead,
   listAccounts,
   listActivities,
   listLeads,
@@ -72,11 +77,13 @@ const PRIORITY_FILTER_OPTIONS = enumPickerOptions(["LOW", "MEDIUM", "HIGH"]);
 
 export function LeadsPage() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const auth = useAuth();
   const canCreate = useHasPermission("LEAD_CREATE");
   const canConvert = useHasPermission("LEAD_CONVERT");
   const canAssign = useHasPermission("LEAD_ASSIGN");
   const canUpdate = useHasPermission("LEAD_UPDATE");
+  const canDelete = useHasPermission("LEAD_DELETE");
   const canExport = useHasPermission("LEAD_EXPORT");
   const canImport = useHasPermission("LEAD_IMPORT");
   const canViewUsers = useHasPermission("USER_VIEW");
@@ -113,10 +120,16 @@ export function LeadsPage() {
   const [noteBody, setNoteBody] = useState("");
   const [viewName, setViewName] = useState("");
   const [viewVisibility, setViewVisibility] = useState<"PRIVATE" | "SHARED" | "PUBLIC">("PRIVATE");
+  useEffect(() => {
+    if (searchParams.get("create") === "1" && canCreate) {
+      setSelected(null);
+      setShowEdit(false);
+      setShowForm(true);
+    }
+  }, [searchParams, canCreate]);
   const [activeViewId, setActiveViewId] = useState("");
   const [filterOpen, setFilterOpen] = useState(true);
   const [viewMode, setViewMode] = useState<"list" | "tile">("list");
-  const [columnChooserOpen, setColumnChooserOpen] = useState(false);
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [bulkOwnerId, setBulkOwnerId] = useState("");
   const [bulkStatus, setBulkStatus] = useState("");
@@ -124,6 +137,8 @@ export function LeadsPage() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
   const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const useAdvancedQuery = needsLeadQuery({
     ownerId: ownerFilter,
@@ -183,6 +198,16 @@ export function LeadsPage() {
     queryKey: ["crm", "leads", useAdvancedQuery ? "query" : "list", useAdvancedQuery ? queryBody : listParams],
     queryFn: () => (useAdvancedQuery ? queryLeads(queryBody) : listLeads(listParams)),
   });
+  const leadRecordQuery = useQuery({
+    queryKey: ["crm", "leads", "record", selected?.id],
+    queryFn: () => getLead(selected!.id),
+    enabled: !!selected,
+  });
+  useEffect(() => {
+    if (leadRecordQuery.data && selected?.id === leadRecordQuery.data.id) {
+      setSelected((current) => current?.id === leadRecordQuery.data!.id ? leadRecordQuery.data! : current);
+    }
+  }, [leadRecordQuery.data, selected?.id]);
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
   const listLayoutQuery = useQuery({
     queryKey: ["metadata", "runtime", "lead", "list-layout"],
@@ -210,22 +235,22 @@ export function LeadsPage() {
     enabled: canManageViews,
   });
   const notesQuery = useQuery({
-    queryKey: ["crm", "notes", "LEAD", selected?.id],
+    queryKey: ["crm", "notes", "LEAD", (selected as Lead | null)?.id],
     queryFn: () => listNotes("LEAD", selected!.id),
     enabled: !!selected && canViewNotes,
   });
   const docsQuery = useQuery({
-    queryKey: ["crm", "documents", "LEAD", selected?.id],
+    queryKey: ["crm", "documents", "LEAD", (selected as Lead | null)?.id],
     queryFn: () => listDocuments("LEAD", selected!.id),
     enabled: !!selected && canViewDocs,
   });
   const activitiesQuery = useQuery({
-    queryKey: ["crm", "activities", "LEAD", selected?.id],
+    queryKey: ["crm", "activities", "LEAD", (selected as Lead | null)?.id],
     queryFn: () => listActivities({ relatedEntityType: "LEAD", relatedEntityId: selected!.id }),
     enabled: !!selected && canViewActivities,
   });
   const auditQuery = useQuery({
-    queryKey: ["admin", "audit-logs", "LEAD", selected?.id],
+    queryKey: ["admin", "audit-logs", "LEAD", (selected as Lead | null)?.id],
     queryFn: () => listAuditLogs({ entityType: "LEAD", entityId: selected!.id, size: 50 }),
     enabled: !!selected && canViewAudit,
   });
@@ -326,18 +351,21 @@ export function LeadsPage() {
     onError: () => setActionError("Could not update status."),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (leadId: string) => deleteLead(leadId),
+    onSuccess: async (_result, leadId) => {
+      await refresh();
+      if (selected?.id === leadId) setSelected(null);
+      setLeadToDelete(null);
+      setDeleteError(null);
+    },
+    onError: () => setDeleteError("Could not delete this lead. Check your permission and try again."),
+  });
+
   const exportMutation = useMutation({
     mutationFn: (cols: string[]) => exportLeads(cols),
     onError: () => setExportError("Export failed."),
     onSuccess: () => setExportError(null),
-  });
-
-  const saveColumnsMutation = useMutation({
-    mutationFn: (columns: ListLayoutColumn[]) => saveUserListPref("lead", columns),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["metadata", "list-prefs", "lead"] });
-      setColumnChooserOpen(false);
-    },
   });
 
   const defaultLeadColumns: ListLayoutColumn[] = useMemo(
@@ -434,28 +462,28 @@ export function LeadsPage() {
     mutationFn: () => createNote("LEAD", selected!.id, noteBody),
     onSuccess: async () => {
       setNoteBody("");
-      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "LEAD", selected?.id] });
+      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "LEAD", (selected as Lead | null)?.id] });
     },
   });
 
   const deleteNoteMutation = useMutation({
     mutationFn: deleteNote,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "LEAD", selected?.id] });
+      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "LEAD", (selected as Lead | null)?.id] });
     },
   });
 
   const uploadMutation = useMutation({
     mutationFn: (file: File) => uploadDocument("LEAD", selected!.id, file),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "LEAD", selected?.id] });
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "LEAD", (selected as Lead | null)?.id] });
     },
   });
 
   const deleteDocMutation = useMutation({
     mutationFn: deleteDocument,
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "LEAD", selected?.id] });
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "LEAD", (selected as Lead | null)?.id] });
     },
   });
 
@@ -603,12 +631,6 @@ export function LeadsPage() {
       onClick: () => exportMutation.mutate(visibleColumns.map((column) => column.field)),
       disabled: exportMutation.isPending,
     },
-    {
-      id: "columns",
-      label: "Choose columns",
-      icon: "columns",
-      onClick: () => setColumnChooserOpen((value) => !value),
-    },
     { id: "sep-bulk", label: "", separator: true, visible: canAssign || canUpdate },
     {
       id: "bulk-assign",
@@ -720,7 +742,7 @@ export function LeadsPage() {
               label: "Overview",
               content: (
                 <>
-                  <ZohoRecordSummaryStrip
+                  <TechEarnestRecordSummaryStrip
                     fields={[
                       { label: "Lead Owner", value: ownerName(selected.ownerId) },
                       { label: "Email", value: selected.email ?? "—" },
@@ -730,7 +752,7 @@ export function LeadsPage() {
                     ]}
                   />
 
-                  <ZohoRecordInfoSection
+                  <TechEarnestRecordInfoSection
                     title="Lead Information"
                     fields={[
                       { label: "Lead Owner", value: ownerName(selected.ownerId) },
@@ -757,7 +779,7 @@ export function LeadsPage() {
                     selected.addressCity ||
                     selected.addressState ||
                     selected.addressCountry) ? (
-                    <ZohoRecordInfoSection
+                    <TechEarnestRecordInfoSection
                       title="Address Information"
                       collapsible={false}
                       fields={[
@@ -779,7 +801,7 @@ export function LeadsPage() {
                   ) : null}
 
                   {selected.description ? (
-                    <ZohoRecordInfoSection
+                    <TechEarnestRecordInfoSection
                       title="Description Information"
                       collapsible={false}
                       fields={[{ label: "Description", value: selected.description }]}
@@ -864,12 +886,16 @@ export function LeadsPage() {
                       {!createAccountChecked ? (
                         <div className="mb-2">
                           <label className="form-label small">Existing account</label>
-                          <select className="form-select form-select-sm" {...convertForm.register("accountId")}>
-                            <option value="">Select account</option>
-                            {(accountsQuery.data ?? []).map((account) => (
-                              <option key={account.id} value={account.id}>{account.name}</option>
-                            ))}
-                          </select>
+                          <TechEarnestFormSelect
+                            control={convertForm.control}
+                            name="accountId"
+                            options={(accountsQuery.data ?? []).map((account) => ({ value: account.id, label: account.name, subtitle: account.email ?? undefined }))}
+                            searchPlaceholder="Search accounts"
+                            placeholder="Select existing account"
+                            lookupMode="modal"
+                            lookupTitle="Select Account"
+                            lookupIcon="building"
+                          />
                         </div>
                       ) : null}
                       <div className="form-check mb-2">
@@ -901,8 +927,8 @@ export function LeadsPage() {
                     </p>
                   ) : null}
 
-                  <ZohoRecordRelatedCard
-                    id="zoho-record-section-notes"
+                  <TechEarnestRecordRelatedCard
+                    id="techearnest-record-section-notes"
                     title="Notes"
                     isEmpty={!(notesQuery.data ?? []).length && !canCreateNotes}
                     emptyLabel="No notes yet"
@@ -938,11 +964,11 @@ export function LeadsPage() {
                         </li>
                       ))}
                     </ul>
-                  </ZohoRecordRelatedCard>
+                  </TechEarnestRecordRelatedCard>
 
                   {canViewDocs ? (
-                    <ZohoRecordRelatedCard
-                      id="zoho-record-section-attachments"
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-attachments"
                       title="Attachments"
                       isEmpty={!(docsQuery.data ?? []).length}
                       emptyLabel="No Attachment"
@@ -979,15 +1005,15 @@ export function LeadsPage() {
                           </li>
                         ))}
                       </ul>
-                    </ZohoRecordRelatedCard>
+                    </TechEarnestRecordRelatedCard>
                   ) : null}
 
-                  <ZohoRecordRelatedCard id="zoho-record-section-emails" title="Emails" isEmpty emptyLabel="No records found" />
-                  <ZohoRecordRelatedCard id="zoho-record-section-open-activities" title="Open Activities" isEmpty emptyLabel="No records found" />
-                  <ZohoRecordRelatedCard id="zoho-record-section-closed-activities" title="Closed Activities" isEmpty emptyLabel="No records found" />
-                  <ZohoRecordRelatedCard id="zoho-record-section-meetings" title="Invited Meetings" isEmpty emptyLabel="No records found" />
-                  <ZohoRecordRelatedCard id="zoho-record-section-campaigns" title="Campaigns" isEmpty emptyLabel="No records found" />
-                  <ZohoRecordRelatedCard id="zoho-record-section-social" title="Social" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-emails" title="Emails" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-open-activities" title="Open Activities" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-closed-activities" title="Closed Activities" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-meetings" title="Invited Meetings" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-campaigns" title="Campaigns" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-social" title="Social" isEmpty emptyLabel="No records found" />
                 </>
               ),
             },
@@ -996,9 +1022,9 @@ export function LeadsPage() {
               label: "Timeline",
               visible: true,
               content: (
-                <ZohoRecordTimeline
+                <TechEarnestRecordTimeline
                   entries={timelineEntries}
-                  loading={auditQuery.isLoading || activitiesQuery.isLoading}
+                  loading={auditQuery.isLoading || activitiesQuery.isLoading || notesQuery.isLoading}
                 />
               ),
             },
@@ -1087,7 +1113,7 @@ export function LeadsPage() {
             </div>
             <div className="module-filter-section">
               <h3>Filter by fields</h3>
-              <ZohoFilterSelect
+              <TechEarnestFilterSelect
                 label="Status"
                 value={statusFilter}
                 onChange={setStatusFilter}
@@ -1101,21 +1127,21 @@ export function LeadsPage() {
                 onChange={(e) => setSourceFilter(e.target.value)}
                 placeholder="e.g. Cold Call"
               />
-              <ZohoFilterSelect
+              <TechEarnestFilterSelect
                 label="Priority"
                 value={priorityFilter}
                 onChange={setPriorityFilter}
                 options={PRIORITY_FILTER_OPTIONS}
                 searchPlaceholder="Search Priority"
               />
-              <ZohoFilterSelect
+              <TechEarnestFilterSelect
                 label="Region"
                 value={regionFilter}
                 onChange={setRegionFilter}
                 options={regionFilterOptions}
                 searchPlaceholder="Search Regions"
               />
-              <ZohoFilterSelect
+              <TechEarnestFilterSelect
                 label="Owner"
                 value={ownerFilter}
                 onChange={setOwnerFilter}
@@ -1241,7 +1267,7 @@ export function LeadsPage() {
                   <button
                     key={lead.id}
                     type="button"
-                    className={`module-tile text-start${selected?.id === lead.id ? " is-selected" : ""}`}
+                    className={`module-tile text-start${(selected as Lead | null)?.id === lead.id ? " is-selected" : ""}`}
                     onClick={() => {
                       setSelected(lead);
                       setShowConvert(false);
@@ -1258,101 +1284,39 @@ export function LeadsPage() {
                 ))}
               </div>
             ) : (
-            <div className="module-list-table-wrap">
-              {columnChooserOpen ? (
-                <div className="border rounded p-2 mb-2 bg-light">
-                  <div className="small text-muted mb-2">Personal columns (overrides admin default)</div>
-                  <div className="d-flex flex-wrap gap-2 mb-2">
-                    {publishedColumns.map((col) => {
-                      const checked = visibleColumns.some((c) => c.field === col.field);
-                      return (
-                        <label key={col.field} className="form-check form-check-inline small mb-0">
-                          <input
-                            type="checkbox"
-                            className="form-check-input"
-                            checked={checked}
-                            onChange={() => {
-                              const next = checked
-                                ? visibleColumns.filter((c) => c.field !== col.field)
-                                : [...visibleColumns, col];
-                              saveColumnsMutation.mutate(next.length ? next : publishedColumns);
-                            }}
-                          />
-                          {col.label}
-                        </label>
-                      );
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-link btn-sm px-0"
-                    onClick={() => saveColumnsMutation.mutate(publishedColumns)}
-                  >
-                    Reset to admin default
-                  </button>
-                </div>
-              ) : null}
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th style={{ width: 36 }}>
-                      <input
-                        type="checkbox"
-                        className="form-check-input"
-                        aria-label="Select all leads"
-                        checked={leads.length > 0 && checkedIds.length === leads.length}
-                        onChange={(e) => {
-                          setCheckedIds(e.target.checked ? leads.map((l) => l.id) : []);
-                        }}
-                      />
-                    </th>
-                    {visibleColumns.map((col) => (
-                      <th key={col.field}>{col.label}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {leads.map((lead) => (
-                    <tr
-                      key={lead.id}
-                      className={selected?.id === lead.id ? "is-selected" : undefined}
-                      onClick={() => {
-                        setSelected(lead);
-                        setShowConvert(false);
-                        setConvertError(null);
-                        setActionError(null);
-                        setAssignOwnerId(lead.ownerId ?? "");
-                      }}
-                    >
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          className="form-check-input"
-                          checked={checkedIds.includes(lead.id)}
-                          onChange={(e) => {
-                            setCheckedIds((prev) =>
-                              e.target.checked ? [...prev, lead.id] : prev.filter((id) => id !== lead.id),
-                            );
-                          }}
-                        />
-                      </td>
-                      {visibleColumns.map((col) => (
-                        <td key={col.field} className={col.field === "firstName" || col.field === "lastName" ? "lead-name" : undefined}>
-                          {leadCellValue(lead, col.field)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                  {!leads.length ? (
-                    <tr>
-                      <td colSpan={Math.max(visibleColumns.length + 1, 2)} className="text-muted text-center py-5">
-                        No leads match the current view/filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+                tableCode="lead"
+                defaultColumns={defaultLeadColumns}
+                rows={leads}
+                rowKey={(lead) => lead.id}
+                renderCell={leadCellValue}
+                onRowClick={(lead) => {
+                  setSelected(lead);
+                  setShowConvert(false);
+                  setConvertError(null);
+                  setActionError(null);
+                  setAssignOwnerId(lead.ownerId ?? "");
+                }}
+                selectedRowKey={(selected as Lead | null)?.id}
+                selectable
+                selectedIds={checkedIds}
+                onSelectedIdsChange={setCheckedIds}
+                nameFields={["firstName", "lastName"]}
+                emptyMessage="No leads match the current view/filters."
+                trailingColumn={canDelete ? {
+                  header: <span className="visually-hidden">Actions</span>,
+                  stopPropagation: true,
+                  render: (lead) => (
+                    <ModuleMenuDropdown
+                      items={[{ id: "delete", label: "Delete lead", icon: "trash", danger: true, onClick: () => { setDeleteError(null); setLeadToDelete(lead); } }]}
+                      align="end"
+                      ariaLabel={`Actions for ${leadDisplayName(lead)}`}
+                      triggerClassName="module-more-btn"
+                      trigger={<ToolbarIcon name="more" className="module-toolbar-icon" />}
+                    />
+                  ),
+                } : undefined}
+            />
             )}
           </div>
         ) : null}
@@ -1368,6 +1332,27 @@ export function LeadsPage() {
           await refresh();
         }}
       />
+
+      {leadToDelete ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => deleteMutation.isPending ? null : setLeadToDelete(null)}>
+          <div className="module-modal" role="dialog" aria-modal="true" aria-labelledby="delete-lead-title" onClick={(event) => event.stopPropagation()}>
+            <div className="module-modal-header">
+              <h2 id="delete-lead-title" className="h5 mb-0">Delete lead?</h2>
+              <button type="button" className="btn-close" aria-label="Close" disabled={deleteMutation.isPending} onClick={() => setLeadToDelete(null)} />
+            </div>
+            <div className="module-modal-body">
+              <p className="mb-0">This will move <strong>{leadDisplayName(leadToDelete)}</strong> to deleted records.</p>
+              {deleteError ? <div className="alert alert-danger py-2 mt-3 mb-0" role="alert">{deleteError}</div> : null}
+            </div>
+            <div className="module-modal-footer">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={deleteMutation.isPending} onClick={() => setLeadToDelete(null)}>Cancel</button>
+              <button type="button" className="btn btn-danger btn-sm" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(leadToDelete.id)}>
+                {deleteMutation.isPending ? "Deleting…" : "Delete lead"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {showBulkAssignDialog ? (
         <div className="module-modal-backdrop" role="presentation" onClick={() => setShowBulkAssignDialog(false)}>

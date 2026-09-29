@@ -18,5 +18,5 @@ export {
   RecordRelatedList,
   RecordEmptyHint,
 } from "./recordShellUi";
-export { DEFAULT_RELATED_LINKS, DEAL_RELATED_LINKS } from "@/components/ZohoRecord";
-export type { ZohoRecordField } from "@/components/ZohoRecord";
+export { DEFAULT_RELATED_LINKS, DEAL_RELATED_LINKS } from "@/components/TechEarnestRecord";
+export type { TechEarnestRecordField } from "@/components/TechEarnestRecord";

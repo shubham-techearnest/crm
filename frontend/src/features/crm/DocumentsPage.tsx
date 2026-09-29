@@ -1,13 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listUsers } from "@/features/admin/adminApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { documentDownloadUrl, listDocuments, uploadDocument } from "@/features/crm/foundationApi";
+import { deleteDocument, documentDownloadUrl, listDocuments, uploadDocument, type DocumentMeta } from "@/features/crm/foundationApi";
 
 const ENTITY_TYPES = ["LEAD", "ACCOUNT", "CONTACT", "DEAL", "PROJECT", "ACTIVITY"] as const;
 
@@ -16,6 +18,7 @@ export function DocumentsPage() {
   const auth = useAuth();
   const canViewUsers = useHasPermission("USER_VIEW");
   const canUpload = useHasPermission("DOCUMENT_UPLOAD");
+  const canDelete = useHasPermission("DOCUMENT_DELETE");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch } = useModuleWorkspace();
   const [entityType, setEntityType] = useState("");
   const [visibility, setVisibility] = useState("");
@@ -27,6 +30,8 @@ export function DocumentsPage() {
   const [uploadEntityId, setUploadEntityId] = useState("");
   const [uploadVisibility, setUploadVisibility] = useState("INTERNAL");
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [documentToDelete, setDocumentToDelete] = useState<DocumentMeta | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const listFilters = useMemo(
     () => ({
@@ -58,6 +63,16 @@ export function DocumentsPage() {
       await queryClient.invalidateQueries({ queryKey: ["crm", "documents"] });
     },
     onError: () => setUploadError("Upload failed. Check entity type/id and permissions."),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteDocument,
+    onSuccess: async () => {
+      setDocumentToDelete(null);
+      setDeleteError(null);
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents"] });
+    },
+    onError: () => setDeleteError("Could not delete this document. Check your access and whether the file is still in use."),
   });
 
   const rows = useMemo(() => {
@@ -92,6 +107,7 @@ export function DocumentsPage() {
   };
 
   return (
+    <>
     <ModuleListShell
       title="Documents"
       filterOpen={filterOpen}
@@ -128,46 +144,13 @@ export function DocumentsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Entity type</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={entityType}
-              onChange={(e) => setEntityType(e.target.value)}
-            >
-              <option value="">All</option>
-              {ENTITY_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            <label className="form-label small mb-1">Visibility</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="INTERNAL">INTERNAL</option>
-              <option value="CUSTOMER">CUSTOMER</option>
-            </select>
+            <TechEarnestFilterSelect label="Entity type" value={entityType} onChange={setEntityType} options={ENTITY_TYPES.map((value) => ({ value, label: value }))} placeholder="All types" emptyLabel="All types" searchPlaceholder="Search entity types" />
+            <TechEarnestFilterSelect label="Visibility" value={visibility} onChange={setVisibility} options={[{ value: "INTERNAL", label: "Internal" }, { value: "CUSTOMER", label: "Customer" }]} placeholder="All visibility" emptyLabel="All visibility" searchPlaceholder="Search visibility" />
             {canViewUsers ? (
-              <>
-                <label className="form-label small mb-1">Uploaded by</label>
-                <select
-                  className="form-select form-select-sm mb-2"
-                  value={uploadedBy}
-                  onChange={(e) => setUploadedBy(e.target.value)}
-                >
-                  <option value="">All</option>
-                  {auth.userId ? <option value={auth.userId}>Current user</option> : null}
-                  {(usersQuery.data ?? []).map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.firstName} {user.lastName}
-                    </option>
-                  ))}
-                </select>
-              </>
+              <TechEarnestFilterSelect label="Uploaded by" value={uploadedBy} onChange={setUploadedBy} options={[
+                ...(auth.userId ? [{ value: auth.userId, label: "Current user" }] : []),
+                ...(usersQuery.data ?? []).map((user) => ({ value: user.id, label: `${user.firstName} ${user.lastName}`.trim(), subtitle: user.email ?? undefined })),
+              ]} placeholder="All users" emptyLabel="All users" searchPlaceholder="Search users" />
             ) : null}
             <label className="form-label small mb-1">Created from</label>
             <input
@@ -247,39 +230,43 @@ export function DocumentsPage() {
       {docsQuery.isLoading ? <LoadingState label="Loading documents..." /> : null}
       {docsQuery.error ? <ErrorState title="Unable to load documents" message="Try again shortly." /> : null}
       {!docsQuery.isLoading && !docsQuery.error && viewMode === "list" ? (
-        <div className="module-list-table-wrap">
-          <table className="table module-list-table align-middle">
-            <thead>
-              <tr>
-                <th>File Name</th>
-                <th>Entity</th>
-                <th>Visibility</th>
-                <th>Size</th>
-                <th>Uploaded</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((doc) => (
-                <tr key={doc.id} onClick={() => openDownload(doc.id, doc.fileName)}>
-                  <td className="lead-name">{doc.fileName}</td>
-                  <td>
-                    {doc.entityType} · <code className="small">{doc.entityId.slice(0, 8)}…</code>
-                  </td>
-                  <td>{doc.visibility}</td>
-                  <td>{doc.sizeBytes ?? "—"}</td>
-                  <td className="small">{new Date(doc.createdAt).toLocaleString()}</td>
-                </tr>
-              ))}
-              {!rows.length ? (
-                <tr>
-                  <td colSpan={5} className="text-center text-muted py-5">
-                    No documents match the current filters.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <ModuleListTable
+          tableCode="document"
+          defaultColumns={[
+            { field: "fileName", label: "File Name" },
+            { field: "entityId", label: "Entity" },
+            { field: "visibility", label: "Visibility" },
+            { field: "sizeBytes", label: "Size" },
+            { field: "createdAt", label: "Uploaded" },
+          ]}
+          rows={rows}
+          rowKey={(doc) => doc.id}
+          onRowClick={(doc) => void openDownload(doc.id, doc.fileName)}
+          renderCell={(doc, field) => {
+            if (field === "entityId") return <>{doc.entityType} · <code className="small">{doc.entityId.slice(0, 8)}…</code></>;
+            if (field === "createdAt") return <span className="small">{new Date(doc.createdAt).toLocaleString()}</span>;
+            const value = (doc as unknown as Record<string, unknown>)[field];
+            return value == null || value === "" ? "—" : String(value);
+          }}
+          nameFields={["fileName"]}
+          trailingColumn={canDelete ? {
+            header: "Actions",
+            stopPropagation: true,
+            render: (doc) => (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline-danger"
+                onClick={() => {
+                  setDeleteError(null);
+                  setDocumentToDelete(doc);
+                }}
+              >
+                Delete
+              </button>
+            ),
+          } : undefined}
+          emptyMessage="No documents match the current filters."
+        />
       ) : null}
       {!docsQuery.isLoading && !docsQuery.error && viewMode === "tile" ? (
         <div className="module-tile-grid">
@@ -300,5 +287,24 @@ export function DocumentsPage() {
         </div>
       ) : null}
     </ModuleListShell>
+      {documentToDelete && canDelete ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => deleteMutation.isPending ? null : setDocumentToDelete(null)}>
+          <section className="module-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-document-title" onClick={(event) => event.stopPropagation()}>
+            <header className="d-flex align-items-center justify-content-between gap-3 mb-3">
+              <h2 id="delete-document-title" className="h5 mb-0">Delete document?</h2>
+              <button type="button" className="btn-close" aria-label="Close" disabled={deleteMutation.isPending} onClick={() => setDocumentToDelete(null)} />
+            </header>
+            <p>Delete <strong>{documentToDelete.fileName}</strong>? It will be removed from the record it is attached to.</p>
+            {deleteError ? <div className="alert alert-danger py-2" role="alert">{deleteError}</div> : null}
+            <footer className="d-flex justify-content-end gap-2">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={deleteMutation.isPending} onClick={() => setDocumentToDelete(null)}>Cancel</button>
+              <button type="button" className="btn btn-danger btn-sm" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(documentToDelete.id)}>
+                {deleteMutation.isPending ? "Deleting…" : "Delete document"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }

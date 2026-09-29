@@ -1,18 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 import { FormField } from "@/components/FormField/FormField";
 import { FormMoreDetails, FormSection } from "@/components/FormKit";
-import { ZohoFormKitCreateView, useZohoCreateFlow, ZohoFormSelect, enumPickerOptions, optionsFromPairs } from "@/components/ZohoCreate";
+import { TechEarnestFormKitCreateView, useTechEarnestCreateFlow, TechEarnestFormSelect, enumPickerOptions, optionsFromPairs } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import {
   ModuleListShell,
   countActiveFilters,
 } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import {
   RecordShell,
   DEFAULT_RELATED_LINKS,
@@ -27,7 +29,7 @@ import {
   recordRelatedTab,
   recordTimelineTab,
 } from "@/components/RecordShell";
-import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, ZohoRecordTimeline } from "@/components/ZohoRecord";
+import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
@@ -50,9 +52,12 @@ import {
   createMilestone,
   createProject,
   createTask,
+  deleteProject,
+  getProject,
   listMilestones,
   listProjects,
   listTasks,
+  updateProject,
   type Project,
 } from "./projectApi";
 
@@ -133,8 +138,11 @@ function formatHours(value: number | null | undefined): string {
 
 export function ProjectsPage() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const auth = useAuth();
   const canCreate = useHasPermission("PROJECT_CREATE");
+  const canUpdateProject = useHasPermission("PROJECT_UPDATE");
+  const canDeleteProject = useHasPermission("PROJECT_DELETE");
   const canManageMilestone = useHasPermission("MILESTONE_MANAGE");
   const canCreateTask = useHasPermission("TASK_CREATE");
   const canViewUsers = useHasPermission("USER_VIEW");
@@ -159,6 +167,8 @@ export function ProjectsPage() {
   const [endTo, setEndTo] = useState("");
   const [delayedOnly, setDelayedOnly] = useState(false);
   const [selected, setSelected] = useState<Project | null>(null);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [confirmProjectDelete, setConfirmProjectDelete] = useState(false);
   const [showMilestoneForm, setShowMilestoneForm] = useState(false);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -183,6 +193,18 @@ export function ProjectsPage() {
     queryKey: ["projects", listParams],
     queryFn: () => listProjects(listParams),
   });
+  const projectRecordQuery = useQuery({
+    queryKey: ["projects", "record", selected?.id],
+    queryFn: () => getProject(selected!.id),
+    enabled: !!selected,
+  });
+  useEffect(() => {
+    if (projectRecordQuery.data && selected?.id === projectRecordQuery.data.id) {
+      setSelected((current) =>
+        current?.id === projectRecordQuery.data!.id ? projectRecordQuery.data! : current,
+      );
+    }
+  }, [projectRecordQuery.data, selected?.id]);
   const accountsQuery = useQuery({ queryKey: ["crm", "accounts"], queryFn: () => listAccounts() });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
   const usersQuery = useQuery({
@@ -191,12 +213,12 @@ export function ProjectsPage() {
     enabled: canViewUsers,
   });
   const milestonesQuery = useQuery({
-    queryKey: ["projects", selected?.id, "milestones"],
+    queryKey: ["projects", (selected as Project | null)?.id, "milestones"],
     queryFn: () => listMilestones(selected!.id),
     enabled: !!selected,
   });
   const tasksQuery = useQuery({
-    queryKey: ["projects", selected?.id, "tasks"],
+    queryKey: ["projects", (selected as Project | null)?.id, "tasks"],
     queryFn: () => listTasks(selected!.id),
     enabled: !!selected,
   });
@@ -206,7 +228,7 @@ export function ProjectsPage() {
     enabled: !!selected,
   });
   const allocationsQuery = useQuery({
-    queryKey: ["allocations", "project", selected?.id],
+    queryKey: ["allocations", "project", (selected as Project | null)?.id],
     queryFn: () => listAllocations({ projectId: selected!.id }),
     enabled: !!selected && canViewAllocations,
   });
@@ -216,42 +238,42 @@ export function ProjectsPage() {
     enabled: !!selected && canViewResources,
   });
   const invoicesQuery = useQuery({
-    queryKey: ["invoices", "project", selected?.id],
+    queryKey: ["invoices", "project", (selected as Project | null)?.id],
     queryFn: () => listInvoices({ projectId: selected!.id }),
     enabled: !!selected && canViewInvoices,
   });
   const unbilledTimeQuery = useQuery({
-    queryKey: ["invoices", "unbilled-time", selected?.id],
+    queryKey: ["invoices", "unbilled-time", (selected as Project | null)?.id],
     queryFn: () => listUnbilledTime(selected!.id),
     enabled: !!selected && canViewInvoices,
   });
   const purchaseOrdersQuery = useQuery({
-    queryKey: ["purchase-orders", "project", selected?.id],
+    queryKey: ["purchase-orders", "project", (selected as Project | null)?.id],
     queryFn: () => listPurchaseOrders({ projectId: selected!.id }),
     enabled: !!selected && canViewPurchaseOrders,
   });
   const expensesQuery = useQuery({
-    queryKey: ["expenses", "project", selected?.id],
+    queryKey: ["expenses", "project", (selected as Project | null)?.id],
     queryFn: () => listExpenses({ projectId: selected!.id }),
     enabled: !!selected && canViewExpenses,
   });
   const activitiesQuery = useQuery({
-    queryKey: ["crm", "activities", "PROJECT", selected?.id],
+    queryKey: ["crm", "activities", "PROJECT", (selected as Project | null)?.id],
     queryFn: () => listActivities({ relatedEntityType: "PROJECT", relatedEntityId: selected!.id }),
     enabled: !!selected && canViewActivities,
   });
   const notesQuery = useQuery({
-    queryKey: ["crm", "notes", "PROJECT", selected?.id],
+    queryKey: ["crm", "notes", "PROJECT", (selected as Project | null)?.id],
     queryFn: () => listNotes("PROJECT", selected!.id),
     enabled: !!selected && canViewNotes,
   });
   const docsQuery = useQuery({
-    queryKey: ["crm", "documents", "PROJECT", selected?.id],
+    queryKey: ["crm", "documents", "PROJECT", (selected as Project | null)?.id],
     queryFn: () => listDocuments("PROJECT", selected!.id),
     enabled: !!selected && canViewDocs,
   });
   const auditQuery = useQuery({
-    queryKey: ["admin", "audit-logs", "PROJECT", selected?.id],
+    queryKey: ["admin", "audit-logs", "PROJECT", (selected as Project | null)?.id],
     queryFn: () => listAuditLogs({ entityType: "PROJECT", entityId: selected!.id, size: 30 }),
     enabled: !!selected && canViewAudit,
   });
@@ -284,7 +306,7 @@ export function ProjectsPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: PROJECT_DEFAULTS,
     reset,
     setShowForm,
@@ -293,9 +315,26 @@ export function ProjectsPage() {
     onResetExtras: () => setShowMore(false),
   });
 
+  useEffect(() => {
+    if (searchParams.get("create") === "1" && canCreate) {
+      setSelected(null);
+      setEditingProject(null);
+      setFormError(null);
+      reset(PROJECT_DEFAULTS);
+      setShowForm(true);
+    }
+  }, [searchParams, canCreate, reset, setShowForm]);
+
   const accountOptions = useMemo(
     () => optionsFromPairs((accountsQuery.data ?? []).map((account) => ({ value: account.id, label: account.name }))),
     [accountsQuery.data],
+  );
+  const managerFilterOptions = useMemo(
+    () => optionsFromPairs([
+      ...(auth.userId ? [{ value: auth.userId, label: "Current user" }] : []),
+      ...(usersQuery.data ?? []).map((user) => ({ value: user.id, label: `${user.firstName} ${user.lastName}`.trim(), subtitle: user.email ?? undefined })),
+    ]),
+    [auth.userId, usersQuery.data],
   );
   const regionOptions = useMemo(
     () => optionsFromPairs((regionsQuery.data ?? []).map((region) => ({ value: region.id, label: region.name }))),
@@ -362,18 +401,87 @@ export function ProjectsPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: createProject,
+    mutationFn: (values: ProjectFormValues) => {
+      const body = buildProjectBody(values);
+      if (!editingProject) return createProject(body);
+      return updateProject(editingProject.id, {
+        regionId: body.regionId,
+        accountId: body.accountId,
+        projectManagerId: body.projectManagerId,
+        name: body.name,
+        description: body.description,
+        status: body.status,
+        priority: body.priority,
+        startDate: body.startDate,
+        endDate: body.endDate,
+        budget: body.budget,
+        estimatedHours: body.estimatedHours,
+        billingType: body.billingType,
+      });
+    },
     onSuccess: async (project) => {
       await refreshProjects();
       setFormError(null);
-      await afterCreateSuccess(project, "PROJECT");
+      if (editingProject) {
+        setSelected(project);
+        setEditingProject(null);
+        setShowForm(false);
+        reset(PROJECT_DEFAULTS);
+      } else {
+        await afterCreateSuccess(project, "PROJECT");
+      }
     },
-    onError: () => setFormError("Could not create project. Check required fields."),
+    onError: () => setFormError(editingProject ? "Could not update project. Check required fields and permissions." : "Could not create project. Check required fields."),
   });
 
   const onCreateSubmit = (values: ProjectFormValues) => {
-    createMutation.mutate(buildProjectBody(values));
+    createMutation.mutate(values);
   };
+
+  const deleteProjectMutation = useMutation({
+    mutationFn: () => deleteProject(selected!.id),
+    onSuccess: async () => {
+      await refreshProjects();
+      setConfirmProjectDelete(false);
+      setSelected(null);
+      setInlineError(null);
+    },
+    onError: () => setInlineError("Could not delete project. Check linked records and your permission."),
+  });
+
+  function openProjectEdit(project: Project) {
+    setEditingProject(project);
+    setFormError(null);
+    setShowMore(false);
+    reset({
+      name: project.name,
+      projectCode: project.projectCode,
+      accountId: project.accountId,
+      regionId: project.regionId,
+      projectManagerId: project.projectManagerId ?? "",
+      billingType: project.billingType,
+      status: project.status,
+      description: project.description ?? "",
+      priority: project.priority ?? "MEDIUM",
+      startDate: project.startDate ?? "",
+      endDate: project.endDate ?? "",
+      budget: project.budget == null ? "" : String(project.budget),
+      estimatedHours: project.estimatedHours == null ? "" : String(project.estimatedHours),
+    });
+    setShowForm(true);
+  }
+
+  function cancelProjectForm() {
+    if (editingProject) {
+      if (isDirty && !window.confirm("Discard unsaved changes?")) return;
+      setEditingProject(null);
+      setShowForm(false);
+      setFormError(null);
+      reset(PROJECT_DEFAULTS);
+      return;
+    }
+    cancelCreate(isDirty);
+  }
 
   const milestoneMutation = useMutation({
     mutationFn: (body: Parameters<typeof createMilestone>[1]) =>
@@ -445,20 +553,20 @@ export function ProjectsPage() {
 
   return (
     <>
-      {showForm && canCreate ? (
-        <ZohoFormKitCreateView
-          title="Create Project"
+      {showForm && (editingProject ? canUpdateProject : canCreate) ? (
+        <TechEarnestFormKitCreateView
+          title={editingProject ? "Edit Project" : "Create Project"}
           tableCode="project"
           entityLabel="Project"
           pending={isSubmitting || createMutation.isPending}
           isDirty={isDirty}
           formError={formError}
-          onCancel={() => cancelCreate(isDirty)}
+          onCancel={cancelProjectForm}
           onSave={() => void handleSubmit(onCreateSubmit)()}
-          onSaveAndNew={() => {
+          onSaveAndNew={!editingProject ? () => {
             setSaveAndNew(true);
             void handleSubmit(onCreateSubmit)();
-          }}
+          } : undefined}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
           photo={photo}
         >
@@ -468,15 +576,16 @@ export function ProjectsPage() {
             </div>
             <div className="col-md-2">
               <FormField
-                label="Project code"
+                label={editingProject ? "Project code (read-only)" : "Project code"}
                 required
                 error={errors.projectCode}
+                readOnly={!!editingProject}
                 {...register("projectCode")}
               />
             </div>
             <div className="col-md-3">
               <label className="form-label required">Account</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="accountId"
                 options={accountOptions}
@@ -492,7 +601,7 @@ export function ProjectsPage() {
             </div>
             <div className="col-md-3">
               <label className="form-label required">Region</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="regionId"
                 options={regionOptions}
@@ -507,7 +616,7 @@ export function ProjectsPage() {
             </div>
             <div className="col-md-3">
               <label className="form-label required">Billing type</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="billingType"
                 options={billingTypeOptions}
@@ -517,7 +626,7 @@ export function ProjectsPage() {
             </div>
             <div className="col-md-2">
               <label className="form-label">Status</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="status"
                 options={projectStatusOptions}
@@ -537,7 +646,7 @@ export function ProjectsPage() {
               </div>
               <div className="col-md-2">
                 <label className="form-label">Priority</label>
-                <ZohoFormSelect
+                <TechEarnestFormSelect
                   control={control}
                   name="priority"
                   options={projectPriorityOptions}
@@ -566,7 +675,7 @@ export function ProjectsPage() {
               </div>
             </FormSection>
           </FormMoreDetails>
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : selected ? (
         <RecordShell
               title={selected.name}
@@ -600,8 +709,25 @@ export function ProjectsPage() {
               hasPrev={recordNav.hasPrev}
               hasNext={recordNav.hasNext}
               relatedLinks={[...DEFAULT_RELATED_LINKS]}
+              primaryAction={canUpdateProject ? (
+                <button type="button" className="btn btn-primary btn-sm" onClick={() => openProjectEdit(selected)}>
+                  Edit project
+                </button>
+              ) : null}
               secondaryActions={
                 <>
+                  {canDeleteProject ? (
+                    <button
+                      type="button"
+                      className="btn btn-outline-danger btn-sm"
+                      onClick={() => {
+                        setInlineError(null);
+                        setConfirmProjectDelete(true);
+                      }}
+                    >
+                      Delete project
+                    </button>
+                  ) : null}
                   {canManageMilestone ? (
                     <button
                       type="button"
@@ -625,6 +751,26 @@ export function ProjectsPage() {
                     >
                       {showTaskForm ? "Cancel task" : "Add task"}
                     </button>
+                  ) : null}
+                  {confirmProjectDelete ? (
+                    <div className="module-modal-backdrop" role="presentation" onClick={() => deleteProjectMutation.isPending ? null : setConfirmProjectDelete(false)}>
+                      <div className="module-modal" role="dialog" aria-modal="true" aria-labelledby="delete-project-title" onClick={(event) => event.stopPropagation()}>
+                        <div className="module-modal-header">
+                          <h2 id="delete-project-title" className="h5 mb-0">Delete project?</h2>
+                          <button type="button" className="btn-close" aria-label="Close" disabled={deleteProjectMutation.isPending} onClick={() => setConfirmProjectDelete(false)} />
+                        </div>
+                        <div className="module-modal-body">
+                          <p className="mb-0">Delete <strong>{selected.name}</strong>? The project will be moved to deleted records.</p>
+                          {inlineError ? <div className="alert alert-danger py-2 mt-3 mb-0" role="alert">{inlineError}</div> : null}
+                        </div>
+                        <div className="module-modal-footer">
+                          <button type="button" className="btn btn-outline-secondary btn-sm" disabled={deleteProjectMutation.isPending} onClick={() => setConfirmProjectDelete(false)}>Cancel</button>
+                          <button type="button" className="btn btn-danger btn-sm" disabled={deleteProjectMutation.isPending} onClick={() => deleteProjectMutation.mutate()}>
+                            {deleteProjectMutation.isPending ? "Deleting…" : "Delete project"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   ) : null}
                 </>
               }
@@ -926,7 +1072,7 @@ export function ProjectsPage() {
                     visible: canViewInvoices || canViewPurchaseOrders || canViewExpenses,
                   },
                 ),
-                recordTimelineTab(<ZohoRecordTimeline entries={timelineEntries} />, {
+                recordTimelineTab(<TechEarnestRecordTimeline entries={timelineEntries} />, {
                   visible: canViewActivities || canViewAudit,
                   id: "timeline",
                 }),
@@ -1056,6 +1202,7 @@ export function ProjectsPage() {
             type="button"
             className="btn btn-primary btn-sm"
             onClick={() => {
+              setEditingProject(null);
               reset(PROJECT_DEFAULTS);
               setShowMore(false);
               setShowForm(true);
@@ -1079,49 +1226,10 @@ export function ProjectsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Status</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {PROJECT_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-            <label className="form-label small mb-1">Account</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={accountFilter}
-              onChange={(e) => setAccountFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(accountsQuery.data ?? []).map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={projectStatusOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search project statuses" />
+            <TechEarnestFilterSelect label="Account" value={accountFilter} onChange={setAccountFilter} options={accountOptions} placeholder="All accounts" emptyLabel="All accounts" searchPlaceholder="Search accounts" />
             {canViewUsers ? (
-              <>
-                <label className="form-label small mb-1">Manager</label>
-                <select
-                  className="form-select form-select-sm mb-2"
-                  value={managerFilter}
-                  onChange={(e) => setManagerFilter(e.target.value)}
-                >
-                  <option value="">All</option>
-                  {auth.userId ? <option value={auth.userId}>Current user</option> : null}
-                  {(usersQuery.data ?? []).map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.firstName} {user.lastName}
-                    </option>
-                  ))}
-                </select>
-              </>
+              <TechEarnestFilterSelect label="Manager" value={managerFilter} onChange={setManagerFilter} options={managerFilterOptions} placeholder="All managers" emptyLabel="All managers" searchPlaceholder="Search managers" />
             ) : null}
             <label className="form-label small mb-1">Start from</label>
             <input
@@ -1162,63 +1270,44 @@ export function ProjectsPage() {
           style={{ flex: 1, display: "flex", flexDirection: "column" }}
         >
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Code</th>
-                    <th>Account</th>
-                    <th>Status</th>
-                    <th>Health</th>
-                    <th>Billing</th>
-                    <th>Progress</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((project) => (
-                    <tr
-                      key={project.id}
-                      className={selected?.id === project.id ? "is-selected" : undefined}
-                      onClick={() => {
-                        setSelected(project);
-                        setShowMilestoneForm(false);
-                        setShowTaskForm(false);
-                        setInlineError(null);
-                      }}
-                    >
-                      <td className="lead-name">{project.name}</td>
-                      <td>{project.projectCode}</td>
-                      <td>{accountName(project.accountId)}</td>
-                      <td>
-                        <StatusBadge status={project.status} />
-                      </td>
-                      <td>
-                        <StatusBadge status={project.health ?? "ON_TRACK"} />
-                      </td>
-                      <td>{project.billingType}</td>
-                      <td>
-                        {project.progressPercent != null ? `${project.progressPercent}%` : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={7} className="text-center text-muted py-5">
-                        No projects match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+              tableCode="project"
+              defaultColumns={[
+                { field: "name", label: "Name" },
+                { field: "projectCode", label: "Code" },
+                { field: "accountId", label: "Account" },
+                { field: "status", label: "Status" },
+                { field: "health", label: "Health" },
+                { field: "billingType", label: "Billing" },
+                { field: "progressPercent", label: "Progress" },
+              ]}
+              rows={rows}
+              rowKey={(project) => project.id}
+              selectedRowKey={(selected as Project | null)?.id}
+              onRowClick={(project) => {
+                setSelected(project);
+                setShowMilestoneForm(false);
+                setShowTaskForm(false);
+                setInlineError(null);
+              }}
+              renderCell={(project, field) => {
+                if (field === "accountId") return accountName(project.accountId);
+                if (field === "status") return <StatusBadge status={project.status} />;
+                if (field === "health") return <StatusBadge status={project.health ?? "ON_TRACK"} />;
+                if (field === "progressPercent") return project.progressPercent != null ? `${project.progressPercent}%` : "—";
+                const value = (project as unknown as Record<string, unknown>)[field];
+                return value == null || value === "" ? "—" : String(value);
+              }}
+              nameFields={["name"]}
+              emptyMessage="No projects match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((project) => (
                 <button
                   key={project.id}
                   type="button"
-                  className={`module-tile text-start${selected?.id === project.id ? " is-selected" : ""}`}
+                  className={`module-tile text-start${(selected as Project | null)?.id === project.id ? " is-selected" : ""}`}
                   onClick={() => {
                     setSelected(project);
                     setShowMilestoneForm(false);

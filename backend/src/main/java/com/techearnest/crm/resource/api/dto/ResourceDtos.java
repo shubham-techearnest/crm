@@ -36,7 +36,7 @@ public final class ResourceDtos {
             Instant createdAt,
             Instant updatedAt) {
 
-        public static ResourceResponse from(Resource resource, boolean includeRates) {
+        public static ResourceResponse from(Resource resource, boolean includeCostRate, boolean includeBillingRate) {
             return new ResourceResponse(
                     resource.getId(),
                     resource.getOrganizationId(),
@@ -48,8 +48,8 @@ public final class ResourceDtos {
                     resource.getManagerId(),
                     resource.getResourceType(),
                     resource.getJoiningDate(),
-                    includeRates ? resource.getCostRate() : null,
-                    includeRates ? resource.getBillingRate() : null,
+                    includeCostRate ? resource.getCostRate() : null,
+                    includeBillingRate ? resource.getBillingRate() : null,
                     resource.getCapacityHoursPerWeek(),
                     resource.getStatus(),
                     resource.getCreatedAt(),
@@ -138,7 +138,11 @@ public final class ResourceDtos {
             Instant createdAt,
             Instant updatedAt) {
 
-        public static AllocationResponse from(ResourceAllocation allocation, boolean includeRates, String warning) {
+        public static AllocationResponse from(
+                ResourceAllocation allocation,
+                boolean includeBillingRate,
+                boolean includeCostRate,
+                String warning) {
             return new AllocationResponse(
                     allocation.getId(),
                     allocation.getOrganizationId(),
@@ -149,8 +153,8 @@ public final class ResourceDtos {
                     allocation.getAllocatedHours(),
                     allocation.getAllocationPercentage(),
                     allocation.getRole(),
-                    includeRates ? allocation.getBillingRate() : null,
-                    includeRates ? allocation.getCostRate() : null,
+                    includeBillingRate ? allocation.getBillingRate() : null,
+                    includeCostRate ? allocation.getCostRate() : null,
                     allocation.getStatus(),
                     warning,
                     allocation.getCreatedAt(),

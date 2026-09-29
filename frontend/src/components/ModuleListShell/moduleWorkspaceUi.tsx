@@ -84,7 +84,7 @@ interface ModuleViewToggleProps {
   onViewModeChange: (mode: "list" | "tile") => void;
 }
 
-/** Zoho-style list / tile view switcher with icons. */
+/** TechEarnest-style list / tile view switcher with icons. */
 export function ModuleViewToggle({ viewMode, onViewModeChange }: ModuleViewToggleProps) {
   return (
     <div className="module-view-toggle" role="group" aria-label="View layout">
@@ -136,7 +136,7 @@ export function ModuleViewTabs({ tabs }: { tabs: ModuleViewTab[] }) {
   );
 }
 
-/** Wrap a single default view label as a Zoho-style pill tab. */
+/** Wrap a single default view label as a TechEarnest-style pill tab. */
 export function moduleDefaultViewTab(label: string) {
   return <ModuleViewTabs tabs={[{ id: "default", label, active: true }]} />;
 }

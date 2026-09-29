@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 interface NavIconProps {
   name?: string;
   className?: string;
-  /** Colored tile behind icon — Zoho-style sidebar. */
+  /** Colored tile behind icon — TechEarnest-style sidebar. */
   colored?: boolean;
 }
 

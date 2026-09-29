@@ -26,9 +26,9 @@ public interface DocumentRepository extends JpaRepository<Document, UUID> {
             """
             select d from Document d
             where d.organizationId = :organizationId
-              and (:entityType is null or d.entityType = :entityType)
-              and (:visibility is null or d.visibility = :visibility)
-              and (:uploadedBy is null or d.uploadedBy = :uploadedBy)
+              and coalesce(:entityType, d.entityType) = d.entityType
+              and coalesce(:visibility, d.visibility) = d.visibility
+              and coalesce(:uploadedBy, d.uploadedBy) = d.uploadedBy
               and coalesce(:fromTs, d.createdAt) <= d.createdAt
               and coalesce(:toTs, d.createdAt) >= d.createdAt
             order by d.createdAt desc

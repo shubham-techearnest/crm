@@ -6,15 +6,19 @@ import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { FormSection } from "@/components/FormKit";
 import {
+  enumPickerOptions,
   optionsFromPairs,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  TechEarnestPicker,
+  TechEarnestFilterSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { useRecordNavigation } from "@/components/ZohoRecord";
+import { useRecordNavigation } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -22,17 +26,18 @@ import { listRegions } from "@/features/admin/adminApi";
 import { listProjects } from "@/features/projects/projectApi";
 import { listTaxRates } from "@/features/finance/taxApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { listVendors } from "./vendorsApi";
+import { getVendor, listVendors } from "./vendorsApi";
 import {
   addPurchaseOrderItem,
   approvePurchaseOrder,
   closePurchaseOrder,
   createPurchaseOrder,
   getPurchaseOrder,
-  listPurchaseOrders,
+  queryPurchaseOrders,
   rejectPurchaseOrder,
   sendPurchaseOrder,
   submitPurchaseOrder,
+  updatePurchaseOrder,
   type PurchaseOrder,
 } from "./purchaseOrdersApi";
 
@@ -46,6 +51,7 @@ const PO_STATUSES = [
   "CLOSED",
   "CANCELLED",
 ] as const;
+const poStatusFilterOptions = enumPickerOptions(PO_STATUSES);
 
 const lineSchema = z.object({
   description: z.string().min(1, "Description required"),
@@ -79,6 +85,7 @@ export function PurchaseOrdersPage() {
   const canCreate = useHasPermission("PO_CREATE");
   const canApprove = useHasPermission("PO_APPROVE");
   const canUpdate = useHasPermission("PO_UPDATE");
+  const canViewVendors = useHasPermission("VENDOR_VIEW");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
   const [statusFilter, setStatusFilter] = useState("");
@@ -91,6 +98,12 @@ export function PurchaseOrdersPage() {
   const [addQty, setAddQty] = useState("1");
   const [addPrice, setAddPrice] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+  const [showEditDetails, setShowEditDetails] = useState(false);
+  const [editProjectId, setEditProjectId] = useState("");
+  const [editNeededBy, setEditNeededBy] = useState("");
+  const [editCurrencyCode, setEditCurrencyCode] = useState("");
+  const [editPoNumber, setEditPoNumber] = useState("");
+  const [editNotes, setEditNotes] = useState("");
 
   const listParams = useMemo(
     () => ({
@@ -104,7 +117,7 @@ export function PurchaseOrdersPage() {
 
   const posQuery = useQuery({
     queryKey: ["purchase-orders", listParams],
-    queryFn: () => listPurchaseOrders(listParams),
+    queryFn: () => queryPurchaseOrders(listParams),
   });
   const vendorsQuery = useQuery({ queryKey: ["vendors"], queryFn: () => listVendors() });
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
@@ -131,7 +144,7 @@ export function PurchaseOrdersPage() {
   });
   const { fields, append, remove } = useFieldArray({ control, name: "items" });
 
-  const { photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+  const { photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: DEFAULTS,
     reset,
     setShowForm,
@@ -211,6 +224,15 @@ export function PurchaseOrdersPage() {
     onSuccess: invalidate,
     onError: () => setActionError("Could not close PO."),
   });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Parameters<typeof updatePurchaseOrder>[1] }) => updatePurchaseOrder(id, body),
+    onSuccess: async () => {
+      setShowEditDetails(false);
+      setActionError(null);
+      await invalidate();
+    },
+    onError: () => setActionError("Could not update purchase order. Only draft purchase orders can be edited."),
+  });
 
   const rows = posQuery.data ?? [];
   const selectedRow = rows.find((row) => row.id === selectedId) ?? null;
@@ -220,7 +242,15 @@ export function PurchaseOrdersPage() {
     setRejectReason("");
   });
   const selected: PurchaseOrder | undefined = detailQuery.data;
-  const vendorName = (id: string) => vendorsQuery.data?.find((v) => v.id === id)?.name ?? id.slice(0, 8);
+  const selectedVendorQuery = useQuery({
+    queryKey: ["vendors", selected?.vendorId, "detail"],
+    queryFn: () => getVendor(selected!.vendorId),
+    enabled: !!selected && canViewVendors && !vendorsQuery.isLoading && !vendorsQuery.data?.some((vendor) => vendor.id === selected.vendorId),
+  });
+  const vendorName = (id: string) =>
+    vendorsQuery.data?.find((vendor) => vendor.id === id)?.name
+      ?? (selectedVendorQuery.data?.id === id ? selectedVendorQuery.data.name : null)
+      ?? id.slice(0, 8);
   const projectName = (id: string | null) =>
     id ? (projectsQuery.data?.find((p) => p.id === id)?.name ?? id.slice(0, 8)) : "—";
   const activeFilterCount = [search, statusFilter, vendorFilter, projectFilter].filter(Boolean).length;
@@ -251,7 +281,7 @@ export function PurchaseOrdersPage() {
   return (
     <>
       {showForm && canCreate ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Purchase Order"
           tableCode="purchase_order"
           entityLabel="Purchase Order"
@@ -266,7 +296,7 @@ export function PurchaseOrdersPage() {
           <FormSection title="Draft PO" description="Vendor, optional project, needed-by date">
             <div className="col-md-3">
               <label className="form-label required">Region</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="regionId"
                 options={regionOptions}
@@ -279,7 +309,7 @@ export function PurchaseOrdersPage() {
             </div>
             <div className="col-md-3">
               <label className="form-label required">Vendor</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="vendorId"
                 options={vendorOptions}
@@ -292,7 +322,7 @@ export function PurchaseOrdersPage() {
             </div>
             <div className="col-md-3">
               <label className="form-label">Project</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="projectId"
                 options={projectOptions}
@@ -336,7 +366,7 @@ export function PurchaseOrdersPage() {
                 </div>
                 <div className="col-md-2">
                   <label className="form-label">Tax rate</label>
-                  <ZohoFormSelect
+                  <TechEarnestFormSelect
                     control={control}
                     name={`items.${index}.taxRateId`}
                     options={taxRateOptions}
@@ -364,7 +394,7 @@ export function PurchaseOrdersPage() {
               Add line
             </button>
           </FormSection>
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : selectedId ? (
         detailQuery.isLoading ? (
           <LoadingState label="Loading purchase order…" />
@@ -385,6 +415,23 @@ export function PurchaseOrdersPage() {
             relatedLinks={[...DEFAULT_RELATED_LINKS]}
             primaryAction={
               <>
+                {canUpdate && selected.status === "DRAFT" ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary"
+                    onClick={() => {
+                      setEditProjectId(selected.projectId ?? "");
+                      setEditNeededBy(selected.neededBy ?? "");
+                      setEditCurrencyCode(selected.currencyCode);
+                      setEditPoNumber(selected.poNumber ?? "");
+                      setEditNotes(selected.notes ?? "");
+                      setActionError(null);
+                      setShowEditDetails(true);
+                    }}
+                  >
+                    Edit details
+                  </button>
+                ) : null}
                 {canCreate && (selected.status === "DRAFT" || selected.status === "REJECTED") ? (
                   <button
                     type="button"
@@ -570,49 +617,13 @@ export function PurchaseOrdersPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Status</h3>
-            <select
-              className="form-select form-select-sm"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {PO_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={poStatusFilterOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search purchase order statuses" />
           </div>
           <div className="module-filter-section">
-            <h3>Vendor</h3>
-            <select
-              className="form-select form-select-sm"
-              value={vendorFilter}
-              onChange={(e) => setVendorFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(vendorsQuery.data ?? []).map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Vendor" value={vendorFilter} onChange={setVendorFilter} options={vendorOptions} placeholder="All vendors" emptyLabel="All vendors" searchPlaceholder="Search vendors" />
           </div>
           <div className="module-filter-section">
-            <h3>Project</h3>
-            <select
-              className="form-select form-select-sm"
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(projectsQuery.data ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
           </div>
         </>
       }
@@ -622,54 +633,76 @@ export function PurchaseOrdersPage() {
       {posQuery.error ? <ErrorState title="Unable to load purchase orders" message="Try again." /> : null}
 
       {!posQuery.isLoading && !posQuery.error ? (
-        <div className="module-list-table-wrap">
-            <table className="table module-list-table align-middle">
-              <thead>
-                <tr>
-                  <th>Number</th>
-                  <th>Vendor</th>
-                  <th>Project</th>
-                  <th>Status</th>
-                  <th>Needed</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={selectedId === row.id ? "table-active" : undefined}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => {
-                      setSelectedId(row.id);
-                      setActionError(null);
-                    }}
-                  >
-                    <td className="lead-name">{row.poNumber ?? "Draft"}</td>
-                    <td>{vendorName(row.vendorId)}</td>
-                    <td>{projectName(row.projectId)}</td>
-                    <td>
-                      <StatusBadge status={row.status} />
-                    </td>
-                    <td>{row.neededBy ?? "—"}</td>
-                    <td>
-                      {row.currencyCode} {row.total}
-                    </td>
-                  </tr>
-                ))}
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center text-muted py-5">
-                      No purchase orders
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+        <ModuleListTable
+          tableCode="purchase_order"
+          defaultColumns={[
+            { field: "poNumber", label: "Number" },
+            { field: "vendorId", label: "Vendor" },
+            { field: "projectId", label: "Project" },
+            { field: "status", label: "Status" },
+            { field: "neededBy", label: "Needed" },
+            { field: "total", label: "Total" },
+          ]}
+          rows={rows}
+          rowKey={(row) => row.id}
+          selectedRowKey={selectedId}
+          onRowClick={(row) => {
+            setSelectedId(row.id);
+            setActionError(null);
+          }}
+          renderCell={(row, field) => {
+            if (field === "poNumber") return row.poNumber ?? "Draft";
+            if (field === "vendorId") return vendorName(row.vendorId);
+            if (field === "projectId") return projectName(row.projectId);
+            if (field === "status") return <StatusBadge status={row.status} />;
+            if (field === "total") return `${row.currencyCode} ${row.total}`;
+            const value = (row as unknown as Record<string, unknown>)[field];
+            return value == null || value === "" ? "—" : String(value);
+          }}
+          nameFields={["poNumber"]}
+          emptyMessage="No purchase orders"
+        />
       ) : null}
     </ModuleListShell>
       )}
+      {showEditDetails && selected ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => updateMutation.isPending ? null : setShowEditDetails(false)}>
+          <section className="module-modal" role="dialog" aria-modal="true" aria-labelledby="edit-po-title" onClick={(event) => event.stopPropagation()}>
+            <header className="d-flex align-items-center justify-content-between gap-3 mb-3">
+              <h2 id="edit-po-title" className="h5 mb-0">Edit purchase order</h2>
+              <button type="button" className="btn-close" aria-label="Close" disabled={updateMutation.isPending} onClick={() => setShowEditDetails(false)} />
+            </header>
+            <div className="mb-3">
+              <label className="form-label" htmlFor="edit-po-number">PO number</label>
+              <input id="edit-po-number" className="form-control" maxLength={80} value={editPoNumber} onChange={(event) => setEditPoNumber(event.target.value)} />
+            </div>
+            <div className="mb-3">
+              <label className="form-label" htmlFor="edit-po-project">Project</label>
+              <TechEarnestPicker value={editProjectId} onChange={setEditProjectId} options={projectOptions} searchPlaceholder="Search Projects" placeholder="No project" lookupIcon="apps" />
+            </div>
+            <div className="row g-3 mb-3">
+              <div className="col-6">
+                <label className="form-label" htmlFor="edit-po-needed-by">Needed by</label>
+                <input id="edit-po-needed-by" className="form-control" type="date" value={editNeededBy} onChange={(event) => setEditNeededBy(event.target.value)} />
+              </div>
+              <div className="col-6">
+                <label className="form-label" htmlFor="edit-po-currency">Currency code</label>
+                <input id="edit-po-currency" className="form-control" maxLength={3} value={editCurrencyCode} onChange={(event) => setEditCurrencyCode(event.target.value.toUpperCase())} />
+              </div>
+            </div>
+            <div className="mb-3">
+              <label className="form-label" htmlFor="edit-po-notes">Notes</label>
+              <textarea id="edit-po-notes" className="form-control" rows={3} maxLength={2000} value={editNotes} onChange={(event) => setEditNotes(event.target.value)} />
+            </div>
+            <footer className="d-flex justify-content-end gap-2">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={updateMutation.isPending} onClick={() => setShowEditDetails(false)}>Cancel</button>
+              <button type="button" className="btn btn-primary btn-sm" disabled={!editCurrencyCode.trim() || updateMutation.isPending} onClick={() => updateMutation.mutate({ id: selected.id, body: { projectId: editProjectId || null, poNumber: editPoNumber.trim() || undefined, currencyCode: editCurrencyCode.trim(), neededBy: editNeededBy || null, notes: editNotes || null } })}>
+                {updateMutation.isPending ? "Saving…" : "Save changes"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }

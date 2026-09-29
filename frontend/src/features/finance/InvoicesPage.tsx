@@ -6,15 +6,18 @@ import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { FormSection } from "@/components/FormKit";
 import {
+  enumPickerOptions,
   optionsFromPairs,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFilterSelect,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { useRecordNavigation } from "@/components/ZohoRecord";
+import { useRecordNavigation } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -24,6 +27,7 @@ import { listProjects } from "@/features/projects/projectApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import {
   applyCreditNote,
+  addInvoiceLine,
   createCreditNote,
   createInvoice,
   exportInvoicesCsv,
@@ -38,6 +42,8 @@ import {
   type Invoice,
 } from "./invoiceApi";
 import { buildInvoiceFilterConditions, needsInvoiceQuery } from "./invoiceFilterCatalog";
+
+const invoiceStatusOptions = enumPickerOptions(["DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "OVERDUE", "VOID"]);
 
 const createSchema = z.object({
   regionId: z.string().min(1, "Region is required"),
@@ -80,6 +86,10 @@ export function InvoicesPage() {
   const [payAmount, setPayAmount] = useState("");
   const [creditAmount, setCreditAmount] = useState("");
   const [selectedTimeIds, setSelectedTimeIds] = useState<string[]>([]);
+  const [showAddLine, setShowAddLine] = useState(false);
+  const [lineDescription, setLineDescription] = useState("");
+  const [lineQuantity, setLineQuantity] = useState("1");
+  const [lineUnitPrice, setLineUnitPrice] = useState("");
 
   const advanced = needsInvoiceQuery({
     dueFrom,
@@ -157,7 +167,7 @@ export function InvoicesPage() {
     defaultValues: CREATE_DEFAULTS,
   });
 
-  const { photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+  const { photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: CREATE_DEFAULTS,
     reset,
     setShowForm,
@@ -230,6 +240,20 @@ export function InvoicesPage() {
     },
     onError: () => setActionError("Could not pull time entries (already billed or not approved)."),
   });
+  const addLineMutation = useMutation({
+    mutationFn: ({ id, description, quantity, unitPrice }: { id: string; description: string; quantity: number; unitPrice: number }) =>
+      addInvoiceLine(id, { description, quantity, unitPrice }),
+    onSuccess: async () => {
+      setShowAddLine(false);
+      setLineDescription("");
+      setLineQuantity("1");
+      setLineUnitPrice("");
+      setActionError(null);
+      await invalidate();
+      await detailQuery.refetch();
+    },
+    onError: () => setActionError("Could not add invoice line. Check the values and invoice status."),
+  });
   const creditMutation = useMutation({
     mutationFn: async ({ id, amount }: { id: string; amount: number }) => {
       const note = await createCreditNote(id, { amount, reason: "Adjustment" });
@@ -279,7 +303,7 @@ export function InvoicesPage() {
   return (
     <>
       {showForm && canCreate ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Invoice"
           tableCode="invoice"
           entityLabel="Invoice"
@@ -294,7 +318,7 @@ export function InvoicesPage() {
           <FormSection title="Draft invoice" description="Account, optional project, due date">
             <div className="col-md-3">
               <label className="form-label required">Region</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="regionId"
                 options={regionOptions}
@@ -307,7 +331,7 @@ export function InvoicesPage() {
             </div>
             <div className="col-md-3">
               <label className="form-label required">Account</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="accountId"
                 options={accountOptions}
@@ -321,7 +345,7 @@ export function InvoicesPage() {
             </div>
             <div className="col-md-3">
               <label className="form-label">Project</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="projectId"
                 options={projectOptions}
@@ -334,7 +358,7 @@ export function InvoicesPage() {
               <FormField label="Due date" type="date" error={errors.dueDate} {...register("dueDate")} />
             </div>
           </FormSection>
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : selectedId ? (
         detailQuery.isLoading ? (
           <LoadingState label="Loading invoice…" />
@@ -392,6 +416,11 @@ export function InvoicesPage() {
                       Paid {selected.amountPaid} · Credited {selected.amountCredited ?? 0}
                     </p>
                     <h3 className="h6">Lines</h3>
+                    {selected.status === "DRAFT" && canUpdate ? (
+                      <button type="button" className="btn btn-sm btn-outline-primary mb-2" onClick={() => setShowAddLine(true)}>
+                        Add line item
+                      </button>
+                    ) : null}
                     <ul className="small mb-3">
                       {(selected.lines ?? []).map((l) => (
                         <li key={l.id}>
@@ -582,48 +611,16 @@ export function InvoicesPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Status</h3>
-            <select className="form-select form-select-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="">All</option>
-              {["DRAFT", "ISSUED", "PARTIALLY_PAID", "PAID", "OVERDUE", "VOID"].map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={invoiceStatusOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search invoice statuses" />
           </div>
           <div className="module-filter-section">
-            <h3>Account</h3>
-            <select className="form-select form-select-sm" value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)}>
-              <option value="">All</option>
-              {(accountsQuery.data ?? []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Account" value={accountFilter} onChange={setAccountFilter} options={accountOptions} placeholder="All accounts" emptyLabel="All accounts" searchPlaceholder="Search accounts" />
           </div>
           <div className="module-filter-section">
-            <h3>Project</h3>
-            <select className="form-select form-select-sm" value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)}>
-              <option value="">All</option>
-              {(projectsQuery.data ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
           </div>
           <div className="module-filter-section">
-            <h3>Region</h3>
-            <select className="form-select form-select-sm" value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}>
-              <option value="">All</option>
-              {(regionsQuery.data ?? []).map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Region" value={regionFilter} onChange={setRegionFilter} options={regionOptions} placeholder="All regions" emptyLabel="All regions" searchPlaceholder="Search regions" />
           </div>
           <div className="module-filter-section">
             <h3>Due from</h3>
@@ -662,54 +659,72 @@ export function InvoicesPage() {
       {invoicesQuery.error ? <ErrorState title="Unable to load invoices" message="Try again." /> : null}
 
       {!invoicesQuery.isLoading && !invoicesQuery.error ? (
-        <div className="module-list-table-wrap">
-            <table className="table module-list-table align-middle">
-              <thead>
-                <tr>
-                  <th>Number</th>
-                  <th>Account</th>
-                  <th>Status</th>
-                  <th>Due</th>
-                  <th>Total</th>
-                  <th>Balance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((inv) => (
-                  <tr
-                    key={inv.id}
-                    className={selectedId === inv.id ? "table-active" : undefined}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => {
-                      setSelectedId(inv.id);
-                      setActionError(null);
-                    }}
-                  >
-                    <td className="lead-name">{inv.invoiceNumber ?? "Draft"}</td>
-                    <td>{accountName(inv.accountId)}</td>
-                    <td>
-                      <StatusBadge status={inv.status} />
-                    </td>
-                    <td>{inv.dueDate ?? "—"}</td>
-                    <td>
-                      {inv.currencyCode} {inv.total}
-                    </td>
-                    <td>{inv.balanceDue}</td>
-                  </tr>
-                ))}
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center text-muted py-5">
-                      No invoices
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+        <ModuleListTable
+          tableCode="invoice"
+          defaultColumns={[
+            { field: "invoiceNumber", label: "Number" },
+            { field: "accountId", label: "Account" },
+            { field: "status", label: "Status" },
+            { field: "dueDate", label: "Due" },
+            { field: "total", label: "Total" },
+            { field: "balanceDue", label: "Balance" },
+          ]}
+          rows={rows}
+          rowKey={(inv) => inv.id}
+          selectedRowKey={selectedId}
+          onRowClick={(inv) => {
+            setSelectedId(inv.id);
+            setActionError(null);
+          }}
+          renderCell={(inv, field) => {
+            if (field === "invoiceNumber") return inv.invoiceNumber ?? "Draft";
+            if (field === "accountId") return accountName(inv.accountId);
+            if (field === "status") return <StatusBadge status={inv.status} />;
+            if (field === "total" || field === "balanceDue") return `${inv.currencyCode} ${(inv as unknown as Record<string, unknown>)[field] ?? "—"}`;
+            const value = (inv as unknown as Record<string, unknown>)[field];
+            return value == null || value === "" ? "—" : String(value);
+          }}
+          nameFields={["invoiceNumber"]}
+          emptyMessage="No invoices"
+        />
       ) : null}
     </ModuleListShell>
       )}
+      {showAddLine && selected ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => addLineMutation.isPending ? null : setShowAddLine(false)}>
+          <section className="module-modal" role="dialog" aria-modal="true" aria-labelledby="add-invoice-line-title" onClick={(event) => event.stopPropagation()}>
+            <header className="d-flex align-items-center justify-content-between gap-3 mb-3">
+              <h2 id="add-invoice-line-title" className="h5 mb-0">Add invoice line</h2>
+              <button type="button" className="btn-close" aria-label="Close" disabled={addLineMutation.isPending} onClick={() => setShowAddLine(false)} />
+            </header>
+            <div className="mb-3">
+              <label className="form-label" htmlFor="invoice-line-description">Description</label>
+              <input id="invoice-line-description" autoFocus className="form-control" maxLength={500} value={lineDescription} onChange={(event) => setLineDescription(event.target.value)} />
+            </div>
+            <div className="row g-3 mb-3">
+              <div className="col-6">
+                <label className="form-label" htmlFor="invoice-line-quantity">Quantity</label>
+                <input id="invoice-line-quantity" className="form-control" type="number" min="0.01" step="0.01" value={lineQuantity} onChange={(event) => setLineQuantity(event.target.value)} />
+              </div>
+              <div className="col-6">
+                <label className="form-label" htmlFor="invoice-line-unit-price">Unit price ({selected.currencyCode})</label>
+                <input id="invoice-line-unit-price" className="form-control" type="number" min="0" step="0.01" value={lineUnitPrice} onChange={(event) => setLineUnitPrice(event.target.value)} />
+              </div>
+            </div>
+            <footer className="d-flex justify-content-end gap-2">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={addLineMutation.isPending} onClick={() => setShowAddLine(false)}>Cancel</button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={!lineDescription.trim() || Number(lineQuantity) <= 0 || !lineUnitPrice || Number(lineUnitPrice) < 0 || addLineMutation.isPending}
+                onClick={() => addLineMutation.mutate({ id: selected.id, description: lineDescription.trim(), quantity: Number(lineQuantity), unitPrice: Number(lineUnitPrice) })}
+              >
+                {addLineMutation.isPending ? "Adding…" : "Add line"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }

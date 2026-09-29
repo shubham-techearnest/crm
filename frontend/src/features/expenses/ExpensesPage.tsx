@@ -8,14 +8,16 @@ import { FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFilterSelect,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { useRecordNavigation } from "@/components/ZohoRecord";
+import { useRecordNavigation } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -31,6 +33,7 @@ import {
   queryExpenses,
   rejectExpense,
   submitExpense,
+  updateExpense,
   type Expense,
 } from "./expenseApi";
 import { buildExpenseFilterConditions, needsExpenseQuery } from "./expenseFilterCatalog";
@@ -39,6 +42,8 @@ const EXPENSE_STATUSES = ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED"] as const
 const CATEGORIES = ["Travel", "Meals", "Lodging", "Supplies", "Software", "Other"] as const;
 
 const categoryOptions = enumPickerOptions(CATEGORIES);
+const expenseStatusFilterOptions = enumPickerOptions(EXPENSE_STATUSES);
+const billableFilterOptions = optionsFromPairs([{ value: "true", label: "Yes" }, { value: "false", label: "No" }]);
 
 const schema = z.object({
   regionId: z.string().min(1, "Region is required"),
@@ -69,6 +74,7 @@ const DEFAULTS: FormValues = {
 export function ExpensesPage() {
   const queryClient = useQueryClient();
   const canCreate = useHasPermission("EXPENSE_CREATE");
+  const canUpdate = useHasPermission("EXPENSE_UPDATE");
   const canApprove = useHasPermission("EXPENSE_APPROVE");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
@@ -84,6 +90,7 @@ export function ExpensesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
 
   const billableBool =
     billableFilter === "true" ? true : billableFilter === "false" ? false : ("" as const);
@@ -158,7 +165,7 @@ export function ExpensesPage() {
     defaultValues: DEFAULTS,
   });
 
-  const { photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+  const { photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: DEFAULTS,
     reset,
     setShowForm,
@@ -178,6 +185,29 @@ export function ExpensesPage() {
       await afterCreateSuccess(expense, "EXPENSE");
     },
     onError: () => setFormError("Could not create expense."),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ id, values }: { id: string; values: FormValues }) =>
+      updateExpense(id, {
+        resourceId: values.resourceId || null,
+        projectId: values.projectId || null,
+        category: values.category,
+        description: values.description || null,
+        amount: Number(values.amount),
+        expenseDate: values.expenseDate,
+        billable: values.billable,
+        notes: values.notes || null,
+      }),
+    onSuccess: async () => {
+      await invalidate();
+      setFormError(null);
+      setEditingExpenseId(null);
+      setShowForm(false);
+      reset(DEFAULTS);
+      await detailQuery.refetch();
+    },
+    onError: () => setFormError("Could not update expense. Only draft or rejected expenses can be changed."),
   });
 
   const regionOptions = useMemo(
@@ -212,6 +242,28 @@ export function ExpensesPage() {
       notes: values.notes || undefined,
     });
   };
+
+  const onUpdateSubmit = (values: FormValues) => {
+    if (!editingExpenseId) return;
+    updateMutation.mutate({ id: editingExpenseId, values });
+  };
+
+  function openExpenseEdit(expense: Expense) {
+    setEditingExpenseId(expense.id);
+    setFormError(null);
+    reset({
+      regionId: expense.regionId,
+      resourceId: expense.resourceId ?? "",
+      projectId: expense.projectId ?? "",
+      category: expense.category,
+      description: expense.description ?? "",
+      amount: String(expense.amount),
+      expenseDate: expense.expenseDate,
+      billable: expense.billable,
+      notes: expense.notes ?? "",
+    });
+    setShowForm(true);
+  }
 
   const submitMutation = useMutation({
     mutationFn: (id: string) => submitExpense(id),
@@ -258,23 +310,29 @@ export function ExpensesPage() {
 
   return (
     <>
-      {showForm && canCreate ? (
-        <ZohoFormKitCreateView
-          title="Create Expense"
+      {showForm && (editingExpenseId ? canUpdate : canCreate) ? (
+        <TechEarnestFormKitCreateView
+          title={editingExpenseId ? "Edit Expense" : "Create Expense"}
           tableCode="expense"
           entityLabel="Expense"
-          pending={isSubmitting || createMutation.isPending}
+          pending={isSubmitting || createMutation.isPending || updateMutation.isPending}
           isDirty={isDirty}
           formError={formError}
-          onCancel={() => cancelCreate(isDirty)}
-          onSave={() => void handleSubmit(onCreateSubmit)()}
-          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          onCancel={() => {
+            if (editingExpenseId) {
+              setEditingExpenseId(null);
+              setShowForm(false);
+              reset(DEFAULTS);
+            } else cancelCreate(isDirty);
+          }}
+          onSave={() => void handleSubmit(editingExpenseId ? onUpdateSubmit : onCreateSubmit)()}
+          onSubmit={() => void handleSubmit(editingExpenseId ? onUpdateSubmit : onCreateSubmit)()}
           photo={photo}
         >
           <FormSection title="Expense" description="Employee or project cost with category and billable flag">
             <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <ZohoFormSelect
+              <label className={`form-label${editingExpenseId ? "" : " required"}`}>Region</label>
+              <TechEarnestFormSelect
                 control={control}
                 name="regionId"
                 options={regionOptions}
@@ -282,12 +340,13 @@ export function ExpensesPage() {
                 allowEmpty={false}
                 placeholder="Select"
                 invalid={!!errors.regionId}
+                disabled={!!editingExpenseId}
               />
               {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
             </div>
             <div className="col-md-2">
               <label className="form-label required">Category</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="category"
                 options={categoryOptions}
@@ -310,7 +369,7 @@ export function ExpensesPage() {
             </div>
             <div className="col-md-2">
               <label className="form-label">Employee</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="resourceId"
                 options={resourceOptions}
@@ -321,7 +380,7 @@ export function ExpensesPage() {
             </div>
             <div className="col-md-2">
               <label className="form-label">Project</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="projectId"
                 options={projectOptions}
@@ -343,7 +402,7 @@ export function ExpensesPage() {
               </label>
             </div>
           </FormSection>
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : selectedId ? (
         detailQuery.isLoading ? (
           <LoadingState label="Loading expense…" />
@@ -363,16 +422,18 @@ export function ExpensesPage() {
             hasNext={recordNav.hasNext}
             relatedLinks={[...DEFAULT_RELATED_LINKS]}
             primaryAction={
-              canCreate && (selected.status === "DRAFT" || selected.status === "REJECTED") ? (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
-                  disabled={submitMutation.isPending}
-                  onClick={() => submitMutation.mutate(selected.id)}
-                >
-                  Submit
-                </button>
-              ) : null
+              <>
+                {canUpdate && (selected.status === "DRAFT" || selected.status === "REJECTED") ? (
+                  <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => openExpenseEdit(selected)}>
+                    Edit
+                  </button>
+                ) : null}
+                {canCreate && (selected.status === "DRAFT" || selected.status === "REJECTED") ? (
+                  <button type="button" className="btn btn-sm btn-primary" disabled={submitMutation.isPending} onClick={() => submitMutation.mutate(selected.id)}>
+                    Submit
+                  </button>
+                ) : null}
+              </>
             }
             secondaryActions={
               canApprove && selected.status === "SUBMITTED" ? (
@@ -473,91 +534,22 @@ export function ExpensesPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Status</h3>
-            <select
-              className="form-select form-select-sm"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {EXPENSE_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={expenseStatusFilterOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search expense statuses" />
           </div>
           <div className="module-filter-section">
-            <h3>Category</h3>
-            <select
-              className="form-select form-select-sm"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Category" value={categoryFilter} onChange={setCategoryFilter} options={categoryOptions} placeholder="All categories" emptyLabel="All categories" searchPlaceholder="Search categories" />
           </div>
           <div className="module-filter-section">
-            <h3>Project</h3>
-            <select
-              className="form-select form-select-sm"
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(projectsQuery.data ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
           </div>
           <div className="module-filter-section">
-            <h3>Employee</h3>
-            <select
-              className="form-select form-select-sm"
-              value={resourceFilter}
-              onChange={(e) => setResourceFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(resourcesQuery.data ?? []).map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.employeeCode ?? r.designation ?? r.id.slice(0, 8)}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Employee" value={resourceFilter} onChange={setResourceFilter} options={resourceOptions} placeholder="All employees" emptyLabel="All employees" searchPlaceholder="Search employees" />
           </div>
           <div className="module-filter-section">
-            <h3>Region</h3>
-            <select
-              className="form-select form-select-sm"
-              value={regionFilter}
-              onChange={(e) => setRegionFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(regionsQuery.data ?? []).map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Region" value={regionFilter} onChange={setRegionFilter} options={regionOptions} placeholder="All regions" emptyLabel="All regions" searchPlaceholder="Search regions" />
           </div>
           <div className="module-filter-section">
-            <h3>Billable</h3>
-            <select
-              className="form-select form-select-sm"
-              value={billableFilter}
-              onChange={(e) => setBillableFilter(e.target.value as "" | "true" | "false")}
-            >
-              <option value="">All</option>
-              <option value="true">Yes</option>
-              <option value="false">No</option>
-            </select>
+            <TechEarnestFilterSelect label="Billable" value={billableFilter} onChange={(value) => setBillableFilter(value as "" | "true" | "false")} options={billableFilterOptions} placeholder="All" emptyLabel="All" searchPlaceholder="Search options" />
           </div>
           <div className="module-filter-section">
             <h3>Expense from</h3>
@@ -583,54 +575,37 @@ export function ExpensesPage() {
       {expensesQuery.error ? <ErrorState title="Unable to load expenses" message="Try again." /> : null}
 
       {!expensesQuery.isLoading && !expensesQuery.error ? (
-        <div className="module-list-table-wrap">
-            <table className="table module-list-table align-middle">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Category</th>
-                  <th>Employee</th>
-                  <th>Project</th>
-                  <th>Status</th>
-                  <th>Amount</th>
-                  <th>Billable</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={selectedId === row.id ? "table-active" : undefined}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => {
-                      setSelectedId(row.id);
-                      setActionError(null);
-                      setRejectReason("");
-                    }}
-                  >
-                    <td className="lead-name">{row.expenseDate}</td>
-                    <td>{row.category}</td>
-                    <td>{resourceLabel(row.resourceId)}</td>
-                    <td>{projectName(row.projectId)}</td>
-                    <td>
-                      <StatusBadge status={row.status} />
-                    </td>
-                    <td>
-                      {row.currencyCode} {row.amount}
-                    </td>
-                    <td>{row.billable ? "Yes" : "No"}</td>
-                  </tr>
-                ))}
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="text-center text-muted py-5">
-                      No expenses
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-        </div>
+        <ModuleListTable
+          tableCode="expense"
+          defaultColumns={[
+            { field: "expenseDate", label: "Date" },
+            { field: "category", label: "Category" },
+            { field: "resourceId", label: "Employee" },
+            { field: "projectId", label: "Project" },
+            { field: "status", label: "Status" },
+            { field: "amount", label: "Amount" },
+            { field: "billable", label: "Billable" },
+          ]}
+          rows={rows}
+          rowKey={(expense) => expense.id}
+          selectedRowKey={selectedId}
+          onRowClick={(expense) => {
+            setSelectedId(expense.id);
+            setActionError(null);
+            setRejectReason("");
+          }}
+          renderCell={(expense, field) => {
+            if (field === "resourceId") return resourceLabel(expense.resourceId);
+            if (field === "projectId") return projectName(expense.projectId);
+            if (field === "status") return <StatusBadge status={expense.status} />;
+            if (field === "amount") return `${expense.currencyCode} ${expense.amount}`;
+            if (field === "billable") return expense.billable ? "Yes" : "No";
+            const value = (expense as unknown as Record<string, unknown>)[field];
+            return value == null || value === "" ? "—" : String(value);
+          }}
+          nameFields={["expenseDate"]}
+          emptyMessage="No expenses"
+        />
       ) : null}
     </ModuleListShell>
       )}

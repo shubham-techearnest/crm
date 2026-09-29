@@ -9,7 +9,7 @@
 | Password hashing | OK | BCrypt |
 | Stack traces to client | OK | Suppressed |
 | Prod JWT default secret | Fixed | `ProdSecurityGuard` fails startup on prod + default secret |
-| Swagger in non-prod | Risk P1 | Default enabled; disable via `SWAGGER_ENABLED=false` |
+| Swagger in non-prod | Configuration | Enabled by default for development; production profile disables both Swagger UI and API docs |
 | CSRF | Disabled | Intentional for SPA JWT |
 | Login rate limit | Partial P1 | In-memory only |
 
@@ -35,13 +35,13 @@
 | --- | --- | --- |
 | Lead/Account/Contact/Deal/Project/Resource/Timesheet | `assertRecordVisible` | PASS in flow tests |
 | Notification mark-read | Own userId only | PASS (code) |
-| Documents | N/A | No API (cannot IDOR via HTTP yet; table exists) |
-| Audit logs | Org only | Regional over-read P1 |
+| Documents | Parent visibility + organization checks | List/upload/download/delete service paths verify the related parent and tenant |
+| Audit logs | Organization and visible-region filters | Regional scopes are applied by the audit query service |
 
 ## RBAC / IDOR notes
 
 - Frontend route guards added (defense in depth; API remains source of truth)
-- TEAM scope over-restricts managers (availability issue, not cross-tenant leak)
+- TEAM visibility is based on same-team members and direct reports; services using single-owner scope remain narrower by design
 - Self-approve timesheet blocked
 
 ## Secrets
@@ -57,5 +57,5 @@
 1. Always run with `prod` profile + strong `JWT_SECRET` + managed DB credentials.
 2. Set `SWAGGER_ENABLED=false` (or rely on prod profile).
 3. Replace in-memory login limiter with Redis/shared store.
-4. Add audit `region_id` or revoke regional AUDIT_VIEW.
-5. Implement document APIs with org checks before enabling uploads.
+4. Review whether every audit producer records a region so region-scoped history is complete.
+5. Replace in-memory login throttling before multi-instance production deployment.

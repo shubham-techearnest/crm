@@ -56,8 +56,8 @@ export type CreatePurchaseOrderBody = {
 };
 
 export type UpdatePurchaseOrderBody = {
-  vendorId?: string;
   projectId?: string | null;
+  poNumber?: string;
   currencyCode?: string;
   neededBy?: string | null;
   notes?: string | null;

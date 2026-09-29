@@ -1,24 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { DealCreateView } from "./DealCreateView";
 import { DealEditView } from "./DealEditView";
 import { DealRecordOverview, DEAL_STAGES } from "./DealRecordOverview";
-import { buildOwnerOptions, enumPickerOptions, optionsFromPairs, ZohoFilterSelect } from "@/components/ZohoCreate";
+import { buildOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilterSelect } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEAL_RELATED_LINKS } from "@/components/RecordShell";
-import { buildTimelineEntries, buildDealTimelineEntries, recordLifecycleInfo, useRecordNavigation, ZohoRecordTimeline } from "@/components/ZohoRecord";
+import { buildDealTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import type { ApiResponse } from "@/types/api";
-import { listAuditLogs, listUsers } from "@/features/admin/adminApi";
+import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
+import { getPublishedFormPolicies } from "@/features/admin/studio/metadataApi";
 import { createProjectFromDeal } from "@/features/projects/projectApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import {
   changeDealStage,
+  getDeal,
   getPipeline,
   listAccounts,
   listActivities,
@@ -30,7 +33,30 @@ import {
 import { createNote, listDocuments, listNotes, uploadDocument, documentDownloadUrl } from "./foundationApi";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 
+function policyConditionMatches(policy: { when: { field: string; op: string; value?: string } }, values: Record<string, string>) {
+  const actual = values[policy.when.field] ?? "";
+  const expected = policy.when.value ?? "";
+  switch (policy.when.op.toUpperCase()) {
+    case "EQ": return actual !== "" && actual.toLowerCase() === expected.toLowerCase();
+    case "NEQ": return actual === "" || actual.toLowerCase() !== expected.toLowerCase();
+    case "EMPTY": return actual.trim() === "";
+    case "NOT_EMPTY": return actual.trim() !== "";
+    default: return false;
+  }
+}
+
+function policyFieldLabel(field: string) {
+  return field === "lostReason" ? "Lost reason" : field === "expectedCloseDate" ? "Closing date" : field;
+}
+
 const DEAL_STAGE_OPTIONS = enumPickerOptions(DEAL_STAGES);
+const DEAL_LIST_COLUMNS = [
+  { field: "name", label: "Deal Name" },
+  { field: "accountId", label: "Account" },
+  { field: "stage", label: "Stage" },
+  { field: "value", label: "Amount" },
+  { field: "source", label: "Lead Source" },
+];
 
 function formatDealMoney(value: number | null | undefined) {
   if (value == null) return "—";
@@ -48,6 +74,7 @@ function errorMessage(err: unknown, fallback: string): string {
 
 export function DealsPage() {
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const auth = useAuth();
   const canCreate = useHasPermission("DEAL_CREATE");
@@ -77,6 +104,12 @@ export function DealsPage() {
   const [noteBody, setNoteBody] = useState("");
   const [showEdit, setShowEdit] = useState(false);
   const { filterOpen, setFilterOpen, search, setSearch, showForm, setShowForm } = useModuleWorkspace();
+  useEffect(() => {
+    if (searchParams.get("create") === "1" && canCreate) {
+      setSelected(null);
+      setShowForm(true);
+    }
+  }, [searchParams, canCreate]);
 
   const listParams = useMemo(
     () => ({
@@ -95,6 +128,24 @@ export function DealsPage() {
     queryKey: ["crm", "deals", listParams],
     queryFn: () => listDeals(listParams),
   });
+  const stagePoliciesQuery = useQuery({
+    queryKey: ["metadata", "runtime", "form-policies", "deal", "EDIT"],
+    queryFn: () => getPublishedFormPolicies("deal", "EDIT"),
+    enabled: canStage,
+    staleTime: 60_000,
+  });
+  const dealRecordQuery = useQuery({
+    queryKey: ["crm", "deals", "record", selected?.id],
+    queryFn: () => getDeal(selected!.id),
+    enabled: !!selected,
+  });
+  useEffect(() => {
+    if (dealRecordQuery.data && selected?.id === dealRecordQuery.data.id) {
+      setSelected((current) =>
+        current?.id === dealRecordQuery.data!.id ? dealRecordQuery.data! : current,
+      );
+    }
+  }, [dealRecordQuery.data, selected?.id]);
   const pipelineQuery = useQuery({
     queryKey: ["crm", "deals", "pipeline"],
     queryFn: getPipeline,
@@ -106,6 +157,11 @@ export function DealsPage() {
     queryFn: () => listUsers(),
     enabled: canViewUsers || (showForm && canCreate),
   });
+  const regionsQuery = useQuery({
+    queryKey: ["admin", "regions", "deal-account-quick-create"],
+    queryFn: listRegions,
+    enabled: showForm && canCreate,
+  });
   const activeFilterCount = [
     search,
     stageFilter,
@@ -116,27 +172,27 @@ export function DealsPage() {
     closeTo,
   ].filter(Boolean).length;
   const activitiesQuery = useQuery({
-    queryKey: ["crm", "activities", "DEAL", selected?.id],
+    queryKey: ["crm", "activities", "DEAL", (selected as Deal | null)?.id],
     queryFn: () => listActivities({ relatedEntityType: "DEAL", relatedEntityId: selected!.id }),
     enabled: !!selected && canViewActivities,
   });
   const notesQuery = useQuery({
-    queryKey: ["crm", "notes", "DEAL", selected?.id],
+    queryKey: ["crm", "notes", "DEAL", (selected as Deal | null)?.id],
     queryFn: () => listNotes("DEAL", selected!.id),
     enabled: !!selected && canViewNotes,
   });
   const docsQuery = useQuery({
-    queryKey: ["crm", "documents", "DEAL", selected?.id],
+    queryKey: ["crm", "documents", "DEAL", (selected as Deal | null)?.id],
     queryFn: () => listDocuments("DEAL", selected!.id),
     enabled: !!selected && canViewDocs,
   });
   const auditQuery = useQuery({
-    queryKey: ["admin", "audit-logs", "DEAL", selected?.id],
+    queryKey: ["admin", "audit-logs", "DEAL", (selected as Deal | null)?.id],
     queryFn: () => listAuditLogs({ entityType: "DEAL", entityId: selected!.id, size: 50 }),
     enabled: !!selected && canViewAudit,
   });
   const stageHistoryQuery = useQuery({
-    queryKey: ["crm", "deals", "stage-history", selected?.id],
+    queryKey: ["crm", "deals", "stage-history", (selected as Deal | null)?.id],
     queryFn: () => listDealStageHistory(selected!.id),
     enabled: !!selected,
   });
@@ -240,7 +296,7 @@ export function DealsPage() {
     mutationFn: () => createNote("DEAL", selected!.id, noteBody),
     onSuccess: async () => {
       setNoteBody("");
-      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "DEAL", selected?.id] });
+      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "DEAL", (selected as Deal | null)?.id] });
     },
   });
 
@@ -296,6 +352,19 @@ export function DealsPage() {
       setStageError("Expected close date is required when stage is WON.");
       return;
     }
+    const policyValues: Record<string, string> = {
+      stage,
+      lostReason: stage === "LOST" ? lostReason : "",
+      expectedCloseDate: stage === "WON" ? closeDate ?? "" : selected.expectedCloseDate ?? "",
+    };
+    for (const policy of stagePoliciesQuery.data ?? []) {
+      if (!policyConditionMatches(policy.policy, policyValues)) continue;
+      const required = policy.policy.then.find((effect) => effect.mandatory && !String(policyValues[effect.field] ?? "").trim());
+      if (required) {
+        setStageError(`${policyFieldLabel(required.field)} is required by “${policy.name}”.`);
+        return;
+      }
+    }
     stageMutation.mutate({
       id: selected.id,
       toStage: stage,
@@ -324,6 +393,7 @@ export function DealsPage() {
       {showForm && canCreate ? (
         <DealCreateView
           accounts={(accountsQuery.data ?? []).map((account) => ({ id: account.id, name: account.name }))}
+          regions={(regionsQuery.data ?? []).map((region) => ({ id: region.id, name: region.name }))}
           users={ownerOptions}
           defaultOwnerId={auth.userId}
           onCancel={() => setShowForm(false)}
@@ -416,9 +486,9 @@ export function DealsPage() {
               label: "Timeline",
               visible: true,
               content: (
-                <ZohoRecordTimeline
+                <TechEarnestRecordTimeline
                   entries={timelineEntries}
-                  loading={auditQuery.isLoading || stageHistoryQuery.isLoading || activitiesQuery.isLoading}
+                  loading={auditQuery.isLoading || stageHistoryQuery.isLoading || activitiesQuery.isLoading || notesQuery.isLoading}
                 />
               ),
             },
@@ -477,14 +547,14 @@ export function DealsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <ZohoFilterSelect
+            <TechEarnestFilterSelect
               label="Stage"
               value={stageFilter}
               onChange={setStageFilter}
               options={DEAL_STAGE_OPTIONS}
               searchPlaceholder="Search Stages"
             />
-            <ZohoFilterSelect
+            <TechEarnestFilterSelect
               label="Account"
               value={accountFilter}
               onChange={setAccountFilter}
@@ -492,7 +562,7 @@ export function DealsPage() {
               searchPlaceholder="Search Accounts"
             />
             {canViewUsers ? (
-              <ZohoFilterSelect
+              <TechEarnestFilterSelect
                 label="Owner"
                 value={ownerFilter}
                 onChange={setOwnerFilter}
@@ -533,48 +603,28 @@ export function DealsPage() {
       {!loading && !error ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {view === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Deal Name</th>
-                    <th>Account</th>
-                    <th>Stage</th>
-                    <th>Amount</th>
-                    <th>Lead Source</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {deals.map((deal) => (
-                    <tr
-                      key={deal.id}
-                      className={selected?.id === deal.id ? "is-selected" : undefined}
-                      onClick={() => {
-                        setSelected(deal);
-                        setProjectError(null);
-                        setProjectSuccess(null);
-                        setStageError(null);
-                      }}
-                    >
-                      <td className="lead-name">{deal.name}</td>
-                      <td>{accountName(deal.accountId)}</td>
-                      <td>
-                        <StatusBadge status={deal.stage} />
-                      </td>
-                      <td>{deal.value ?? "—"}</td>
-                      <td>{deal.source ?? "—"}</td>
-                    </tr>
-                  ))}
-                  {!deals.length ? (
-                    <tr>
-                      <td colSpan={5} className="text-center text-muted py-5">
-                        No deals match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+                tableCode="deal"
+                defaultColumns={DEAL_LIST_COLUMNS}
+                rows={deals}
+                rowKey={(deal) => deal.id}
+                selectedRowKey={(selected as Deal | null)?.id}
+                onRowClick={(deal) => {
+                  setSelected(deal);
+                  setProjectError(null);
+                  setProjectSuccess(null);
+                  setStageError(null);
+                }}
+                renderCell={(deal, field) => {
+                  if (field === "accountId") return accountName(deal.accountId);
+                  if (field === "stage") return <StatusBadge status={deal.stage} />;
+                  if (field === "value") return deal.value ?? "—";
+                  const value = (deal as unknown as Record<string, unknown>)[field];
+                  return value == null || value === "" ? "—" : String(value);
+                }}
+                nameFields={["name"]}
+                emptyMessage="No deals match the current filters."
+            />
           ) : (
             <div className="d-flex gap-3 overflow-auto p-3" style={{ minHeight: 280 }}>
               {(pipelineQuery.data ?? []).map((column) => (
@@ -588,7 +638,7 @@ export function DealsPage() {
                       key={deal.id}
                       type="button"
                       className={`btn btn-sm w-100 text-start mb-2 ${
-                        selected?.id === deal.id ? "btn-primary" : "btn-outline-secondary"
+                        (selected as Deal | null)?.id === deal.id ? "btn-primary" : "btn-outline-secondary"
                       }`}
                       onClick={() => setSelected(deal)}
                     >

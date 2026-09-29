@@ -7,19 +7,19 @@ import { UnsavedGuard } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
-  ZohoFormSelect,
-  ZohoFormUserSelect,
-  type ZohoPickerUser,
-} from "@/components/ZohoCreate";
-import { FormLayoutEditorModal } from "@/components/ZohoCreate/FormLayoutEditorModal";
-import { ZohoCreateField as ZohoField } from "@/components/ZohoCreate/ZohoCreateField";
-import { ZohoCreateSection } from "@/components/ZohoCreate/ZohoCreateSection";
-import { clearAddressFields, ZohoAddressBox } from "@/components/ZohoCreate/ZohoAddressBox";
-import { ZohoRecordImage } from "@/components/ZohoCreate/ZohoRecordImage";
-import { useZohoRecordPhoto } from "@/components/ZohoCreate/useZohoRecordPhoto";
-import { addressPrefix, serializeAddressJson, type ZohoAddressValues } from "@/components/ZohoCreate/zohoAddressUtils";
-import { attachRecordPhoto } from "@/components/ZohoCreate/attachRecordPhoto";
-import { createAccount, type Account } from "./crmApi";
+  TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
+  type TechEarnestPickerUser,
+} from "@/components/TechEarnestCreate";
+import { FormLayoutEditorModal } from "@/components/TechEarnestCreate/FormLayoutEditorModal";
+import { TechEarnestCreateField as TechEarnestField } from "@/components/TechEarnestCreate/TechEarnestCreateField";
+import { TechEarnestCreateSection } from "@/components/TechEarnestCreate/TechEarnestCreateSection";
+import { clearAddressFields, TechEarnestAddressBox } from "@/components/TechEarnestCreate/TechEarnestAddressBox";
+import { TechEarnestRecordImage } from "@/components/TechEarnestCreate/TechEarnestRecordImage";
+import { useTechEarnestRecordPhoto } from "@/components/TechEarnestCreate/useTechEarnestRecordPhoto";
+import { addressPrefix, parseAddressJson, serializeAddressJson, type TechEarnestAddressValues } from "@/components/TechEarnestCreate/techearnestAddressUtils";
+import { attachRecordPhoto } from "@/components/TechEarnestCreate/attachRecordPhoto";
+import { createAccount, updateAccount, type Account } from "./crmApi";
 import { LEAD_INDUSTRIES, LEAD_RATINGS, noneLabel } from "./leadFormConstants";
 
 const billingPrefix = addressPrefix("billing");
@@ -76,15 +76,16 @@ type AccountFormValues = z.infer<typeof accountSchema>;
 
 export interface AccountCreateViewProps {
   regions: { id: string; name: string }[];
-  users: ZohoPickerUser[];
+  users: TechEarnestPickerUser[];
   accounts: { id: string; name: string }[];
   defaultOwnerId: string;
   defaultRegionId?: string;
+  account?: Account;
   onCancel: () => void;
   onCreated: (account: Account, mode: "save" | "saveAndNew") => void;
 }
 
-function readAddress(values: AccountFormValues, prefix: Record<keyof ZohoAddressValues, keyof AccountFormValues>): ZohoAddressValues {
+function readAddress(values: AccountFormValues, prefix: Record<keyof TechEarnestAddressValues, keyof AccountFormValues>): TechEarnestAddressValues {
   return {
     country: String(values[prefix.country] ?? ""),
     flat: String(values[prefix.flat] ?? ""),
@@ -121,55 +122,57 @@ export function AccountCreateView({
   accounts,
   defaultOwnerId,
   defaultRegionId,
+  account,
   onCancel,
   onCreated,
 }: AccountCreateViewProps) {
-  const photo = useZohoRecordPhoto();
+  const photo = useTechEarnestRecordPhoto();
   const [layoutEditorOpen, setLayoutEditorOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [saveMode, setSaveMode] = useState<"save" | "saveAndNew">("save");
 
-  const defaults: AccountFormValues = useMemo(
-    () => ({
-      regionId: defaultRegionId ?? regions[0]?.id ?? "",
-      ownerId: defaultOwnerId,
-      name: "",
+  const defaults: AccountFormValues = useMemo(() => {
+    const billing = parseAddressJson(account?.billingAddress);
+    const shipping = parseAddressJson(account?.shippingAddress);
+    return {
+      regionId: account?.regionId ?? defaultRegionId ?? regions[0]?.id ?? "",
+      ownerId: account?.ownerId ?? defaultOwnerId,
+      name: account?.name ?? "",
       accountSite: "",
       parentAccountId: "",
-      accountNumber: "",
-      accountType: "PROSPECT",
-      industry: "",
+      accountNumber: account?.taxNumber ?? "",
+      accountType: account?.accountType ?? "PROSPECT",
+      industry: account?.industry ?? "",
       annualRevenue: "",
       rating: "",
-      email: "",
-      phone: "",
+      email: account?.email ?? "",
+      phone: account?.phone ?? "",
       fax: "",
-      website: "",
+      website: account?.website ?? "",
       tickerSymbol: "",
       ownership: "",
       employees: "",
       sicCode: "",
-      status: "ACTIVE",
-      description: "",
-      billingCountry: "",
-      billingFlat: "",
-      billingStreet: "",
-      billingCity: "",
-      billingState: "",
-      billingZip: "",
-      billingLatitude: "",
-      billingLongitude: "",
-      shippingCountry: "",
-      shippingFlat: "",
-      shippingStreet: "",
-      shippingCity: "",
-      shippingState: "",
-      shippingZip: "",
-      shippingLatitude: "",
-      shippingLongitude: "",
-    }),
-    [defaultOwnerId, defaultRegionId, regions],
-  );
+      status: account?.status ?? "ACTIVE",
+      description: account?.description ?? "",
+      billingCountry: billing.country,
+      billingFlat: billing.flat,
+      billingStreet: billing.street,
+      billingCity: billing.city,
+      billingState: billing.state,
+      billingZip: billing.zip,
+      billingLatitude: billing.latitude,
+      billingLongitude: billing.longitude,
+      shippingCountry: shipping.country,
+      shippingFlat: shipping.flat,
+      shippingStreet: shipping.street,
+      shippingCity: shipping.city,
+      shippingState: shipping.state,
+      shippingZip: shipping.zip,
+      shippingLatitude: shipping.latitude,
+      shippingLongitude: shipping.longitude,
+    };
+  }, [account, defaultOwnerId, defaultRegionId, regions]);
 
   const {
     register,
@@ -194,17 +197,18 @@ export function AccountCreateView({
   );
 
   const createMutation = useMutation({
-    mutationFn: createAccount,
+    mutationFn: (body: Parameters<typeof createAccount>[0]) =>
+      account ? updateAccount(account.id, body) : createAccount(body),
     onSuccess: async (account) => {
       await attachRecordPhoto("ACCOUNT", account.id, photo.photoFile);
       photo.clearPhoto();
       setFormError(null);
       onCreated(account, saveMode);
-      if (saveMode === "saveAndNew") {
+      if (!account && saveMode === "saveAndNew") {
         reset(defaults);
       }
     },
-    onError: () => setFormError("Could not create account."),
+    onError: () => setFormError(account ? "Could not update account." : "Could not create account."),
   });
 
   function requestCancel() {
@@ -232,21 +236,21 @@ export function AccountCreateView({
   const pending = isSubmitting || createMutation.isPending;
 
   return (
-    <div className="zoho-create-page">
-      <div className="zoho-create-topbar">
-        <div className="zoho-create-topbar-left">
-          <h1 className="zoho-create-title">Create Account</h1>
-          <button type="button" className="zoho-create-layout-link" onClick={() => setLayoutEditorOpen(true)}>
+    <div className="techearnest-create-page">
+      <div className="techearnest-create-topbar">
+        <div className="techearnest-create-topbar-left">
+          <h1 className="techearnest-create-title">{account ? "Edit Account" : "Create Account"}</h1>
+          <button type="button" className="techearnest-create-layout-link" onClick={() => setLayoutEditorOpen(true)}>
             Edit Page Layout
           </button>
         </div>
-        <div className="zoho-create-topbar-actions">
-          <button type="button" className="btn btn-light btn-sm zoho-create-btn" onClick={requestCancel}>
+        <div className="techearnest-create-topbar-actions">
+          <button type="button" className="btn btn-light btn-sm techearnest-create-btn" onClick={requestCancel}>
             Cancel
           </button>
-          <button
+          {!account ? <button
             type="button"
-            className="btn btn-light btn-sm zoho-create-btn"
+            className="btn btn-light btn-sm techearnest-create-btn"
             disabled={pending}
             onClick={() => {
               setSaveMode("saveAndNew");
@@ -254,23 +258,23 @@ export function AccountCreateView({
             }}
           >
             Save and New
-          </button>
+          </button> : null}
           <button
             type="button"
-            className="btn btn-primary btn-sm zoho-create-btn zoho-create-btn--save"
+            className="btn btn-primary btn-sm techearnest-create-btn techearnest-create-btn--save"
             disabled={pending}
             onClick={() => {
               setSaveMode("save");
               void handleSubmit(submit)();
             }}
           >
-            {pending ? "Saving…" : "Save"}
+            {pending ? (account ? "Updating…" : "Saving…") : account ? "Update" : "Save"}
           </button>
         </div>
       </div>
 
       <form
-        className="zoho-create-form"
+        className="techearnest-create-form"
         onSubmit={(event) => {
           event.preventDefault();
           setSaveMode("save");
@@ -280,9 +284,9 @@ export function AccountCreateView({
         <UnsavedGuard when={isDirty} />
         {formError ? <div className="alert alert-danger py-2 mx-4 mt-3 mb-0">{formError}</div> : null}
 
-        <div className="zoho-create-layout">
-          <div className="zoho-create-fields">
-            <ZohoRecordImage
+        <div className="techearnest-create-layout">
+          <div className="techearnest-create-fields">
+            <TechEarnestRecordImage
               photoInputRef={photo.photoInputRef}
               photoPreviewUrl={photo.photoPreviewUrl}
               photoError={photo.photoError}
@@ -294,57 +298,57 @@ export function AccountCreateView({
               variant="building"
             />
 
-            <ZohoCreateSection title="Account Information">
-              <div className="zoho-create-grid">
-                <div className="zoho-create-col">
-                  <ZohoField label="Account Owner">
-                    <ZohoFormUserSelect
+            <TechEarnestCreateSection title="Account Information">
+              <div className="techearnest-create-grid">
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Account Owner">
+                    <TechEarnestFormUserSelect
                       control={control}
                       name="ownerId"
                       users={users}
                       allowEmpty={false}
                       searchPlaceholder="Search Users"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Region" required error={errors.regionId?.message}>
-                    <ZohoFormSelect
+                  <TechEarnestField label="Region" required error={errors.regionId?.message}>
+                    <TechEarnestFormSelect
                       control={control}
                       name="regionId"
                       options={regionOptions}
                       searchPlaceholder="Search Regions"
                       invalid={!!errors.regionId}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Account Name" required error={errors.name?.message}>
+                  <TechEarnestField label="Account Name" required error={errors.name?.message}>
                     <input
                       type="text"
                       className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
                       {...register("name")}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Account Site">
+                  <TechEarnestField label="Account Site">
                     <input type="text" className="form-control form-control-sm" {...register("accountSite")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Parent Account">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Parent Account">
+                    <TechEarnestFormSelect
                       control={control}
                       name="parentAccountId"
                       options={parentAccountOptions}
                       searchPlaceholder="Search Accounts"
                       lookupIcon="building"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Account Number">
+                  <TechEarnestField label="Account Number">
                     <input type="text" className="form-control form-control-sm" {...register("accountNumber")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Account Type" required error={errors.accountType?.message}>
-                    <ZohoFormSelect
+                  <TechEarnestField label="Account Type" required error={errors.accountType?.message}>
+                    <TechEarnestFormSelect
                       control={control}
                       name="accountType"
                       options={accountTypeOptions}
@@ -352,94 +356,94 @@ export function AccountCreateView({
                       allowEmpty={false}
                       invalid={!!errors.accountType}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Industry">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Industry">
+                    <TechEarnestFormSelect
                       control={control}
                       name="industry"
                       options={industryOptions}
                       searchPlaceholder="Search Industries"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Annual Revenue">
+                  <TechEarnestField label="Annual Revenue">
                     <div className="input-group input-group-sm">
                       <span className="input-group-text">Rs.</span>
                       <input type="number" min={0} step="0.01" className="form-control" {...register("annualRevenue")} />
-                      <button type="button" className="btn btn-light zoho-info-btn" tabIndex={-1} title="Annual revenue">
+                      <button type="button" className="btn btn-light techearnest-info-btn" tabIndex={-1} title="Annual revenue">
                         i
                       </button>
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
 
-                <div className="zoho-create-col">
-                  <ZohoField label="Rating">
-                    <ZohoFormSelect
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Rating">
+                    <TechEarnestFormSelect
                       control={control}
                       name="rating"
                       options={ratingOptions}
                       searchPlaceholder="Search Ratings"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Phone">
+                  <TechEarnestField label="Phone">
                     <input type="tel" className="form-control form-control-sm" {...register("phone")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Fax">
+                  <TechEarnestField label="Fax">
                     <input type="text" className="form-control form-control-sm" {...register("fax")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Website">
+                  <TechEarnestField label="Website">
                     <input type="url" className="form-control form-control-sm" {...register("website")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Ticker Symbol">
+                  <TechEarnestField label="Ticker Symbol">
                     <input type="text" className="form-control form-control-sm" {...register("tickerSymbol")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Ownership">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Ownership">
+                    <TechEarnestFormSelect
                       control={control}
                       name="ownership"
                       options={ownershipOptions}
                       searchPlaceholder="Search Ownership"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Employees">
+                  <TechEarnestField label="Employees">
                     <input type="number" min={0} className="form-control form-control-sm" {...register("employees")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="SIC Code">
+                  <TechEarnestField label="SIC Code">
                     <input type="text" className="form-control form-control-sm" {...register("sicCode")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Email" error={errors.email?.message}>
+                  <TechEarnestField label="Email" error={errors.email?.message}>
                     <input type="email" className="form-control form-control-sm" {...register("email")} />
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
               </div>
-            </ZohoCreateSection>
+            </TechEarnestCreateSection>
 
-            <section className="zoho-create-section">
-              <div className="zoho-address-section-header">
-                <h2 className="zoho-create-section-title mb-0">Address Information</h2>
+            <section className="techearnest-create-section">
+              <div className="techearnest-address-section-header">
+                <h2 className="techearnest-create-section-title mb-0">Address Information</h2>
                 <button type="button" className="btn btn-light btn-sm" onClick={copyBillingToShipping}>
                   Copy Address
                 </button>
               </div>
-              <div className="zoho-address-dual-grid">
-                <ZohoAddressBox
+              <div className="techearnest-address-dual-grid">
+                <TechEarnestAddressBox
                   title="Billing Address"
                   prefix={billingPrefix}
                   register={register}
                   control={control}
                   onClear={() => clearAddressFields(billingPrefix, setValue)}
                 />
-                <ZohoAddressBox
+                <TechEarnestAddressBox
                   title="Shipping Address"
                   prefix={shippingPrefix}
                   register={register}
@@ -449,11 +453,11 @@ export function AccountCreateView({
               </div>
             </section>
 
-            <ZohoCreateSection title="Description Information">
-              <ZohoField label="Description" wide>
+            <TechEarnestCreateSection title="Description Information">
+              <TechEarnestField label="Description" wide>
                 <textarea className="form-control form-control-sm" rows={5} {...register("description")} />
-              </ZohoField>
-            </ZohoCreateSection>
+              </TechEarnestField>
+            </TechEarnestCreateSection>
           </div>
         </div>
       </form>

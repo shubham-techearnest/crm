@@ -8,19 +8,21 @@ import { FormActions, FormSection, UnsavedGuard } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFilterSelect,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
 import { listRegions } from "@/features/admin/adminApi";
 import { listAccounts } from "@/features/crm/crmApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { createVendor, listVendors, updateVendor } from "./vendorsApi";
+import { createVendor, deleteVendor, queryVendors, updateVendor } from "./vendorsApi";
 
 const schema = z.object({
   regionId: z.string().min(1, "Region is required"),
@@ -58,6 +60,8 @@ export function VendorsPage() {
   const [regionFilter, setRegionFilter] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [vendorToDelete, setVendorToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const listParams = useMemo(
     () => ({
@@ -70,7 +74,13 @@ export function VendorsPage() {
 
   const vendorsQuery = useQuery({
     queryKey: ["vendors", listParams],
-    queryFn: () => listVendors(listParams),
+    queryFn: () => queryVendors({
+      search: listParams.search,
+      status: listParams.status,
+      filter: listParams.regionId
+        ? { op: "AND", conditions: [{ field: "regionId", operator: "EQ", value: listParams.regionId }] }
+        : undefined,
+    }),
   });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
   const accountsQuery = useQuery({ queryKey: ["crm", "accounts"], queryFn: () => listAccounts() });
@@ -91,7 +101,7 @@ export function VendorsPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: DEFAULTS,
     reset,
     setShowForm,
@@ -140,6 +150,16 @@ export function VendorsPage() {
     onError: () => setFormError("Could not update vendor."),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: deleteVendor,
+    onSuccess: async () => {
+      await invalidate();
+      setVendorToDelete(null);
+      setDeleteError(null);
+    },
+    onError: () => setDeleteError("Could not delete this vendor. It may still be linked to purchase orders."),
+  });
+
   const rows = vendorsQuery.data ?? [];
   const regionName = (id: string) => regionsQuery.data?.find((r) => r.id === id)?.name ?? id.slice(0, 8);
 
@@ -180,7 +200,7 @@ export function VendorsPage() {
     <FormSection title={editingId ? "Edit vendor" : "Vendor"} description="Procurement master; optional link to CRM account">
       <div className="col-md-3">
         <label className="form-label required">Region</label>
-        <ZohoFormSelect
+        <TechEarnestFormSelect
           control={control}
           name="regionId"
           options={regionOptions}
@@ -205,7 +225,7 @@ export function VendorsPage() {
       </div>
       <div className="col-md-3">
         <label className="form-label">CRM account</label>
-        <ZohoFormSelect
+        <TechEarnestFormSelect
           control={control}
           name="accountId"
           options={accountOptions}
@@ -224,7 +244,7 @@ export function VendorsPage() {
       </div>
       <div className="col-md-2">
         <label className="form-label">Status</label>
-        <ZohoFormSelect
+        <TechEarnestFormSelect
           control={control}
           name="status"
           options={vendorStatusOptions}
@@ -238,7 +258,7 @@ export function VendorsPage() {
   return (
     <>
       {showForm && canManage && !editingId ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Vendor"
           entityLabel="Vendor"
           pending={isSubmitting || createMutation.isPending}
@@ -254,7 +274,7 @@ export function VendorsPage() {
           photo={photo}
         >
           {vendorFormFields}
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Vendors"
@@ -291,31 +311,10 @@ export function VendorsPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Status</h3>
-            <select
-              className="form-select form-select-sm"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="INACTIVE">INACTIVE</option>
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={vendorStatusOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search vendor statuses" />
           </div>
           <div className="module-filter-section">
-            <h3>Region</h3>
-            <select
-              className="form-select form-select-sm"
-              value={regionFilter}
-              onChange={(e) => setRegionFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(regionsQuery.data ?? []).map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Region" value={regionFilter} onChange={setRegionFilter} options={regionOptions} placeholder="All regions" emptyLabel="All regions" searchPlaceholder="Search regions" />
           </div>
         </>
       }
@@ -346,50 +345,58 @@ export function VendorsPage() {
       {vendorsQuery.isLoading ? <LoadingState label="Loading vendors..." /> : null}
       {vendorsQuery.error ? <ErrorState title="Unable to load vendors" message="Try again." /> : null}
       {!vendorsQuery.isLoading && !vendorsQuery.error ? (
-        <div className="module-list-table-wrap">
-          <table className="table module-list-table align-middle">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Region</th>
-                <th>Email</th>
-                <th>Terms</th>
-                <th>Status</th>
-                {canManage ? <th /> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="lead-name">{row.name}</td>
-                  <td>{regionName(row.regionId)}</td>
-                  <td>{row.email ?? "—"}</td>
-                  <td>{row.paymentTermsDays != null ? `${row.paymentTermsDays}d` : "—"}</td>
-                  <td>
-                    <StatusBadge status={row.status} />
-                  </td>
-                  {canManage ? (
-                    <td>
-                      <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => openEdit(row.id)}>
-                        Edit
-                      </button>
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={canManage ? 6 : 5} className="text-center text-muted py-5">
-                    No vendors
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <ModuleListTable
+          tableCode="vendor"
+          defaultColumns={[
+            { field: "name", label: "Name" },
+            { field: "regionId", label: "Region" },
+            { field: "email", label: "Email" },
+            { field: "paymentTermsDays", label: "Terms" },
+            { field: "status", label: "Status" },
+          ]}
+          rows={rows}
+          rowKey={(vendor) => vendor.id}
+          renderCell={(vendor, field) => {
+            if (field === "regionId") return regionName(vendor.regionId);
+            if (field === "paymentTermsDays") return vendor.paymentTermsDays != null ? `${vendor.paymentTermsDays} days` : "—";
+            if (field === "status") return <StatusBadge status={vendor.status} />;
+            const value = (vendor as unknown as Record<string, unknown>)[field];
+            return value == null || value === "" ? "—" : String(value);
+          }}
+          nameFields={["name"]}
+          trailingColumn={canManage ? {
+            header: "Actions",
+            stopPropagation: true,
+            render: (vendor) => (
+              <div className="d-flex justify-content-end gap-2">
+                <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => openEdit(vendor.id)}>Edit</button>
+                <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => { setDeleteError(null); setVendorToDelete({ id: vendor.id, name: vendor.name }); }}>Delete</button>
+              </div>
+            ),
+          } : undefined}
+          emptyMessage="No vendors match the current filters."
+        />
       ) : null}
     </ModuleListShell>
       )}
+      {vendorToDelete ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => deleteMutation.isPending ? null : setVendorToDelete(null)}>
+          <section className="module-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-vendor-title" onClick={(event) => event.stopPropagation()}>
+            <header className="d-flex align-items-center justify-content-between gap-3 mb-3">
+              <h2 id="delete-vendor-title" className="h5 mb-0">Delete vendor?</h2>
+              <button type="button" className="btn-close" aria-label="Close" disabled={deleteMutation.isPending} onClick={() => setVendorToDelete(null)} />
+            </header>
+            <p>Delete <strong>{vendorToDelete.name}</strong>? This action may be blocked while purchase orders reference this vendor.</p>
+            {deleteError ? <div className="alert alert-danger py-2" role="alert">{deleteError}</div> : null}
+            <footer className="d-flex justify-content-end gap-2">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={deleteMutation.isPending} onClick={() => setVendorToDelete(null)}>Cancel</button>
+              <button type="button" className="btn btn-danger btn-sm" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(vendorToDelete.id)}>
+                {deleteMutation.isPending ? "Deleting…" : "Delete vendor"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }

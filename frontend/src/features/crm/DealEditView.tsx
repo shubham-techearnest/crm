@@ -8,12 +8,12 @@ import { UnsavedGuard } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
-  ZohoFormSelect,
-  ZohoFormUserSelect,
-  type ZohoPickerUser,
-} from "@/components/ZohoCreate";
-import { ZohoCreateField as ZohoField } from "@/components/ZohoCreate/ZohoCreateField";
-import { ZohoCreateSection } from "@/components/ZohoCreate/ZohoCreateSection";
+  TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
+  type TechEarnestPickerUser,
+} from "@/components/TechEarnestCreate";
+import { TechEarnestCreateField as TechEarnestField } from "@/components/TechEarnestCreate/TechEarnestCreateField";
+import { TechEarnestCreateSection } from "@/components/TechEarnestCreate/TechEarnestCreateSection";
 import { listContacts, updateDeal, type Deal } from "./crmApi";
 import { LEAD_SOURCES, noneLabel } from "./leadFormConstants";
 import type { ApiResponse } from "@/types/api";
@@ -37,7 +37,7 @@ type DealEditFormValues = z.infer<typeof dealEditSchema>;
 export interface DealEditViewProps {
   deal: Deal;
   accountName: string;
-  users: ZohoPickerUser[];
+  users: TechEarnestPickerUser[];
   onCancel: () => void;
   onUpdated: (deal: Deal) => void;
 }
@@ -146,18 +146,18 @@ export function DealEditView({ deal, accountName, users, onCancel, onUpdated }: 
   const pending = isSubmitting || updateMutation.isPending;
 
   return (
-    <div className="zoho-create-page">
-      <div className="zoho-create-topbar">
-        <div className="zoho-create-topbar-left">
-          <h1 className="zoho-create-title">Edit Deal</h1>
+    <div className="techearnest-create-page">
+      <div className="techearnest-create-topbar">
+        <div className="techearnest-create-topbar-left">
+          <h1 className="techearnest-create-title">Edit Deal</h1>
         </div>
-        <div className="zoho-create-topbar-actions">
-          <button type="button" className="btn btn-light btn-sm zoho-create-btn" onClick={requestCancel}>
+        <div className="techearnest-create-topbar-actions">
+          <button type="button" className="btn btn-light btn-sm techearnest-create-btn" onClick={requestCancel}>
             Cancel
           </button>
           <button
             type="button"
-            className="btn btn-primary btn-sm zoho-create-btn zoho-create-btn--save"
+            className="btn btn-primary btn-sm techearnest-create-btn techearnest-create-btn--save"
             disabled={pending}
             onClick={() => void handleSubmit((values) => updateMutation.mutate(values))()}
           >
@@ -167,7 +167,7 @@ export function DealEditView({ deal, accountName, users, onCancel, onUpdated }: 
       </div>
 
       <form
-        className="zoho-create-form"
+        className="techearnest-create-form"
         onSubmit={(event) => {
           event.preventDefault();
           void handleSubmit((values) => updateMutation.mutate(values))();
@@ -181,63 +181,63 @@ export function DealEditView({ deal, accountName, users, onCancel, onUpdated }: 
           </div>
         ) : null}
 
-        <div className="zoho-create-layout">
-          <div className="zoho-create-fields">
-            <ZohoCreateSection title="Deal Information">
-              <div className="zoho-create-grid">
-                <div className="zoho-create-col">
-                  <ZohoField label="Deal Owner">
-                    <ZohoFormUserSelect
+        <div className="techearnest-create-layout">
+          <div className="techearnest-create-fields">
+            <TechEarnestCreateSection title="Deal Information">
+              <div className="techearnest-create-grid">
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Deal Owner">
+                    <TechEarnestFormUserSelect
                       control={control}
                       name="ownerId"
                       users={users}
                       allowEmpty={false}
                       searchPlaceholder="Search Users"
                     />
-                  </ZohoField>
-                  <ZohoField label="Amount">
+                  </TechEarnestField>
+                  <TechEarnestField label="Amount">
                     <div className="input-group input-group-sm">
                       <span className="input-group-text">Rs.</span>
                       <input type="number" min={0} step="0.01" className="form-control" {...register("value")} />
                     </div>
-                  </ZohoField>
-                  <ZohoField label="Deal Name" required error={errors.name?.message}>
+                  </TechEarnestField>
+                  <TechEarnestField label="Deal Name" required error={errors.name?.message}>
                     <input
                       type="text"
                       className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
                       {...register("name")}
                     />
-                  </ZohoField>
-                  <ZohoField label="Closing Date">
+                  </TechEarnestField>
+                  <TechEarnestField label="Closing Date">
                     <input
                       type="date"
                       className="form-control form-control-sm"
                       disabled={closeDateLocked}
                       {...register("expectedCloseDate")}
                     />
-                  </ZohoField>
-                  <ZohoField label="Account Name">
+                  </TechEarnestField>
+                  <TechEarnestField label="Account Name">
                     <input type="text" className="form-control form-control-sm" value={accountName} readOnly disabled />
-                  </ZohoField>
-                  <ZohoField label="Probability (%)">
+                  </TechEarnestField>
+                  <TechEarnestField label="Probability (%)">
                     <input type="number" min={0} max={100} className="form-control form-control-sm" {...register("probability")} />
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
-                <div className="zoho-create-col">
-                  <ZohoField label="Expected Revenue">
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Expected Revenue">
                     <div className="input-group input-group-sm">
                       <span className="input-group-text">Rs.</span>
-                      <input type="text" className="form-control zoho-readonly-field" readOnly value={expectedRevenue} />
+                      <input type="text" className="form-control techearnest-readonly-field" readOnly value={expectedRevenue} />
                     </div>
-                  </ZohoField>
-                  <ZohoField label="Lead Source">
-                    <ZohoFormSelect control={control} name="source" options={sourceOptions} searchPlaceholder="Search Lead Sources" />
-                  </ZohoField>
-                  <ZohoField label="Campaign Source">
+                  </TechEarnestField>
+                  <TechEarnestField label="Lead Source">
+                    <TechEarnestFormSelect control={control} name="source" options={sourceOptions} searchPlaceholder="Search Lead Sources" />
+                  </TechEarnestField>
+                  <TechEarnestField label="Campaign Source">
                     <input type="text" className="form-control form-control-sm" {...register("campaignSource")} />
-                  </ZohoField>
-                  <ZohoField label="Contact Name">
-                    <ZohoFormSelect
+                  </TechEarnestField>
+                  <TechEarnestField label="Contact Name">
+                    <TechEarnestFormSelect
                       control={control}
                       name="contactId"
                       options={contactOptions}
@@ -245,15 +245,15 @@ export function DealEditView({ deal, accountName, users, onCancel, onUpdated }: 
                       searchPlaceholder="Search Contacts"
                       lookupIcon="users"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
               </div>
-            </ZohoCreateSection>
-            <ZohoCreateSection title="Description Information">
-              <ZohoField label="Description" wide>
+            </TechEarnestCreateSection>
+            <TechEarnestCreateSection title="Description Information">
+              <TechEarnestField label="Description" wide>
                 <textarea className="form-control form-control-sm" rows={5} {...register("description")} />
-              </ZohoField>
-            </ZohoCreateSection>
+              </TechEarnestField>
+            </TechEarnestCreateSection>
           </div>
         </div>
       </form>

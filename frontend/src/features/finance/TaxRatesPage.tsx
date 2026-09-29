@@ -7,12 +7,14 @@ import { FormField } from "@/components/FormField/FormField";
 import { FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -79,7 +81,7 @@ export function TaxRatesPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: DEFAULTS,
     reset,
     setShowForm,
@@ -136,7 +138,7 @@ export function TaxRatesPage() {
       </div>
       <div className="col-md-2">
         <label className="form-label">Type</label>
-        <ZohoFormSelect
+        <TechEarnestFormSelect
           control={control}
           name="taxType"
           options={taxTypeOptions}
@@ -153,7 +155,7 @@ export function TaxRatesPage() {
   return (
     <>
       {showForm && canManage ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Tax Rate"
           entityLabel="Tax Rate"
           pending={isSubmitting || createMutation.isPending}
@@ -169,7 +171,7 @@ export function TaxRatesPage() {
           photo={photo}
         >
           {taxRateFormFields}
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Tax Rates"
@@ -206,18 +208,7 @@ export function TaxRatesPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Type</h3>
-            <select
-              className="form-select form-select-sm"
-              value={taxTypeFilter}
-              onChange={(e) => setTaxTypeFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="CGST">CGST</option>
-              <option value="SGST">SGST</option>
-              <option value="IGST">IGST</option>
-              <option value="OTHER">OTHER</option>
-            </select>
+            <TechEarnestFilterSelect label="Type" value={taxTypeFilter} onChange={setTaxTypeFilter} options={["CGST", "SGST", "IGST", "OTHER"].map((value) => ({ value, label: value }))} placeholder="All tax types" emptyLabel="All tax types" searchPlaceholder="Search tax types" />
           </div>
         </>
       }
@@ -226,41 +217,26 @@ export function TaxRatesPage() {
       {query.isLoading ? <LoadingState label="Loading tax rates..." /> : null}
       {query.error ? <ErrorState title="Unable to load tax rates" message="Try again." /> : null}
       {!query.isLoading && !query.error ? (
-        <div className="module-list-table-wrap">
-          <table className="table module-list-table align-middle">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Rate %</th>
-                <th>Type</th>
-                <th>Jurisdiction</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="lead-name">{row.code}</td>
-                  <td>{row.name}</td>
-                  <td>{row.ratePercent}</td>
-                  <td>{row.taxType}</td>
-                  <td>{row.jurisdiction ?? "—"}</td>
-                  <td>
-                    <StatusBadge status={row.active ? "ACTIVE" : "INACTIVE"} />
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="text-center text-muted py-5">
-                    No tax rates yet
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <ModuleListTable
+          tableCode="tax_rate"
+          defaultColumns={[
+            { field: "code", label: "Code" },
+            { field: "name", label: "Name" },
+            { field: "ratePercent", label: "Rate %" },
+            { field: "taxType", label: "Type" },
+            { field: "jurisdiction", label: "Jurisdiction" },
+            { field: "active", label: "Status" },
+          ]}
+          rows={rows}
+          rowKey={(rate) => rate.id}
+          renderCell={(rate, field) => {
+            if (field === "active") return <StatusBadge status={rate.active ? "ACTIVE" : "INACTIVE"} />;
+            const value = (rate as unknown as Record<string, unknown>)[field];
+            return value == null || value === "" ? "—" : String(value);
+          }}
+          nameFields={["code", "name"]}
+          emptyMessage="No tax rates yet"
+        />
       ) : null}
     </ModuleListShell>
       )}

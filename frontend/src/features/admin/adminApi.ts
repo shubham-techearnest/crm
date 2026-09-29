@@ -38,6 +38,16 @@ export interface Department {
   updatedAt: string;
 }
 
+export interface Team {
+  id: string;
+  organizationId: string;
+  departmentId: string;
+  managerId: string | null;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface AdminUser {
   id: string;
   organizationId: string | null;
@@ -147,6 +157,30 @@ export async function createDepartment(body: { name: string; branchId?: string |
   return unwrap(data);
 }
 
+export async function listTeams(search?: string): Promise<Team[]> {
+  const { data } = await api.get<ApiResponse<Team[]>>("/teams", {
+    params: { size: 100, search: search || undefined },
+  });
+  return unwrap(data);
+}
+
+export async function createTeam(body: {
+  departmentId: string;
+  name: string;
+  managerId?: string | null;
+}): Promise<Team> {
+  const { data } = await api.post<ApiResponse<Team>>("/teams", body);
+  return unwrap(data);
+}
+
+export async function updateTeam(
+  id: string,
+  body: { name: string; departmentId?: string; managerId?: string | null },
+): Promise<Team> {
+  const { data } = await api.put<ApiResponse<Team>>(`/teams/${id}`, body);
+  return unwrap(data);
+}
+
 export async function listUsers(search?: string): Promise<AdminUser[]> {
   const { data } = await api.get<ApiResponse<AdminUser[]>>("/users", {
     params: { size: 100, search: search || undefined },
@@ -165,6 +199,24 @@ export async function createUser(body: {
   roleIds?: string[];
 }): Promise<AdminUser> {
   const { data } = await api.post<ApiResponse<AdminUser>>("/users", body);
+  return unwrap(data);
+}
+
+export async function updateUser(
+  id: string,
+  body: {
+    firstName: string;
+    lastName: string;
+    phone?: string;
+    regionId?: string | null;
+    branchId?: string | null;
+    departmentId?: string | null;
+    teamId?: string | null;
+    managerId?: string | null;
+    status?: string;
+  },
+): Promise<AdminUser> {
+  const { data } = await api.put<ApiResponse<AdminUser>>(`/users/${id}`, body);
   return unwrap(data);
 }
 

@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
@@ -105,19 +107,7 @@ export function AuditLogsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Action</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={actionFilter}
-              onChange={(e) => setActionFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {ACTIONS.map((action) => (
-                <option key={action} value={action}>
-                  {action}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Action" value={actionFilter} onChange={setActionFilter} options={ACTIONS.map((value) => ({ value, label: value }))} placeholder="All actions" emptyLabel="All actions" searchPlaceholder="Search audit actions" />
             <label className="form-label small mb-1">Entity type</label>
             <input
               className="form-control form-control-sm mb-2"
@@ -125,32 +115,8 @@ export function AuditLogsPage() {
               onChange={(e) => setEntityFilter(e.target.value)}
               placeholder="e.g. LEAD, SYS_FORM_LAYOUT"
             />
-            <label className="form-label small mb-1">User</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={userFilter}
-              onChange={(e) => setUserFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(usersQuery.data ?? []).map((user) => (
-                <option key={user.id} value={user.id}>
-                  {user.firstName} {user.lastName}
-                </option>
-              ))}
-            </select>
-            <label className="form-label small mb-1">Region</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={regionFilter}
-              onChange={(e) => setRegionFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(regionsQuery.data ?? []).map((region) => (
-                <option key={region.id} value={region.id}>
-                  {region.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="User" value={userFilter} onChange={setUserFilter} options={(usersQuery.data ?? []).map((user) => ({ value: user.id, label: `${user.firstName} ${user.lastName}`.trim(), subtitle: user.email ?? undefined }))} placeholder="All users" emptyLabel="All users" searchPlaceholder="Search users" />
+            <TechEarnestFilterSelect label="Region" value={regionFilter} onChange={setRegionFilter} options={(regionsQuery.data ?? []).map((region) => ({ value: region.id, label: region.name }))} placeholder="All regions" emptyLabel="All regions" searchPlaceholder="Search regions" />
             <label className="form-label small mb-1">From date</label>
             <input
               type="date"
@@ -192,49 +158,31 @@ export function AuditLogsPage() {
       {!auditQuery.isLoading && !auditQuery.error ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Action</th>
-                    <th>Entity</th>
-                    <th>Entity ID</th>
-                    <th>User</th>
-                    <th>Region</th>
-                    <th>Summary</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((log) => (
-                    <tr key={log.id}>
-                      <td className="small">{new Date(log.createdAt).toLocaleString()}</td>
-                      <td>{log.action}</td>
-                      <td>{log.entityType}</td>
-                      <td>
-                        <code className="small">{log.entityId ? `${log.entityId.slice(0, 8)}…` : "—"}</code>
-                      </td>
-                      <td>{userLabel(log.userId)}</td>
-                      <td>{regionLabel(log.regionId)}</td>
-                      <td className="small text-muted" style={{ maxWidth: 280 }}>
-                        {log.newValue ? (
-                          <code className="small">{log.newValue.length > 120 ? `${log.newValue.slice(0, 120)}…` : log.newValue}</code>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={7} className="text-center text-muted py-5">
-                        No audit events match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+              tableCode="audit_log"
+              enabled={false}
+              defaultColumns={[
+                { field: "createdAt", label: "When" },
+                { field: "action", label: "Action" },
+                { field: "entityType", label: "Entity" },
+                { field: "entityId", label: "Entity ID" },
+                { field: "userId", label: "User" },
+                { field: "regionId", label: "Region" },
+                { field: "newValue", label: "Summary" },
+              ]}
+              rows={rows}
+              rowKey={(log) => log.id}
+              renderCell={(log, field) => {
+                if (field === "createdAt") return <span className="small">{new Date(log.createdAt).toLocaleString()}</span>;
+                if (field === "entityId") return <code className="small">{log.entityId ? `${log.entityId.slice(0, 8)}…` : "—"}</code>;
+                if (field === "userId") return userLabel(log.userId);
+                if (field === "regionId") return regionLabel(log.regionId);
+                if (field === "newValue") return log.newValue ? <code className="small">{log.newValue.length > 120 ? `${log.newValue.slice(0, 120)}…` : log.newValue}</code> : "—";
+                const value = (log as unknown as Record<string, unknown>)[field];
+                return value == null || value === "" ? "—" : String(value);
+              }}
+              emptyMessage="No audit events match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((log) => (

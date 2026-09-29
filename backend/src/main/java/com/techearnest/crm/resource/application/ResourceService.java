@@ -3,6 +3,7 @@ package com.techearnest.crm.resource.application;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
 import com.techearnest.crm.common.exception.ConflictException;
+import com.techearnest.crm.common.exception.ForbiddenException;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.TenantAccess;
@@ -85,21 +86,25 @@ public class ResourceService {
                 regionId,
                 skillId,
                 pageable);
-        boolean includeRates = canViewRates();
-        List<ResourceResponse> data =
-                page.getContent().stream().map(r -> ResourceResponse.from(r, includeRates)).toList();
+        boolean includeCostRate = canViewCostRate();
+        boolean includeBillingRate = canViewBillingRate();
+        List<ResourceResponse> data = page.getContent().stream()
+                .map(r -> ResourceResponse.from(r, includeCostRate, includeBillingRate))
+                .toList();
         return new PageResult(data, PaginationMeta.from(page));
     }
 
     @Transactional(readOnly = true)
     public ResourceResponse get(UUID id) {
         tenantAccess.requirePermission("RESOURCE_VIEW");
-        return ResourceResponse.from(requireVisibleResource(id), canViewRates());
+        return ResourceResponse.from(requireVisibleResource(id), canViewCostRate(), canViewBillingRate());
     }
 
     @Transactional
     public ResourceResponse create(CreateResourceRequest request) {
         CurrentUser user = tenantAccess.requirePermission("RESOURCE_MANAGE");
+        requireRateWrite("costRate", request.costRate());
+        requireRateWrite("billingRate", request.billingRate());
         UUID orgId = tenantAccess.resolveOrganizationId(request.organizationId());
         Region region = requireRegionInOrg(request.regionId(), orgId);
         tenantAccess.assertRegionVisible(region.getId());
@@ -127,12 +132,14 @@ public class ResourceService {
         resourceRepository.save(resource);
         refreshDerivedStatus(resource);
         auditService.record(orgId, user.userId(), "CREATE", "RESOURCE", resource.getId());
-        return ResourceResponse.from(resource, canViewRates());
+        return ResourceResponse.from(resource, canViewCostRate(), canViewBillingRate());
     }
 
     @Transactional
     public ResourceResponse update(UUID id, UpdateResourceRequest request) {
         CurrentUser user = tenantAccess.requirePermission("RESOURCE_MANAGE");
+        requireRateWrite("costRate", request.costRate());
+        requireRateWrite("billingRate", request.billingRate());
         Resource resource = requireVisibleResource(id);
         if (request.regionId() != null) {
             Region region = requireRegionInOrg(request.regionId(), resource.getOrganizationId());
@@ -162,7 +169,7 @@ public class ResourceService {
             refreshDerivedStatus(resource);
         }
         auditService.record(resource.getOrganizationId(), user.userId(), "UPDATE", "RESOURCE", resource.getId());
-        return ResourceResponse.from(resource, canViewRates());
+        return ResourceResponse.from(resource, canViewCostRate(), canViewBillingRate());
     }
 
     @Transactional
@@ -233,8 +240,18 @@ public class ResourceService {
         }
     }
 
-    private boolean canViewRates() {
-        return fieldAclEvaluator.canViewResourceRates();
+    private boolean canViewCostRate() {
+        return fieldAclEvaluator.canView("resource", "costRate");
+    }
+
+    private boolean canViewBillingRate() {
+        return fieldAclEvaluator.canView("resource", "billingRate");
+    }
+
+    private void requireRateWrite(String fieldCode, BigDecimal value) {
+        if (value != null && !fieldAclEvaluator.canWrite("resource", fieldCode)) {
+            throw new ForbiddenException("You do not have permission to change resource " + fieldCode);
+        }
     }
 
     private Region requireRegionInOrg(UUID regionId, UUID organizationId) {

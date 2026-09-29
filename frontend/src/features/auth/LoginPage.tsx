@@ -68,9 +68,7 @@ export function LoginPage() {
         <button type="submit" className="btn btn-primary w-100" disabled={isSubmitting}>
           {isSubmitting ? "Signing in..." : "Sign in"}
         </button>
-        <p className="form-text mt-2 mb-0">
-          Demo: orgadmin@example.com or superadmin@example.com / ChangeMe!123
-        </p>
+        <p className="form-text mt-2 mb-0">Sign in with the account provided by your organization administrator.</p>
       </form>
     </div>
   );

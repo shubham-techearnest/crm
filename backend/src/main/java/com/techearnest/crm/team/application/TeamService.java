@@ -12,6 +12,8 @@ import com.techearnest.crm.team.api.dto.TeamDtos.TeamResponse;
 import com.techearnest.crm.team.api.dto.TeamDtos.UpdateTeamRequest;
 import com.techearnest.crm.team.domain.Team;
 import com.techearnest.crm.team.domain.TeamRepository;
+import com.techearnest.crm.user.domain.User;
+import com.techearnest.crm.user.domain.UserRepository;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
@@ -26,16 +28,19 @@ public class TeamService {
     private final DepartmentRepository departmentRepository;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
+    private final UserRepository userRepository;
 
     public TeamService(
             TeamRepository teamRepository,
             DepartmentRepository departmentRepository,
             TenantAccess tenantAccess,
-            AuditService auditService) {
+            AuditService auditService,
+            UserRepository userRepository) {
         this.teamRepository = teamRepository;
         this.departmentRepository = departmentRepository;
         this.tenantAccess = tenantAccess;
         this.auditService = auditService;
+        this.userRepository = userRepository;
     }
 
     @Transactional(readOnly = true)
@@ -58,6 +63,7 @@ public class TeamService {
         CurrentUser user = tenantAccess.requirePermission("TEAM_MANAGE");
         UUID orgId = tenantAccess.resolveOrganizationId(request.organizationId());
         Department department = requireDepartmentInOrg(request.departmentId(), orgId);
+        requireManagerInOrg(request.managerId(), orgId);
         Team team = Team.create(orgId, department.getId(), request.name().trim(), request.managerId());
         teamRepository.save(team);
         auditService.record(orgId, user.userId(), "CREATE", "TEAM", team.getId());
@@ -70,6 +76,7 @@ public class TeamService {
         Team team = requireVisibleTeam(id);
         UUID departmentId = request.departmentId() != null ? request.departmentId() : team.getDepartmentId();
         Department department = requireDepartmentInOrg(departmentId, team.getOrganizationId());
+        requireManagerInOrg(request.managerId(), team.getOrganizationId());
         team.update(request.name().trim(), department.getId(), request.managerId());
         auditService.record(team.getOrganizationId(), user.userId(), "UPDATE", "TEAM", team.getId());
         return TeamResponse.from(team);
@@ -91,6 +98,18 @@ public class TeamService {
             throw new ResourceNotFoundException("Resource not found");
         }
         return department;
+    }
+
+    private void requireManagerInOrg(UUID managerId, UUID organizationId) {
+        if (managerId == null) {
+            return;
+        }
+        User manager = userRepository
+                .findActiveDetailsById(managerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
+        if (!organizationId.equals(manager.getOrganizationId())) {
+            throw new ResourceNotFoundException("Resource not found");
+        }
     }
 
     private static String blankToNull(String value) {

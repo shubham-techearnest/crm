@@ -5,9 +5,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { FormSection } from "@/components/FormKit";
-import { ZohoFormKitCreateView, useZohoCreateFlow } from "@/components/ZohoCreate";
+import { TechEarnestFormKitCreateView, useTechEarnestCreateFlow } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -47,7 +49,7 @@ export function DepartmentsPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: DEPT_DEFAULTS,
     reset,
     setShowForm,
@@ -93,7 +95,7 @@ export function DepartmentsPage() {
   return (
     <>
       {showForm && canManage ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Department"
           entityLabel="Department"
           pending={isSubmitting || createMutation.isPending}
@@ -109,7 +111,7 @@ export function DepartmentsPage() {
           photo={photo}
         >
           {departmentFormFields}
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Departments"
@@ -146,16 +148,7 @@ export function DepartmentsPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Status</h3>
-            <select
-              className="form-select form-select-sm"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="INACTIVE">INACTIVE</option>
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={[{ value: "ACTIVE", label: "Active" }, { value: "INACTIVE", label: "Inactive" }]} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search department statuses" />
           </div>
         </>
       }
@@ -169,33 +162,22 @@ export function DepartmentsPage() {
       {!departmentsQuery.isLoading && !departmentsQuery.error ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((department) => (
-                    <tr key={department.id}>
-                      <td className="lead-name">{department.name}</td>
-                      <td>
-                        <StatusBadge status={department.status} />
-                      </td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={2} className="text-center text-muted py-5">
-                        No departments match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+              tableCode="department"
+              defaultColumns={[
+                { field: "name", label: "Name" },
+                { field: "status", label: "Status" },
+              ]}
+              rows={rows}
+              rowKey={(department) => department.id}
+              renderCell={(department, field) => {
+                if (field === "status") return <StatusBadge status={department.status} />;
+                const value = (department as unknown as Record<string, unknown>)[field];
+                return value == null || value === "" ? "—" : String(value);
+              }}
+              nameFields={["name"]}
+              emptyMessage="No departments match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((department) => (

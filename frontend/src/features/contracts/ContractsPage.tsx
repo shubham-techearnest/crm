@@ -8,12 +8,14 @@ import { FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFilterSelect,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -43,6 +45,8 @@ type FormValues = z.infer<typeof schema>;
 
 const CONTRACT_STATUSES = ["DRAFT", "ACTIVE", "EXPIRED", "TERMINATED"] as const;
 const contractStatusOptions = enumPickerOptions(CONTRACT_STATUSES);
+const contractFilterStatusOptions = enumPickerOptions(["DRAFT", "ACTIVE", "EXPIRED", "TERMINATED", "RENEWED"]);
+const autoRenewFilterOptions = optionsFromPairs([{ value: "true", label: "Yes" }, { value: "false", label: "No" }]);
 
 const DEFAULTS: FormValues = {
   regionId: "",
@@ -124,7 +128,7 @@ export function ContractsPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: DEFAULTS,
     reset,
     setShowForm,
@@ -187,7 +191,7 @@ export function ContractsPage() {
   return (
     <>
       {showForm && canManage ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Contract"
           entityLabel="Contract"
           pending={isSubmitting || createMutation.isPending}
@@ -205,7 +209,7 @@ export function ContractsPage() {
           <FormSection title="Contract" description="Account, dates, value, renewal">
             <div className="col-md-3">
               <label className="form-label required">Region</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="regionId"
                 options={regionOptions}
@@ -218,7 +222,7 @@ export function ContractsPage() {
             </div>
             <div className="col-md-3">
               <label className="form-label required">Account</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="accountId"
                 options={accountOptions}
@@ -255,7 +259,7 @@ export function ContractsPage() {
             </div>
             <div className="col-md-2">
               <label className="form-label">Status</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="status"
                 options={contractStatusOptions}
@@ -271,7 +275,7 @@ export function ContractsPage() {
             </div>
             <div className="col-md-4">
               <label className="form-label">Project</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="projectId"
                 options={projectOptions}
@@ -281,7 +285,7 @@ export function ContractsPage() {
               />
             </div>
           </FormSection>
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Contracts"
@@ -318,38 +322,13 @@ export function ContractsPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Status</h3>
-            <select className="form-select form-select-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="">All</option>
-              {["DRAFT", "ACTIVE", "EXPIRED", "TERMINATED", "RENEWED"].map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={contractFilterStatusOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search contract statuses" />
           </div>
           <div className="module-filter-section">
-            <h3>Account</h3>
-            <select className="form-select form-select-sm" value={accountFilter} onChange={(e) => setAccountFilter(e.target.value)}>
-              <option value="">All</option>
-              {(accountsQuery.data ?? []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Account" value={accountFilter} onChange={setAccountFilter} options={accountOptions} placeholder="All accounts" emptyLabel="All accounts" searchPlaceholder="Search accounts" />
           </div>
           <div className="module-filter-section">
-            <h3>Auto renew</h3>
-            <select
-              className="form-select form-select-sm"
-              value={autoRenewFilter}
-              onChange={(e) => setAutoRenewFilter(e.target.value as "" | "true" | "false")}
-            >
-              <option value="">All</option>
-              <option value="true">Yes</option>
-              <option value="false">No</option>
-            </select>
+            <TechEarnestFilterSelect label="Auto renew" value={autoRenewFilter} onChange={(value) => setAutoRenewFilter(value as "" | "true" | "false")} options={autoRenewFilterOptions} placeholder="All" emptyLabel="All" searchPlaceholder="Search options" />
           </div>
           <div className="module-filter-section">
             <h3>Expiry within (days)</h3>
@@ -368,43 +347,29 @@ export function ContractsPage() {
       {contractsQuery.isLoading ? <LoadingState label="Loading contracts..." /> : null}
       {contractsQuery.error ? <ErrorState title="Unable to load contracts" message="Try again." /> : null}
       {!contractsQuery.isLoading && !contractsQuery.error ? (
-        <div className="module-list-table-wrap">
-          <table className="table module-list-table align-middle">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Account</th>
-                <th>Status</th>
-                <th>End</th>
-                <th>Value</th>
-                <th>Auto renew</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="lead-name">{row.name}</td>
-                  <td>{accountName(row.accountId)}</td>
-                  <td>
-                    <StatusBadge status={row.status} />
-                  </td>
-                  <td>{row.endDate ?? "—"}</td>
-                  <td>
-                    {row.valueAmount != null ? `${row.currencyCode} ${row.valueAmount}` : "—"}
-                  </td>
-                  <td>{row.autoRenew ? "Yes" : "No"}</td>
-                </tr>
-              ))}
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="text-center text-muted py-5">
-                    No contracts
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <ModuleListTable
+          tableCode="contract"
+          defaultColumns={[
+            { field: "name", label: "Name" },
+            { field: "accountId", label: "Account" },
+            { field: "status", label: "Status" },
+            { field: "endDate", label: "End" },
+            { field: "valueAmount", label: "Value" },
+            { field: "autoRenew", label: "Auto renew" },
+          ]}
+          rows={rows}
+          rowKey={(contract) => contract.id}
+          renderCell={(contract, field) => {
+            if (field === "accountId") return accountName(contract.accountId);
+            if (field === "status") return <StatusBadge status={contract.status} />;
+            if (field === "valueAmount") return contract.valueAmount != null ? `${contract.currencyCode} ${contract.valueAmount}` : "—";
+            if (field === "autoRenew") return contract.autoRenew ? "Yes" : "No";
+            const value = (contract as unknown as Record<string, unknown>)[field];
+            return value == null || value === "" ? "—" : String(value);
+          }}
+          nameFields={["name"]}
+          emptyMessage="No contracts match the current filters."
+        />
       ) : null}
     </ModuleListShell>
       )}

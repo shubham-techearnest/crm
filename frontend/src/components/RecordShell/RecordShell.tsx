@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ZohoRecordView, type ZohoRecordRelatedLink, type ZohoRecordTab } from "@/components/ZohoRecord";
+import { TechEarnestRecordView, type TechEarnestRecordRelatedLink, type TechEarnestRecordTab } from "@/components/TechEarnestRecord";
 import { RecordHeader } from "./RecordHeader";
 
 export type RecordShellTabId =
@@ -34,19 +34,19 @@ export interface RecordShellProps {
   /** @deprecated Use `secondaryActions` — all actions render in the secondary group. */
   actions?: ReactNode;
   onClose?: () => void;
-  /** Alias for onClose — Zoho-style back navigation. */
+  /** Alias for onClose — TechEarnest-style back navigation. */
   onBack?: () => void;
   tabs: RecordShellTab[];
   defaultTab?: RecordShellTabId;
   /** When the selected record changes, reset the active tab. */
   recordKey?: string;
   className?: string;
-  /** `page` = full Zoho record view; `drawer` = legacy split-pane panel. */
+  /** `page` = full TechEarnest record view; `drawer` = legacy split-pane panel. */
   layout?: "page" | "drawer";
   avatarLabel?: string;
   avatarUrl?: string | null;
   avatarVariant?: "person" | "building";
-  relatedLinks?: ZohoRecordRelatedLink[];
+  relatedLinks?: TechEarnestRecordRelatedLink[];
   onPrev?: () => void;
   onNext?: () => void;
   hasPrev?: boolean;
@@ -54,7 +54,7 @@ export interface RecordShellProps {
 }
 
 /**
- * Reusable record detail shell: Zoho full-page layout or legacy drawer.
+ * Reusable record detail shell: TechEarnest full-page layout or legacy drawer.
  */
 export function RecordShell({
   title,
@@ -105,7 +105,7 @@ export function RecordShell({
   }, [activeTab, visibleTabs]);
 
   if (layout === "page") {
-    const zohoTabs: ZohoRecordTab[] = visibleTabs.map((tab) => ({
+    const techearnestTabs: TechEarnestRecordTab[] = visibleTabs.map((tab) => ({
       id: tab.id,
       label: tab.label,
       visible: tab.visible,
@@ -113,7 +113,7 @@ export function RecordShell({
     }));
 
     return (
-      <ZohoRecordView
+      <TechEarnestRecordView
         className={className}
         title={title}
         subtitle={subtitle}
@@ -127,7 +127,7 @@ export function RecordShell({
         hasPrev={hasPrev}
         hasNext={hasNext}
         relatedLinks={relatedLinks}
-        tabs={zohoTabs}
+        tabs={techearnestTabs}
         defaultTab={defaultTab}
         recordKey={recordKey}
         avatarLabel={avatarLabel ?? title}

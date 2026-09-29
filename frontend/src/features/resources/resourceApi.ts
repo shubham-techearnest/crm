@@ -247,6 +247,10 @@ export async function updateSkill(id: string, body: UpdateSkillBody): Promise<Sk
   return unwrap(data);
 }
 
+export async function deleteSkill(id: string): Promise<void> {
+  await api.delete(`/skills/${id}`);
+}
+
 // —— Allocations ——
 
 export async function listAllocations(params?: {
@@ -278,4 +282,9 @@ export async function updateAllocation(
 ): Promise<Allocation> {
   const { data } = await api.put<ApiResponse<Allocation>>(`/allocations/${id}`, body);
   return unwrap(data);
+}
+
+export async function deleteAllocation(id: string): Promise<void> {
+  const { data } = await api.delete<ApiResponse<null>>(`/allocations/${id}`);
+  if (!data.success) throw new Error(data.message ?? "Could not delete allocation.");
 }

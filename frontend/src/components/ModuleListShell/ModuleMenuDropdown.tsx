@@ -7,6 +7,7 @@ export interface ModuleMenuItem {
   icon?: ToolbarIconName;
   onClick?: () => void;
   disabled?: boolean;
+  danger?: boolean;
   visible?: boolean;
   separator?: boolean;
 }
@@ -67,7 +68,7 @@ export function ModuleMenuDropdown({
                 key={item.id}
                 type="button"
                 role="menuitem"
-                className="module-menu-item"
+                className={`module-menu-item${item.danger ? " is-danger" : ""}`}
                 disabled={item.disabled}
                 onClick={() => {
                   setOpen(false);

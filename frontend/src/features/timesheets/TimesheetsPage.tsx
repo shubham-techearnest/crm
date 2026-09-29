@@ -5,9 +5,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
-import { ZohoFormKitCreateView, useZohoCreateFlow } from "@/components/ZohoCreate";
+import { TechEarnestFormKitCreateView, TechEarnestFormSelect, useTechEarnestCreateFlow } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
@@ -124,7 +126,7 @@ export function TimesheetsPage() {
     defaultValues: TIMESHEET_DEFAULTS,
   });
 
-  const { photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+  const { photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: TIMESHEET_DEFAULTS,
     reset,
     setShowForm,
@@ -255,7 +257,7 @@ export function TimesheetsPage() {
   return (
     <>
       {showForm && canCreate ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Timesheet"
           tableCode="timesheet"
           entityLabel="Timesheet"
@@ -278,7 +280,7 @@ export function TimesheetsPage() {
               />
             </div>
           </FormSection>
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Timesheets"
@@ -331,18 +333,7 @@ export function TimesheetsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Status</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="DRAFT">DRAFT</option>
-              <option value="SUBMITTED">SUBMITTED</option>
-              <option value="APPROVED">APPROVED</option>
-              <option value="REJECTED">REJECTED</option>
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={["DRAFT", "SUBMITTED", "APPROVED", "REJECTED"].map((value) => ({ value, label: value }))} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search timesheet statuses" />
             <label className="form-label small mb-1">Week start</label>
             <input
               className="form-control form-control-sm mb-2"
@@ -350,19 +341,7 @@ export function TimesheetsPage() {
               value={weekStartFilter}
               onChange={(e) => setWeekStartFilter(e.target.value)}
             />
-            <label className="form-label small mb-1">Resource</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={resourceFilter}
-              onChange={(e) => setResourceFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(resourcesQuery.data ?? []).map((resource) => (
-                <option key={resource.id} value={resource.id}>
-                  {resource.employeeCode ?? resource.designation ?? resource.id.slice(0, 8)}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Resource" value={resourceFilter} onChange={setResourceFilter} options={(resourcesQuery.data ?? []).map((resource) => ({ value: resource.id, label: resource.employeeCode ?? resource.designation ?? resource.id.slice(0, 8), subtitle: resource.designation && resource.employeeCode ? resource.designation : undefined }))} placeholder="All resources" emptyLabel="All resources" searchPlaceholder="Search resources" />
             <div className="form-check">
               <input
                 id="billableOnly"
@@ -389,39 +368,25 @@ export function TimesheetsPage() {
           style={{ flex: 1, display: "flex", flexDirection: "column" }}
         >
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Week</th>
-                    <th>Status</th>
-                    <th>Hours</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((sheet) => (
-                    <tr
-                      key={sheet.id}
-                      className={selectedId === sheet.id ? "is-selected" : undefined}
-                      onClick={() => setSelectedId(sheet.id)}
-                    >
-                      <td className="lead-name">{sheet.weekStartDate}</td>
-                      <td>
-                        <StatusBadge status={sheet.status} />
-                      </td>
-                      <td>{sheet.totalHours ?? 0}</td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={3} className="text-center text-muted py-5">
-                        No timesheets match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+              tableCode="timesheet"
+              defaultColumns={[
+                { field: "weekStartDate", label: "Week" },
+                { field: "status", label: "Status" },
+                { field: "totalHours", label: "Hours" },
+              ]}
+              rows={rows}
+              rowKey={(sheet) => sheet.id}
+              selectedRowKey={selectedId}
+              onRowClick={(sheet) => setSelectedId(sheet.id)}
+              renderCell={(sheet, field) => {
+                if (field === "status") return <StatusBadge status={sheet.status} />;
+                const value = (sheet as unknown as Record<string, unknown>)[field];
+                return value == null || value === "" ? "—" : String(value);
+              }}
+              nameFields={["weekStartDate"]}
+              emptyMessage="No timesheets match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((sheet) => (
@@ -540,14 +505,17 @@ export function TimesheetsPage() {
                       <FormSection title="Add time entry" description="Project, date, and hours">
                         <div className="col-md-5">
                           <label className="form-label required">Project</label>
-                          <select className="form-select form-select-sm" {...entryForm.register("projectId")}>
-                            <option value="">Select project</option>
-                            {(projectsQuery.data ?? []).map((project) => (
-                              <option key={project.id} value={project.id}>
-                                {project.name}
-                              </option>
-                            ))}
-                          </select>
+                          <TechEarnestFormSelect
+                            control={entryForm.control}
+                            name="projectId"
+                            options={(projectsQuery.data ?? []).map((project) => ({ value: project.id, label: project.name, subtitle: project.projectCode }))}
+                            searchPlaceholder="Search projects"
+                            placeholder="Select project"
+                            lookupMode="modal"
+                            lookupTitle="Select Project"
+                            lookupIcon="apps"
+                            invalid={!!entryForm.formState.errors.projectId}
+                          />
                           {entryForm.formState.errors.projectId ? (
                             <div className="invalid-feedback d-block">
                               {entryForm.formState.errors.projectId.message}

@@ -5,13 +5,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { FormMoreDetails, FormSection } from "@/components/FormKit";
-import { ZohoFormKitCreateView, useZohoCreateFlow } from "@/components/ZohoCreate";
+import { TechEarnestFormKitCreateView, useTechEarnestCreateFlow } from "@/components/TechEarnestCreate";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { createSkill, listSkills } from "./resourceApi";
+import { createSkill, deleteSkill, listSkills, updateSkill, type Skill } from "./resourceApi";
 
 const schema = z.object({
   name: z.string().min(1, "Name is required").max(128),
@@ -31,6 +32,9 @@ export function SkillsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
+  const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
+  const [skillToDelete, setSkillToDelete] = useState<Skill | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const listParams = useMemo(
     () => ({
@@ -61,7 +65,7 @@ export function SkillsPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: SKILL_DEFAULTS,
     reset,
     setShowForm,
@@ -84,12 +88,48 @@ export function SkillsPage() {
     onError: () => setFormError("Could not create skill. Check the name is unique."),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Parameters<typeof updateSkill>[1] }) => updateSkill(id, body),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["skills"] });
+      setFormError(null);
+      setEditingSkillId(null);
+      setShowForm(false);
+      reset(SKILL_DEFAULTS);
+    },
+    onError: () => setFormError("Could not update skill. Check whether another skill already uses this name."),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteSkill,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["skills"] });
+      setSkillToDelete(null);
+      setDeleteError(null);
+    },
+    onError: () => setDeleteError("Could not deactivate skill. It may be referenced by existing resources."),
+  });
+
   const onCreateSubmit = (values: FormValues) => {
     createMutation.mutate(buildBody(values));
   };
 
+  const onUpdateSubmit = (values: FormValues) => {
+    if (!editingSkillId) return;
+    updateMutation.mutate({ id: editingSkillId, body: buildBody(values) });
+  };
+
   function openCreate() {
+    setEditingSkillId(null);
+    setFormError(null);
     reset(SKILL_DEFAULTS);
+    setShowForm(true);
+  }
+
+  function openEdit(skill: Skill) {
+    setEditingSkillId(skill.id);
+    setFormError(null);
+    reset({ name: skill.name, category: skill.category ?? "" });
     setShowForm(true);
   }
 
@@ -116,23 +156,29 @@ export function SkillsPage() {
   return (
     <>
       {showForm && canManage ? (
-        <ZohoFormKitCreateView
-          title="Create Skill"
+        <TechEarnestFormKitCreateView
+          title={editingSkillId ? "Edit Skill" : "Create Skill"}
           entityLabel="Skill"
-          pending={isSubmitting || createMutation.isPending}
+          pending={isSubmitting || createMutation.isPending || updateMutation.isPending}
           isDirty={isDirty}
           formError={formError}
-          onCancel={() => cancelCreate(isDirty)}
-          onSave={() => void handleSubmit(onCreateSubmit)()}
-          onSaveAndNew={() => {
+          onCancel={() => {
+            if (editingSkillId) {
+              setEditingSkillId(null);
+              setShowForm(false);
+              reset(SKILL_DEFAULTS);
+            } else cancelCreate(isDirty);
+          }}
+          onSave={() => void handleSubmit(editingSkillId ? onUpdateSubmit : onCreateSubmit)()}
+          onSaveAndNew={!editingSkillId ? () => {
             setSaveAndNew(true);
             void handleSubmit(onCreateSubmit)();
-          }}
-          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          } : undefined}
+          onSubmit={() => void handleSubmit(editingSkillId ? onUpdateSubmit : onCreateSubmit)()}
           photo={photo}
         >
           {skillFormFields}
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Skills"
@@ -195,38 +241,44 @@ export function SkillsPage() {
       {!skillsQuery.isLoading && !skillsQuery.error ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Category</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((skill) => (
-                    <tr key={skill.id}>
-                      <td className="lead-name">{skill.name}</td>
-                      <td>{skill.category ?? "—"}</td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={2} className="text-center text-muted py-5">
-                        No skills match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+              tableCode="skill"
+              defaultColumns={[
+                { field: "name", label: "Name" },
+                { field: "category", label: "Category" },
+              ]}
+              rows={rows}
+              rowKey={(skill) => skill.id}
+              renderCell={(skill, field) => {
+                const value = (skill as unknown as Record<string, unknown>)[field];
+                return value == null || value === "" ? "—" : String(value);
+              }}
+              nameFields={["name"]}
+              trailingColumn={canManage ? {
+                header: "Actions",
+                stopPropagation: true,
+                render: (skill) => (
+                  <div className="d-flex justify-content-end gap-2">
+                    <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => openEdit(skill)}>Edit</button>
+                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => { setDeleteError(null); setSkillToDelete(skill); }}>Deactivate</button>
+                  </div>
+                ),
+              } : undefined}
+              emptyMessage="No skills match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((skill) => (
-                <div key={skill.id} className="module-tile text-start">
+                <article key={skill.id} className="module-tile text-start">
                   <div className="tile-title">{skill.name}</div>
                   <div className="small text-muted">{skill.category ?? "Uncategorized"}</div>
-                </div>
+                  {canManage ? (
+                    <div className="d-flex gap-2 mt-3">
+                      <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => openEdit(skill)}>Edit</button>
+                      <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => { setDeleteError(null); setSkillToDelete(skill); }}>Deactivate</button>
+                    </div>
+                  ) : null}
+                </article>
               ))}
             </div>
           )}
@@ -234,6 +286,24 @@ export function SkillsPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {skillToDelete ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => deleteMutation.isPending ? null : setSkillToDelete(null)}>
+          <section className="module-modal" role="alertdialog" aria-modal="true" aria-labelledby="deactivate-skill-title" onClick={(event) => event.stopPropagation()}>
+            <header className="d-flex align-items-center justify-content-between gap-3 mb-3">
+              <h2 id="deactivate-skill-title" className="h5 mb-0">Deactivate skill?</h2>
+              <button type="button" className="btn-close" aria-label="Close" disabled={deleteMutation.isPending} onClick={() => setSkillToDelete(null)} />
+            </header>
+            <p><strong>{skillToDelete.name}</strong> will be deactivated and removed from active skill lists.</p>
+            {deleteError ? <div className="alert alert-danger py-2" role="alert">{deleteError}</div> : null}
+            <footer className="d-flex justify-content-end gap-2">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={deleteMutation.isPending} onClick={() => setSkillToDelete(null)}>Cancel</button>
+              <button type="button" className="btn btn-danger btn-sm" disabled={deleteMutation.isPending} onClick={() => deleteMutation.mutate(skillToDelete.id)}>
+                {deleteMutation.isPending ? "Deactivating…" : "Deactivate skill"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }

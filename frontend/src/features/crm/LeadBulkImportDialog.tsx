@@ -80,7 +80,7 @@ function buildLeadRows(
           if (Number.isFinite(n)) body.estimatedValue = n;
           return;
         }
-        (body as Record<string, string | number | null | undefined>)[field] = raw;
+        (body as unknown as Record<string, string | number | null | undefined>)[field] = raw;
       });
       return body;
     });

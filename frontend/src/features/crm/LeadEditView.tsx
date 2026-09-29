@@ -7,12 +7,12 @@ import axios from "axios";
 import { UnsavedGuard } from "@/components/FormKit";
 import {
   enumPickerOptions,
-  ZohoFormSelect,
-  ZohoFormUserSelect,
-  type ZohoPickerUser,
-} from "@/components/ZohoCreate";
-import { ZohoCreateField as ZohoField } from "@/components/ZohoCreate/ZohoCreateField";
-import { ZohoCreateSection } from "@/components/ZohoCreate/ZohoCreateSection";
+  TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
+  type TechEarnestPickerUser,
+} from "@/components/TechEarnestCreate";
+import { TechEarnestCreateField as TechEarnestField } from "@/components/TechEarnestCreate/TechEarnestCreateField";
+import { TechEarnestCreateSection } from "@/components/TechEarnestCreate/TechEarnestCreateSection";
 import { updateLead, type Lead } from "./crmApi";
 import { LEAD_SOURCES, LEAD_STATUSES, noneLabel } from "./leadFormConstants";
 import type { ApiResponse } from "@/types/api";
@@ -40,7 +40,7 @@ type LeadEditFormValues = z.infer<typeof leadEditSchema>;
 
 export interface LeadEditViewProps {
   lead: Lead;
-  users: ZohoPickerUser[];
+  users: TechEarnestPickerUser[];
   onCancel: () => void;
   onUpdated: (lead: Lead) => void;
 }
@@ -119,18 +119,18 @@ export function LeadEditView({ lead, users, onCancel, onUpdated }: LeadEditViewP
   const pending = isSubmitting || updateMutation.isPending;
 
   return (
-    <div className="zoho-create-page">
-      <div className="zoho-create-topbar">
-        <div className="zoho-create-topbar-left">
-          <h1 className="zoho-create-title">Edit Lead</h1>
+    <div className="techearnest-create-page">
+      <div className="techearnest-create-topbar">
+        <div className="techearnest-create-topbar-left">
+          <h1 className="techearnest-create-title">Edit Lead</h1>
         </div>
-        <div className="zoho-create-topbar-actions">
-          <button type="button" className="btn btn-light btn-sm zoho-create-btn" onClick={requestCancel}>
+        <div className="techearnest-create-topbar-actions">
+          <button type="button" className="btn btn-light btn-sm techearnest-create-btn" onClick={requestCancel}>
             Cancel
           </button>
           <button
             type="button"
-            className="btn btn-primary btn-sm zoho-create-btn zoho-create-btn--save"
+            className="btn btn-primary btn-sm techearnest-create-btn techearnest-create-btn--save"
             disabled={pending || readOnly}
             onClick={() => void handleSubmit((values) => updateMutation.mutate(values))()}
           >
@@ -140,7 +140,7 @@ export function LeadEditView({ lead, users, onCancel, onUpdated }: LeadEditViewP
       </div>
 
       <form
-        className="zoho-create-form"
+        className="techearnest-create-form"
         onSubmit={(event) => {
           event.preventDefault();
           void handleSubmit((values) => updateMutation.mutate(values))();
@@ -154,54 +154,54 @@ export function LeadEditView({ lead, users, onCancel, onUpdated }: LeadEditViewP
           </div>
         ) : null}
 
-        <div className="zoho-create-layout">
-          <div className="zoho-create-fields">
-            <ZohoCreateSection title="Lead Information">
-              <div className="zoho-create-grid">
-                <div className="zoho-create-col">
-                  <ZohoField label="Lead Owner">
-                    <ZohoFormUserSelect control={control} name="ownerId" users={users} allowEmpty={false} disabled={readOnly} />
-                  </ZohoField>
-                  <ZohoField label="Company" required error={errors.companyName?.message}>
+        <div className="techearnest-create-layout">
+          <div className="techearnest-create-fields">
+            <TechEarnestCreateSection title="Lead Information">
+              <div className="techearnest-create-grid">
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Lead Owner">
+                    <TechEarnestFormUserSelect control={control} name="ownerId" users={users} allowEmpty={false} disabled={readOnly} />
+                  </TechEarnestField>
+                  <TechEarnestField label="Company" required error={errors.companyName?.message}>
                     <input className="form-control form-control-sm" disabled={readOnly} {...register("companyName")} />
-                  </ZohoField>
-                  <ZohoField label="First Name">
+                  </TechEarnestField>
+                  <TechEarnestField label="First Name">
                     <input className="form-control form-control-sm" disabled={readOnly} {...register("firstName")} />
-                  </ZohoField>
-                  <ZohoField label="Last Name" required error={errors.lastName?.message}>
+                  </TechEarnestField>
+                  <TechEarnestField label="Last Name" required error={errors.lastName?.message}>
                     <input className="form-control form-control-sm" disabled={readOnly} {...register("lastName")} />
-                  </ZohoField>
-                  <ZohoField label="Email" error={errors.email?.message}>
+                  </TechEarnestField>
+                  <TechEarnestField label="Email" error={errors.email?.message}>
                     <input type="email" className="form-control form-control-sm" disabled={readOnly} {...register("email")} />
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
-                <div className="zoho-create-col">
-                  <ZohoField label="Phone">
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Phone">
                     <input className="form-control form-control-sm" disabled={readOnly} {...register("phone")} />
-                  </ZohoField>
-                  <ZohoField label="Mobile">
+                  </TechEarnestField>
+                  <TechEarnestField label="Mobile">
                     <input className="form-control form-control-sm" disabled={readOnly} {...register("mobile")} />
-                  </ZohoField>
-                  <ZohoField label="Lead Source">
-                    <ZohoFormSelect control={control} name="source" options={sourceOptions} disabled={readOnly} />
-                  </ZohoField>
-                  <ZohoField label="Status">
-                    <ZohoFormSelect control={control} name="status" options={statusOptions} allowEmpty={false} disabled={readOnly} />
-                  </ZohoField>
-                  <ZohoField label="Priority">
-                    <ZohoFormSelect control={control} name="priority" options={priorityOptions} disabled={readOnly} />
-                  </ZohoField>
-                  <ZohoField label="Estimated Value">
+                  </TechEarnestField>
+                  <TechEarnestField label="Lead Source">
+                    <TechEarnestFormSelect control={control} name="source" options={sourceOptions} disabled={readOnly} />
+                  </TechEarnestField>
+                  <TechEarnestField label="Status">
+                    <TechEarnestFormSelect control={control} name="status" options={statusOptions} allowEmpty={false} disabled={readOnly} />
+                  </TechEarnestField>
+                  <TechEarnestField label="Priority">
+                    <TechEarnestFormSelect control={control} name="priority" options={priorityOptions} disabled={readOnly} />
+                  </TechEarnestField>
+                  <TechEarnestField label="Estimated Value">
                     <input type="number" className="form-control form-control-sm" disabled={readOnly} {...register("estimatedValue")} />
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
               </div>
-            </ZohoCreateSection>
-            <ZohoCreateSection title="Description Information">
-              <ZohoField label="Description" wide>
+            </TechEarnestCreateSection>
+            <TechEarnestCreateSection title="Description Information">
+              <TechEarnestField label="Description" wide>
                 <textarea className="form-control form-control-sm" rows={5} disabled={readOnly} {...register("description")} />
-              </ZohoField>
-            </ZohoCreateSection>
+              </TechEarnestField>
+            </TechEarnestCreateSection>
           </div>
         </div>
       </form>

@@ -47,10 +47,13 @@ class V2CrossTenantIsolationTest {
                 .andExpect(status().isNotFound());
 
         mockMvc.perform(get("/api/v1/leads").header("Authorization", "Bearer " + portalToken))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + portalToken))
+                .andExpect(status().isUnauthorized());
 
         mockMvc.perform(get("/api/v1/portal/projects").header("Authorization", "Bearer " + employeeToken))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
 
         mockMvc.perform(get("/api/v1/portal/documents").header("Authorization", "Bearer " + portalToken))
                 .andExpect(status().isOk())

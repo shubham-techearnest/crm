@@ -10,6 +10,7 @@ import java.util.UUID;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -25,6 +26,7 @@ import com.nimbusds.jose.jwk.source.ImmutableSecret;
 public class JwtService {
 
     private static final MacAlgorithm ALG = MacAlgorithm.HS256;
+    public static final String INTERNAL_AUDIENCE = "INTERNAL";
 
     private final JwtEncoder encoder;
     private final JwtDecoder decoder;
@@ -38,7 +40,7 @@ public class JwtService {
     }
 
     public String createAccessToken(CurrentUser user) {
-        return encodeToken(user, "INTERNAL");
+        return encodeToken(user, INTERNAL_AUDIENCE);
     }
 
     public String createPortalAccessToken(CurrentUser user, String audience) {
@@ -67,8 +69,12 @@ public class JwtService {
         return encoder.encode(JwtEncoderParameters.from(header, built)).getTokenValue();
     }
 
-    public CurrentUser parseAccessToken(String token) {
+    public CurrentUser parseAccessToken(String token, String expectedAudience) {
         Jwt jwt = decoder.decode(token);
+        List<String> audience = jwt.getAudience();
+        if (audience == null || !audience.contains(expectedAudience)) {
+            throw new BadJwtException("Token audience is not valid for this API");
+        }
         List<String> perms = stringList(jwt.getClaim("perms"));
         List<String> regionStrings = stringList(jwt.getClaim("regions"));
         return new CurrentUser(

@@ -587,14 +587,7 @@ public class TimesheetService {
     }
 
     private static String csvEscape(String value) {
-        if (value == null) {
-            return "";
-        }
-        String escaped = value.replace("\"", "\"\"");
-        if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
-            return "\"" + escaped + "\"";
-        }
-        return escaped;
+        return com.techearnest.crm.common.csv.CsvCells.escape(value);
     }
 
     /** Convenience for tests / callers that want the Monday of a given date. */

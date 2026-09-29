@@ -12,23 +12,40 @@ import com.techearnest.crm.document.domain.Document;
 import com.techearnest.crm.document.domain.DocumentRepository;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class DocumentService {
 
+    private static final Logger log = LoggerFactory.getLogger(DocumentService.class);
+
     private static final Set<String> VISIBILITIES = Set.of("INTERNAL", "CUSTOMER");
     private static final long MAX_BYTES = 10L * 1024 * 1024;
+    /** Excludes types a browser may execute (html, svg, js, ...) and executables. */
+    static final Set<String> ALLOWED_EXTENSIONS = Set.of(
+            "pdf", "txt", "csv", "rtf", "md",
+            "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp",
+            "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff",
+            "zip", "eml", "msg");
+    /** Types safe to hand back with their own Content-Type; everything else is served as octet-stream. */
+    private static final Set<String> PASSTHROUGH_MEDIA_TYPES = Set.of(
+            "application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/tiff");
 
     private final DocumentRepository documentRepository;
     private final DocumentStorage documentStorage;
@@ -98,6 +115,8 @@ public class DocumentService {
         if (file.getSize() > MAX_BYTES) {
             throw new BusinessException("FILE_TOO_LARGE", "File exceeds 10MB limit");
         }
+        String fileName = sanitizeName(file.getOriginalFilename());
+        requireAllowedExtension(fileName);
         ParentRef parent = attachmentParentGuard.requireVisibleParent(entityType, entityId);
         String vis = normalizeVisibility(visibility);
         UUID documentId = UUID.randomUUID();
@@ -106,19 +125,20 @@ public class DocumentService {
             storageKey = documentStorage.store(
                     parent.organizationId().toString(),
                     documentId.toString(),
-                    file.getOriginalFilename(),
+                    fileName,
                     in,
                     file.getSize());
         } catch (IOException e) {
             throw new BusinessException("STORAGE_ERROR", "Failed to read upload stream");
         }
+        deleteStoredFileIfRolledBack(storageKey);
 
         Document document = Document.create(
                 documentId,
                 parent.organizationId(),
                 parent.entityType(),
                 parent.entityId(),
-                sanitizeName(file.getOriginalFilename()),
+                fileName,
                 storageKey,
                 file.getContentType(),
                 file.getSize(),
@@ -140,18 +160,27 @@ public class DocumentService {
         tenantAccess.requirePermission("DOCUMENT_VIEW");
         Document document = requireVisibleDocument(id);
         InputStream stream = documentStorage.open(document.getStorageKey());
-        MediaType mediaType = MediaType.APPLICATION_OCTET_STREAM;
-        if (document.getContentType() != null && !document.getContentType().isBlank()) {
-            try {
-                mediaType = MediaType.parseMediaType(document.getContentType());
-            } catch (Exception ignored) {
-                // keep octet-stream
-            }
-        }
+        ContentDisposition disposition = ContentDisposition.attachment()
+                .filename(sanitizeName(document.getFileName()), StandardCharsets.UTF_8)
+                .build();
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + document.getFileName() + "\"")
-                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .contentType(safeMediaType(document.getContentType()))
                 .body(new InputStreamResource(stream));
+    }
+
+    static MediaType safeMediaType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
+        try {
+            MediaType parsed = MediaType.parseMediaType(contentType);
+            String base = (parsed.getType() + "/" + parsed.getSubtype()).toLowerCase(Locale.ROOT);
+            return PASSTHROUGH_MEDIA_TYPES.contains(base) ? MediaType.parseMediaType(base) : MediaType.APPLICATION_OCTET_STREAM;
+        } catch (Exception ignored) {
+            return MediaType.APPLICATION_OCTET_STREAM;
+        }
     }
 
     @Transactional
@@ -159,7 +188,7 @@ public class DocumentService {
         CurrentUser user = tenantAccess.requirePermission("DOCUMENT_DELETE");
         Document document = requireVisibleDocument(id);
         documentRepository.delete(document);
-        documentStorage.delete(document.getStorageKey());
+        deleteStoredFileAfterCommit(document.getStorageKey());
         auditService.record(
                 document.getOrganizationId(),
                 user.userId(),
@@ -189,10 +218,61 @@ public class DocumentService {
         return vis;
     }
 
-    private static String sanitizeName(String name) {
+    static String sanitizeName(String name) {
         if (name == null || name.isBlank()) {
             return "file";
         }
-        return name.trim().substring(0, Math.min(name.trim().length(), 255));
+        String baseName = name.replace('\\', '/');
+        baseName = baseName.substring(baseName.lastIndexOf('/') + 1);
+        String cleaned = baseName.replaceAll("[\\p{Cntrl}\"]", "").trim();
+        if (cleaned.isEmpty()) {
+            return "file";
+        }
+        return cleaned.substring(0, Math.min(cleaned.length(), 255));
+    }
+
+    private static void requireAllowedExtension(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        String extension = dot < 0 ? "" : fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
+        if (!ALLOWED_EXTENSIONS.contains(extension)) {
+            throw new BusinessException(
+                    "FILE_TYPE_NOT_ALLOWED",
+                    "Files of type '" + (extension.isEmpty() ? "(none)" : extension) + "' cannot be uploaded");
+        }
+    }
+
+    private void deleteStoredFileIfRolledBack(String storageKey) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    deleteQuietly(storageKey);
+                }
+            }
+        });
+    }
+
+    private void deleteStoredFileAfterCommit(String storageKey) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            documentStorage.delete(storageKey);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                deleteQuietly(storageKey);
+            }
+        });
+    }
+
+    private void deleteQuietly(String storageKey) {
+        try {
+            documentStorage.delete(storageKey);
+        } catch (RuntimeException e) {
+            log.warn("Could not delete stored document file {}: {}", storageKey, e.getMessage());
+        }
     }
 }

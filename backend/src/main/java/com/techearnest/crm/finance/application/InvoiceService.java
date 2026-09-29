@@ -382,14 +382,7 @@ public class InvoiceService {
     }
 
     private static String csvEsc(String value) {
-        if (value == null) {
-            return "";
-        }
-        String escaped = value.replace("\"", "\"\"");
-        if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
-            return "\"" + escaped + "\"";
-        }
-        return escaped;
+        return com.techearnest.crm.common.csv.CsvCells.escape(value);
     }
 
     private String nextInvoiceNumber(UUID organizationId) {

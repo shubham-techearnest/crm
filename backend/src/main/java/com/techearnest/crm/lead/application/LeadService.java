@@ -676,14 +676,7 @@ public class LeadService {
     }
 
     private static String csvEscape(String value) {
-        if (value == null) {
-            return "";
-        }
-        String escaped = value.replace("\"", "\"\"");
-        if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
-            return "\"" + escaped + "\"";
-        }
-        return escaped;
+        return com.techearnest.crm.common.csv.CsvCells.escape(value);
     }
 
     public record PageResult(List<LeadResponse> data, PaginationMeta pagination) {}

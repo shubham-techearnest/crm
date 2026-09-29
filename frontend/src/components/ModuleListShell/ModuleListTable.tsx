@@ -18,6 +18,8 @@ export interface ModuleListColumnsState {
 export interface ModuleListTableProps<T> {
   tableCode: string;
   defaultColumns: ListLayoutColumn[];
+  /** Extra fields offered in Manage Columns but not shown by default. */
+  optionalColumns?: ListLayoutColumn[];
   rows: T[];
   rowKey: (row: T) => string;
   renderCell: (row: T, field: string) => ReactNode;
@@ -41,6 +43,7 @@ export interface ModuleListTableProps<T> {
 export function ModuleListTable<T>({
   tableCode,
   defaultColumns,
+  optionalColumns,
   rows,
   rowKey,
   renderCell,
@@ -58,6 +61,7 @@ export function ModuleListTable<T>({
 }: ModuleListTableProps<T>) {
   const internalColumns = useModuleListColumns(tableCode, defaultColumns, {
     enabled: enabled && !columnsState,
+    optionalColumns,
   });
   const columns = columnsState ?? internalColumns;
   const excluded = useMemo(() => new Set(excludedFields), [excludedFields]);

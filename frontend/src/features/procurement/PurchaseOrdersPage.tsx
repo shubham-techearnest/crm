@@ -3,13 +3,16 @@ import { useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
   TechEarnestPicker,
   TechEarnestFilterSelect,
   useTechEarnestCreateFlow,
@@ -22,10 +25,11 @@ import { useRecordNavigation } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
-import { listRegions } from "@/features/admin/adminApi";
+import { listRegions, listUsers } from "@/features/admin/adminApi";
 import { listProjects } from "@/features/projects/projectApi";
 import { listTaxRates } from "@/features/finance/taxApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import { getVendor, listVendors } from "./vendorsApi";
 import {
   addPurchaseOrderItem,
@@ -64,6 +68,13 @@ const schema = z.object({
   regionId: z.string().min(1, "Region is required"),
   vendorId: z.string().min(1, "Vendor is required"),
   projectId: z.string().optional(),
+  requesterId: z.string().optional(),
+  poNumber: z.string().max(64).optional(),
+  currencyCode: z
+    .string()
+    .trim()
+    .refine((value) => !value || /^[A-Za-z]{3}$/.test(value), "Use a 3-letter currency code, e.g. INR")
+    .optional(),
   neededBy: z.string().optional(),
   notes: z.string().optional(),
   items: z.array(lineSchema).min(1, "Add at least one line"),
@@ -75,6 +86,9 @@ const DEFAULTS: FormValues = {
   regionId: "",
   vendorId: "",
   projectId: "",
+  requesterId: "",
+  poNumber: "",
+  currencyCode: "",
   neededBy: "",
   notes: "",
   items: [{ description: "", quantity: "1", unitPrice: "", taxRateId: "" }],
@@ -122,6 +136,12 @@ export function PurchaseOrdersPage() {
   const vendorsQuery = useQuery({ queryKey: ["vendors"], queryFn: () => listVendors() });
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
+  const usersQuery = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: () => listUsers(),
+    enabled: showForm && canCreate,
+    retry: false,
+  });
   const taxQuery = useQuery({
     queryKey: ["tax-rates", { activeOnly: true }],
     queryFn: () => listTaxRates({ activeOnly: true }),
@@ -155,31 +175,48 @@ export function PurchaseOrdersPage() {
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
   };
+  const bulkImport = useBulkImport("purchase-orders", invalidate);
+
+  function openCreatePurchaseOrder() {
+    reset(DEFAULTS);
+    setShowForm(true);
+  }
 
   const createMutation = useMutation({
-    mutationFn: createPurchaseOrder,
+    mutationFn: async (values: FormValues) => {
+      let po = await createPurchaseOrder({
+        regionId: values.regionId,
+        vendorId: values.vendorId,
+        projectId: values.projectId || undefined,
+        requesterId: values.requesterId || undefined,
+        poNumber: values.poNumber?.trim() || undefined,
+        currencyCode: values.currencyCode ? values.currencyCode.toUpperCase() : undefined,
+        neededBy: values.neededBy || undefined,
+        notes: values.notes || undefined,
+      });
+      for (const line of values.items) {
+        po = await addPurchaseOrderItem(po.id, {
+          description: line.description.trim(),
+          quantity: Number(line.quantity),
+          unitPrice: Number(line.unitPrice),
+          taxRateId: line.taxRateId || undefined,
+        });
+      }
+      return po;
+    },
     onSuccess: async (po) => {
       await invalidate();
       setFormError(null);
       await afterCreateSuccess(po, "PURCHASE_ORDER");
     },
-    onError: () => setFormError("Could not create purchase order draft."),
+    onError: async () => {
+      await invalidate();
+      setFormError("Could not create the purchase order, or some line items were not saved. Check the draft in the list.");
+    },
   });
 
   const onCreateSubmit = (values: FormValues) => {
-    createMutation.mutate({
-      regionId: values.regionId,
-      vendorId: values.vendorId,
-      projectId: values.projectId || undefined,
-      neededBy: values.neededBy || undefined,
-      notes: values.notes || undefined,
-      items: values.items.map((line) => ({
-        description: line.description,
-        quantity: Number(line.quantity),
-        unitPrice: Number(line.unitPrice),
-        taxRateId: line.taxRateId || undefined,
-      })),
-    });
+    createMutation.mutate(values);
   };
 
   const addLineMutation = useMutation({
@@ -293,107 +330,166 @@ export function PurchaseOrdersPage() {
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
           photo={photo}
         >
-          <FormSection title="Draft PO" description="Vendor, optional project, needed-by date">
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="regionId"
-                options={regionOptions}
-                searchPlaceholder="Search Regions"
-                allowEmpty={false}
-                placeholder="Select"
-                invalid={!!errors.regionId}
-              />
-              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Vendor</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="vendorId"
-                options={vendorOptions}
-                searchPlaceholder="Search Vendors"
-                allowEmpty={false}
-                placeholder="Select"
-                invalid={!!errors.vendorId}
-              />
-              {errors.vendorId ? <div className="invalid-feedback d-block">{errors.vendorId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">Project</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="projectId"
-                options={projectOptions}
-                searchPlaceholder="Search Projects"
-                lookupIcon="apps"
-                placeholder="Optional"
-              />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Needed by" type="date" error={errors.neededBy} {...register("neededBy")} />
-            </div>
-          </FormSection>
-          <FormSection title="Line items" description="Qty × unit price; tax optional">
-            {fields.map((field, index) => (
-              <div key={field.id} className="row g-2 mb-2 align-items-end">
-                <div className="col-md-4">
-                  <FormField
-                    label="Description"
-                    required
-                    error={errors.items?.[index]?.description}
-                    {...register(`items.${index}.description`)}
-                  />
-                </div>
-                <div className="col-md-2">
-                  <FormField
-                    label="Qty"
-                    type="number"
-                    required
-                    error={errors.items?.[index]?.quantity}
-                    {...register(`items.${index}.quantity`)}
-                  />
-                </div>
-                <div className="col-md-2">
-                  <FormField
-                    label="Unit price"
-                    type="number"
-                    required
-                    error={errors.items?.[index]?.unitPrice}
-                    {...register(`items.${index}.unitPrice`)}
-                  />
-                </div>
-                <div className="col-md-2">
-                  <label className="form-label">Tax rate</label>
+          <TechEarnestCreateSection title="Purchase Order Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Vendor Name" required error={errors.vendorId?.message}>
                   <TechEarnestFormSelect
                     control={control}
-                    name={`items.${index}.taxRateId`}
-                    options={taxRateOptions}
-                    searchPlaceholder="Search Tax Rates"
-                    placeholder="None"
+                    name="vendorId"
+                    options={vendorOptions}
+                    searchPlaceholder="Search Vendors"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select vendor"
+                    invalid={!!errors.vendorId}
                   />
-                </div>
-                <div className="col-md-2">
-                  {fields.length > 1 ? (
-                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => remove(index)}>
-                      Remove
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-            {errors.items?.root ? (
-              <div className="invalid-feedback d-block">{errors.items.root.message}</div>
-            ) : null}
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="PO Number" error={errors.poNumber?.message}>
+                  <input
+                    type="text"
+                    maxLength={64}
+                    placeholder="Generated automatically"
+                    className="form-control form-control-sm"
+                    {...register("poNumber")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Project">
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="projectId"
+                    options={projectOptions}
+                    searchPlaceholder="Search Projects"
+                    lookupIcon="apps"
+                    placeholder="Optional"
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Requester">
+                  <TechEarnestFormUserSelect
+                    control={control}
+                    name="requesterId"
+                    users={usersQuery.data ?? []}
+                    searchPlaceholder="Search Users"
+                    placeholder={usersQuery.isError ? "Users are not available" : "You (default)"}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Region" required error={errors.regionId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="regionId"
+                    options={regionOptions}
+                    searchPlaceholder="Search Regions"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select region"
+                    invalid={!!errors.regionId}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Needed By" error={errors.neededBy?.message}>
+                  <input type="date" className="form-control form-control-sm" {...register("neededBy")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Currency" error={errors.currencyCode?.message}>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    placeholder="Organisation default"
+                    className={`form-control form-control-sm text-uppercase${errors.currencyCode ? " is-invalid" : ""}`}
+                    {...register("currencyCode")}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Line Items">
+            <div className="table-responsive">
+              <table className="table table-sm align-top techearnest-create-lines">
+                <thead>
+                  <tr>
+                    <th className="required">Description</th>
+                    <th style={{ width: "7rem" }} className="required">Quantity</th>
+                    <th style={{ width: "9rem" }} className="required">Unit price</th>
+                    <th style={{ width: "12rem" }}>Tax rate</th>
+                    <th style={{ width: "3rem" }} aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {fields.map((field, index) => (
+                    <tr key={field.id}>
+                      <td>
+                        <input
+                          type="text"
+                          maxLength={500}
+                          aria-label={`Line ${index + 1} description`}
+                          className={`form-control form-control-sm${errors.items?.[index]?.description ? " is-invalid" : ""}`}
+                          {...register(`items.${index}.description`)}
+                        />
+                        {errors.items?.[index]?.description ? (
+                          <div className="invalid-feedback d-block">{errors.items[index]?.description?.message}</div>
+                        ) : null}
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0.01}
+                          step="0.01"
+                          aria-label={`Line ${index + 1} quantity`}
+                          className={`form-control form-control-sm${errors.items?.[index]?.quantity ? " is-invalid" : ""}`}
+                          {...register(`items.${index}.quantity`)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          aria-label={`Line ${index + 1} unit price`}
+                          className={`form-control form-control-sm${errors.items?.[index]?.unitPrice ? " is-invalid" : ""}`}
+                          {...register(`items.${index}.unitPrice`)}
+                        />
+                      </td>
+                      <td>
+                        <TechEarnestFormSelect
+                          control={control}
+                          name={`items.${index}.taxRateId`}
+                          options={taxRateOptions}
+                          searchPlaceholder="Search Tax Rates"
+                          placeholder="None"
+                        />
+                      </td>
+                      <td className="text-end">
+                        {fields.length > 1 ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-light"
+                            aria-label={`Remove line ${index + 1}`}
+                            title="Remove line"
+                            onClick={() => remove(index)}
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {errors.items?.root ? <div className="invalid-feedback d-block">{errors.items.root.message}</div> : null}
             <button
               type="button"
-              className="btn btn-sm btn-outline-secondary"
+              className="btn btn-sm btn-light techearnest-create-btn"
               onClick={() => append({ description: "", quantity: "1", unitPrice: "", taxRateId: "" })}
             >
-              Add line
+              + Add line
             </button>
-          </FormSection>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Description Information">
+            <TechEarnestCreateField label="Notes" wide error={errors.notes?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...register("notes")} />
+            </TechEarnestCreateField>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : selectedId ? (
         detailQuery.isLoading ? (
@@ -592,18 +688,13 @@ export function PurchaseOrdersPage() {
       }
       primaryAction={
         canCreate ? (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              reset(DEFAULTS);
-              setShowForm(true);
-            }}
-          >
+          <button type="button" className="btn btn-primary btn-sm" onClick={openCreatePurchaseOrder}>
             Create PO
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Purchase Orders by</p>
@@ -632,7 +723,11 @@ export function PurchaseOrdersPage() {
       {posQuery.isLoading ? <LoadingState label="Loading purchase orders..." /> : null}
       {posQuery.error ? <ErrorState title="Unable to load purchase orders" message="Try again." /> : null}
 
-      {!posQuery.isLoading && !posQuery.error ? (
+      {!posQuery.isLoading && !posQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({ canCreate, createLabel: "Create PO", onCreate: openCreatePurchaseOrder })
+        : null}
+
+      {!posQuery.isLoading && !posQuery.error && (rows.length || activeFilterCount) ? (
         <ModuleListTable
           tableCode="purchase_order"
           defaultColumns={[
@@ -703,6 +798,7 @@ export function PurchaseOrdersPage() {
           </section>
         </div>
       ) : null}
+      {bulkImport.dialog}
     </>
   );
 }

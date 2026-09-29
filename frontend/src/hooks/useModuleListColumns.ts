@@ -13,6 +13,7 @@ function mergeAvailableColumns(
   fields: SysField[] | undefined,
   published: ListLayoutColumn[],
   defaults: ListLayoutColumn[],
+  optional: ListLayoutColumn[],
 ): ListLayoutColumn[] {
   const map = new Map<string, ListLayoutColumn>();
   const sortedFields = [...(fields ?? [])].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -24,7 +25,7 @@ function mergeAvailableColumns(
     const existing = map.get(column.field);
     map.set(column.field, existing ? { ...existing, ...column, label: column.label || existing.label } : column);
   }
-  for (const column of defaults) {
+  for (const column of [...defaults, ...optional]) {
     if (!map.has(column.field)) {
       map.set(column.field, column);
     }
@@ -32,8 +33,12 @@ function mergeAvailableColumns(
   return Array.from(map.values());
 }
 
+const NO_COLUMNS: ListLayoutColumn[] = [];
+
 export interface UseModuleListColumnsOptions {
   enabled?: boolean;
+  /** Columns users can add in Manage Columns but that are hidden by default. */
+  optionalColumns?: ListLayoutColumn[];
 }
 
 export function useModuleListColumns(
@@ -72,9 +77,10 @@ export function useModuleListColumns(
     return defaultColumns;
   }, [listLayoutQuery.data, defaultColumns]);
 
+  const optionalColumns = options?.optionalColumns ?? NO_COLUMNS;
   const availableColumns = useMemo(
-    () => mergeAvailableColumns(fieldCatalogQuery.data?.fields, publishedColumns, defaultColumns),
-    [fieldCatalogQuery.data?.fields, publishedColumns, defaultColumns],
+    () => mergeAvailableColumns(fieldCatalogQuery.data?.fields, publishedColumns, defaultColumns, optionalColumns),
+    [fieldCatalogQuery.data?.fields, publishedColumns, defaultColumns, optionalColumns],
   );
 
   const mandatoryFields = useMemo(() => {

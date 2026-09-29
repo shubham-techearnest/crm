@@ -23,6 +23,7 @@ import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
 import { getPublishedFormBundle, getPublishedRelatedLists } from "@/features/admin/studio/metadataApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   getAccount,
   getContact,
@@ -222,6 +223,9 @@ export function ContactsPage() {
     ownerFilter,
     emailFilter,
     designationFilter,
+  );
+  const bulkImport = useBulkImport("contacts", () =>
+    queryClient.invalidateQueries({ queryKey: ["crm", "contacts"] }),
   );
   const relatedDeals = useMemo(
     () => (dealsQuery.data ?? []).filter((deal) => deal.contactId === (selected as Contact | null)?.id),
@@ -680,6 +684,8 @@ export function ContactsPage() {
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Contacts by</p>
@@ -746,7 +752,11 @@ export function ContactsPage() {
         />
       ) : null}
 
-      {!contactsQuery.isLoading && !contactsQuery.error ? (
+      {!contactsQuery.isLoading && !contactsQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({ canCreate, createLabel: "Create Contact", onCreate: () => openCreate() })
+        : null}
+
+      {!contactsQuery.isLoading && !contactsQuery.error && (rows.length || activeFilterCount) ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {viewMode === "list" ? (
             <ModuleListTable
@@ -808,6 +818,7 @@ export function ContactsPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {bulkImport.dialog}
     </>
   );
 }

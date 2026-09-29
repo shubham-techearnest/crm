@@ -3,11 +3,13 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFilterSelect,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
@@ -25,6 +27,7 @@ import { listRegions } from "@/features/admin/adminApi";
 import { listAccounts } from "@/features/crm/crmApi";
 import { listProjects } from "@/features/projects/projectApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   applyCreditNote,
   addInvoiceLine,
@@ -49,6 +52,11 @@ const createSchema = z.object({
   regionId: z.string().min(1, "Region is required"),
   accountId: z.string().min(1, "Account is required"),
   projectId: z.string().optional(),
+  currencyCode: z
+    .string()
+    .trim()
+    .refine((value) => !value || /^[A-Za-z]{3}$/.test(value), "Use a 3-letter currency code, e.g. INR")
+    .optional(),
   dueDate: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -59,6 +67,7 @@ const CREATE_DEFAULTS: CreateFormValues = {
   regionId: "",
   accountId: "",
   projectId: "",
+  currencyCode: "",
   dueDate: "",
   notes: "",
 };
@@ -178,6 +187,12 @@ export function InvoicesPage() {
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["invoices"] });
   };
+  const bulkImport = useBulkImport("invoices", invalidate);
+
+  function openCreateInvoice() {
+    reset(CREATE_DEFAULTS);
+    setShowForm(true);
+  }
 
   const createMutation = useMutation({
     mutationFn: createInvoice,
@@ -207,6 +222,7 @@ export function InvoicesPage() {
       regionId: values.regionId,
       accountId: values.accountId,
       projectId: values.projectId || undefined,
+      currencyCode: values.currencyCode ? values.currencyCode.toUpperCase() : undefined,
       dueDate: values.dueDate || undefined,
       notes: values.notes || undefined,
     });
@@ -315,49 +331,68 @@ export function InvoicesPage() {
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
           photo={photo}
         >
-          <FormSection title="Draft invoice" description="Account, optional project, due date">
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="regionId"
-                options={regionOptions}
-                searchPlaceholder="Search Regions"
-                allowEmpty={false}
-                placeholder="Select"
-                invalid={!!errors.regionId}
-              />
-              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Account</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="accountId"
-                options={accountOptions}
-                searchPlaceholder="Search Accounts"
-                lookupIcon="building"
-                allowEmpty={false}
-                placeholder="Select"
-                invalid={!!errors.accountId}
-              />
-              {errors.accountId ? <div className="invalid-feedback d-block">{errors.accountId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">Project</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="projectId"
-                options={projectOptions}
-                searchPlaceholder="Search Projects"
-                lookupIcon="apps"
-                placeholder="Optional"
-              />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Due date" type="date" error={errors.dueDate} {...register("dueDate")} />
-            </div>
-          </FormSection>
+          <TechEarnestCreateSection title="Invoice Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Account Name" required error={errors.accountId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="accountId"
+                    options={accountOptions}
+                    searchPlaceholder="Search Accounts"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select account"
+                    invalid={!!errors.accountId}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Project">
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="projectId"
+                    options={projectOptions}
+                    searchPlaceholder="Search Projects"
+                    lookupIcon="apps"
+                    placeholder="Optional"
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Region" required error={errors.regionId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="regionId"
+                    options={regionOptions}
+                    searchPlaceholder="Search Regions"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select region"
+                    invalid={!!errors.regionId}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Due Date" error={errors.dueDate?.message}>
+                  <input type="date" className="form-control form-control-sm" {...register("dueDate")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Currency" error={errors.currencyCode?.message}>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    placeholder="Organisation default"
+                    className={`form-control form-control-sm text-uppercase${errors.currencyCode ? " is-invalid" : ""}`}
+                    {...register("currencyCode")}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Description Information">
+            <TechEarnestCreateField label="Notes" wide error={errors.notes?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...register("notes")} />
+            </TechEarnestCreateField>
+            <p className="small text-muted mb-0 mt-2">
+              The invoice is saved as a draft. Add line items or pull unbilled time from the invoice record after saving.
+            </p>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : selectedId ? (
         detailQuery.isLoading ? (
@@ -586,18 +621,13 @@ export function InvoicesPage() {
       }
       primaryAction={
         canCreate ? (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              reset(CREATE_DEFAULTS);
-              setShowForm(true);
-            }}
-          >
+          <button type="button" className="btn btn-primary btn-sm" onClick={openCreateInvoice}>
             Create Invoice
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Invoices by</p>
@@ -658,7 +688,11 @@ export function InvoicesPage() {
       {invoicesQuery.isLoading ? <LoadingState label="Loading invoices..." /> : null}
       {invoicesQuery.error ? <ErrorState title="Unable to load invoices" message="Try again." /> : null}
 
-      {!invoicesQuery.isLoading && !invoicesQuery.error ? (
+      {!invoicesQuery.isLoading && !invoicesQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({ canCreate, createLabel: "Create Invoice", onCreate: openCreateInvoice })
+        : null}
+
+      {!invoicesQuery.isLoading && !invoicesQuery.error && (rows.length || activeFilterCount) ? (
         <ModuleListTable
           tableCode="invoice"
           defaultColumns={[
@@ -725,6 +759,7 @@ export function InvoicesPage() {
           </section>
         </div>
       ) : null}
+      {bulkImport.dialog}
     </>
   );
 }

@@ -4,6 +4,7 @@ import com.techearnest.crm.common.exception.ApiException;
 import com.techearnest.crm.common.exception.BusinessException;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.TenantAccess;
+import com.techearnest.crm.importer.application.RowRejected;
 import com.techearnest.crm.lead.api.dto.LeadDtos.CreateLeadRequest;
 import com.techearnest.crm.lead.api.dto.LeadDtos.ImportLeadsRequest;
 import com.techearnest.crm.lead.api.dto.LeadDtos.LeadImportIssue;
@@ -209,11 +210,5 @@ public class LeadImportService {
                 r.addressCountry(), r.addressFlat(), r.addressStreet(), r.addressCity(), r.addressState(),
                 r.addressZip(), r.addressLatitude(), r.addressLongitude(), status, priority, r.industry(),
                 r.designation(), r.estimatedValue(), r.expectedCloseDate(), r.description());
-    }
-
-    private static final class RowRejected extends RuntimeException {
-        RowRejected(String message) {
-            super(message, null, false, false);
-        }
     }
 }

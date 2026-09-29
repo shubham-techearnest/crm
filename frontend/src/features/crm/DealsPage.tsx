@@ -19,6 +19,7 @@ import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi
 import { getPublishedFormPolicies } from "@/features/admin/studio/metadataApi";
 import { createProjectFromDeal } from "@/features/projects/projectApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   changeDealStage,
   getDeal,
@@ -171,6 +172,10 @@ export function DealsPage() {
     closeFrom,
     closeTo,
   ].filter(Boolean).length;
+  const bulkImport = useBulkImport("deals", async () => {
+    await queryClient.invalidateQueries({ queryKey: ["crm", "deals"] });
+    await queryClient.invalidateQueries({ queryKey: ["dashboards"] });
+  });
   const activitiesQuery = useQuery({
     queryKey: ["crm", "activities", "DEAL", (selected as Deal | null)?.id],
     queryFn: () => listActivities({ relatedEntityType: "DEAL", relatedEntityId: selected!.id }),
@@ -533,6 +538,8 @@ export function DealsPage() {
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Deals by</p>
@@ -600,7 +607,11 @@ export function DealsPage() {
       {loading ? <LoadingState label="Loading deals..." /> : null}
       {error ? <ErrorState title="Unable to load deals" message="Try again." /> : null}
 
-      {!loading && !error ? (
+      {!loading && !error && view === "list" && !deals.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({ canCreate, createLabel: "Create Deal", onCreate: () => openCreate() })
+        : null}
+
+      {!loading && !error && (view !== "list" || deals.length || activeFilterCount) ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {view === "list" ? (
             <ModuleListTable
@@ -654,6 +665,7 @@ export function DealsPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {bulkImport.dialog}
     </>
   );
 }

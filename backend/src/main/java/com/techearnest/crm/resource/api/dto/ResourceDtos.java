@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public final class ResourceDtos {
@@ -23,10 +24,13 @@ public final class ResourceDtos {
             UUID organizationId,
             UUID regionId,
             UUID userId,
+            String employeeName,
             String employeeCode,
             String designation,
             UUID departmentId,
+            String departmentName,
             UUID managerId,
+            String managerName,
             String resourceType,
             LocalDate joiningDate,
             BigDecimal costRate,
@@ -37,15 +41,23 @@ public final class ResourceDtos {
             Instant updatedAt) {
 
         public static ResourceResponse from(Resource resource, boolean includeCostRate, boolean includeBillingRate) {
+            return from(resource, includeCostRate, includeBillingRate, ResourceNames.NONE);
+        }
+
+        public static ResourceResponse from(
+                Resource resource, boolean includeCostRate, boolean includeBillingRate, ResourceNames names) {
             return new ResourceResponse(
                     resource.getId(),
                     resource.getOrganizationId(),
                     resource.getRegionId(),
                     resource.getUserId(),
+                    names.user(resource.getUserId()),
                     resource.getEmployeeCode(),
                     resource.getDesignation(),
                     resource.getDepartmentId(),
+                    names.department(resource.getDepartmentId()),
                     resource.getManagerId(),
+                    names.user(resource.getManagerId()),
                     resource.getResourceType(),
                     resource.getJoiningDate(),
                     includeCostRate ? resource.getCostRate() : null,
@@ -54,6 +66,20 @@ public final class ResourceDtos {
                     resource.getStatus(),
                     resource.getCreatedAt(),
                     resource.getUpdatedAt());
+        }
+    }
+
+    /** Display names for the users and departments a resource points to. */
+    public record ResourceNames(Map<UUID, String> users, Map<UUID, String> departments) {
+
+        public static final ResourceNames NONE = new ResourceNames(Map.of(), Map.of());
+
+        String user(UUID id) {
+            return id == null ? null : users.get(id);
+        }
+
+        String department(UUID id) {
+            return id == null ? null : departments.get(id);
         }
     }
 

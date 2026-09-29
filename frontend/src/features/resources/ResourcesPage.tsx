@@ -4,14 +4,18 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link } from "react-router-dom";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
   useTechEarnestCreateFlow,
+  type TechEarnestPickerUser,
 } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import {
@@ -34,11 +38,12 @@ import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEar
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
-import { listRegions } from "@/features/admin/adminApi";
+import { listDepartments, listRegions, listUsers } from "@/features/admin/adminApi";
 import { getMyFieldAcls } from "@/features/admin/studio/metadataApi";
 import { listActivities } from "@/features/crm/crmApi";
 import { listProjects, listTasks } from "@/features/projects/projectApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   createResource,
   getResource,
@@ -61,6 +66,9 @@ const resourceTypeOptions = enumPickerOptions(RESOURCE_TYPES);
 const resourceStatusOptions = enumPickerOptions(RESOURCE_STATUSES);
 
 const resourceSchema = z.object({
+  userId: z.string().optional(),
+  departmentId: z.string().optional(),
+  managerId: z.string().optional(),
   regionId: z.string().min(1, "Region is required"),
   resourceType: z.string().min(1, "Type is required"),
   designation: z.string().optional(),
@@ -75,6 +83,9 @@ const resourceSchema = z.object({
 type ResourceFormValues = z.infer<typeof resourceSchema>;
 
 const RESOURCE_DEFAULTS: ResourceFormValues = {
+  userId: "",
+  departmentId: "",
+  managerId: "",
   regionId: "",
   resourceType: "EMPLOYEE",
   designation: "",
@@ -106,6 +117,24 @@ function formatRate(value: number | null | undefined): string {
   if (value == null) return "—";
   return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function resourceTitle(resource: Resource): string {
+  return resource.employeeName ?? resource.designation ?? resource.employeeCode ?? "Resource";
+}
+
+const RESOURCE_OPTIONAL_COLUMNS = [
+  { field: "departmentName", label: "Department" },
+  { field: "managerName", label: "Manager" },
+  { field: "joiningDate", label: "Joining date" },
+  { field: "createdAt", label: "Created time" },
+  { field: "updatedAt", label: "Modified time" },
+];
 
 export function ResourcesPage() {
   const queryClient = useQueryClient();
@@ -141,7 +170,6 @@ export function ResourcesPage() {
   const [draftSkills, setDraftSkills] = useState<ResourceSkillItem[]>([]);
   const [newSkillId, setNewSkillId] = useState("");
   const [newProficiency, setNewProficiency] = useState<string>("INTERMEDIATE");
-  const [showMore, setShowMore] = useState(false);
   const monthRange = useMemo(() => currentMonthRange(), []);
 
   const listParams = useMemo(
@@ -164,6 +192,18 @@ export function ResourcesPage() {
     enabled: !!selected,
   });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
+  const usersQuery = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: () => listUsers(),
+    enabled: showForm && canManage,
+    retry: false,
+  });
+  const departmentsQuery = useQuery({
+    queryKey: ["admin", "departments"],
+    queryFn: listDepartments,
+    enabled: showForm && canManage,
+    retry: false,
+  });
   const skillsCatalogQuery = useQuery({
     queryKey: ["skills"],
     queryFn: () => listSkills(),
@@ -245,10 +285,12 @@ export function ResourcesPage() {
     setShowForm,
     setFormError,
     setSelected: (entity) => setSelected(entity as Resource),
-    onResetExtras: () => setShowMore(false),
   });
 
   const buildResourceBody = (values: ResourceFormValues) => ({
+    userId: values.userId || null,
+    departmentId: values.departmentId || null,
+    managerId: values.managerId || null,
     regionId: values.regionId,
     resourceType: values.resourceType,
     designation: values.designation || undefined,
@@ -296,6 +338,9 @@ export function ResourcesPage() {
     setEditingResourceId(resource.id);
     setFormError(null);
     reset({
+      userId: resource.userId ?? "",
+      departmentId: resource.departmentId ?? "",
+      managerId: resource.managerId ?? "",
       regionId: resource.regionId,
       resourceType: resource.resourceType,
       designation: resource.designation ?? "",
@@ -328,6 +373,14 @@ export function ResourcesPage() {
   const selectedResource = resourceDetailQuery.data ?? selected;
   const recordNav = useRecordNavigation(rows, selected, setSelected);
   const activeFilterCount = countActiveFilters(search, statusFilter, regionFilter, skillFilter);
+  const bulkImport = useBulkImport("resources", () => queryClient.invalidateQueries({ queryKey: ["resources"] }));
+
+  function openCreateResource() {
+    setEditingResourceId(null);
+    setFormError(null);
+    reset(RESOURCE_DEFAULTS);
+    setShowForm(true);
+  }
 
   const projectName = useMemo(() => {
     const map = new Map((projectsQuery.data ?? []).map((project) => [project.id, project.name]));
@@ -346,6 +399,36 @@ export function ResourcesPage() {
       ),
     [regionsQuery.data],
   );
+  const editingResource = editingResourceId ? rows.find((row) => row.id === editingResourceId) ?? selectedResource : null;
+  const pickerUsers = useMemo(() => {
+    const users: TechEarnestPickerUser[] = (usersQuery.data ?? []).map((user) => ({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+    }));
+    const known = new Set(users.map((user) => user.id));
+    const addFallback = (id: string | null | undefined, name: string | null | undefined) => {
+      if (id && name && !known.has(id)) {
+        known.add(id);
+        users.push({ id, firstName: name, lastName: "", email: null });
+      }
+    };
+    addFallback(editingResource?.userId, editingResource?.employeeName);
+    addFallback(editingResource?.managerId, editingResource?.managerName);
+    return users;
+  }, [usersQuery.data, editingResource]);
+  const departmentOptions = useMemo(() => {
+    const options = (departmentsQuery.data ?? []).map((department) => ({ value: department.id, label: department.name }));
+    if (
+      editingResource?.departmentId
+      && editingResource.departmentName
+      && !options.some((option) => option.value === editingResource.departmentId)
+    ) {
+      options.push({ value: editingResource.departmentId, label: editingResource.departmentName });
+    }
+    return optionsFromPairs(options);
+  }, [departmentsQuery.data, editingResource]);
   const skillFilterOptions = useMemo(
     () => optionsFromPairs((skillsCatalogQuery.data ?? []).map((skill) => ({ value: skill.id, label: skill.name }))),
     [skillsCatalogQuery.data],
@@ -376,94 +459,108 @@ export function ResourcesPage() {
           onSubmit={() => void handleSubmit(editingResourceId ? onUpdateSubmit : onCreateSubmit)()}
           photo={photo}
         >
-          <FormSection title="Primary details" description="Region, type, and identity">
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="regionId"
-                options={regionOptions}
-                searchPlaceholder="Search Regions"
-                allowEmpty={false}
-                placeholder="Select region"
-                invalid={!!errors.regionId}
-              />
-              {errors.regionId ? (
-                <div className="invalid-feedback d-block">{errors.regionId.message}</div>
-              ) : null}
-            </div>
-            <div className="col-md-2">
-              <label className="form-label required">Type</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="resourceType"
-                options={resourceTypeOptions}
-                searchPlaceholder="Search Types"
-                allowEmpty={false}
-                invalid={!!errors.resourceType}
-              />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Designation" error={errors.designation} {...register("designation")} />
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="Employee code"
-                error={errors.employeeCode}
-                {...register("employeeCode")}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="status"
-                options={resourceStatusOptions}
-                searchPlaceholder="Search Statuses"
-                allowEmpty={false}
-              />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Capacity & rates">
-              <div className="col-md-3">
-                <FormField
-                  label="Capacity hrs/week"
-                  type="number"
-                  error={errors.capacityHoursPerWeek}
-                  {...register("capacityHoursPerWeek")}
-                />
-              </div>
-              <div className="col-md-3">
-                <FormField label="Joining date" type="date" {...register("joiningDate")} />
-              </div>
-              {canWriteCostRate || canWriteBillingRate ? (
-                <>
-                  {canWriteCostRate ? <div className="col-md-3">
-                    <FormField
-                      label="Cost rate"
-                      type="number"
-                      error={errors.costRate}
-                      {...register("costRate")}
-                    />
-                  </div> : null}
-                  {canWriteBillingRate ? <div className="col-md-3">
-                    <FormField
-                      label="Billing rate"
-                      type="number"
-                      error={errors.billingRate}
-                      {...register("billingRate")}
-                    />
-                  </div> : null}
-                </>
-              ) : null}
-            </FormSection>
-          </FormMoreDetails>
+          <TechEarnestCreateSection title="Resource Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Employee">
+                  <TechEarnestFormUserSelect
+                    control={control}
+                    name="userId"
+                    users={pickerUsers}
+                    searchPlaceholder="Search Users"
+                    placeholder={usersQuery.isError ? "Users are not available" : "Select employee"}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Employee Code" error={errors.employeeCode?.message}>
+                  <input type="text" maxLength={64} className="form-control form-control-sm" {...register("employeeCode")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Designation" error={errors.designation?.message}>
+                  <input type="text" maxLength={128} className="form-control form-control-sm" {...register("designation")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Department">
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="departmentId"
+                    options={departmentOptions}
+                    searchPlaceholder="Search Departments"
+                    lookupIcon="building"
+                    placeholder={departmentsQuery.isError ? "Departments are not available" : "Select department"}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Reporting Manager">
+                  <TechEarnestFormUserSelect
+                    control={control}
+                    name="managerId"
+                    users={pickerUsers}
+                    searchPlaceholder="Search Users"
+                    placeholder={usersQuery.isError ? "Users are not available" : "Select manager"}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Region" required error={errors.regionId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="regionId"
+                    options={regionOptions}
+                    searchPlaceholder="Search Regions"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select region"
+                    invalid={!!errors.regionId}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Resource Type" required error={errors.resourceType?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="resourceType"
+                    options={resourceTypeOptions}
+                    searchPlaceholder="Search Types"
+                    allowEmpty={false}
+                    invalid={!!errors.resourceType}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Status">
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="status"
+                    options={resourceStatusOptions}
+                    searchPlaceholder="Search Statuses"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Joining Date">
+                  <input type="date" className="form-control form-control-sm" {...register("joiningDate")} />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Capacity & Rates">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Capacity (hrs/week)" error={errors.capacityHoursPerWeek?.message}>
+                  <input type="number" min={0} step="0.5" className="form-control form-control-sm" {...register("capacityHoursPerWeek")} />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                {canWriteCostRate ? (
+                  <TechEarnestCreateField label="Cost Rate" error={errors.costRate?.message}>
+                    <input type="number" min={0} step="0.01" className="form-control form-control-sm" {...register("costRate")} />
+                  </TechEarnestCreateField>
+                ) : null}
+                {canWriteBillingRate ? (
+                  <TechEarnestCreateField label="Billing Rate" error={errors.billingRate?.message}>
+                    <input type="number" min={0} step="0.01" className="form-control form-control-sm" {...register("billingRate")} />
+                  </TechEarnestCreateField>
+                ) : null}
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : selectedResource ? (
         <RecordShell
-              title={selectedResource.designation ?? selectedResource.employeeCode ?? "Resource"}
-              subtitle={selectedResource.employeeCode ?? selectedResource.id.slice(0, 8)}
+              title={resourceTitle(selectedResource)}
+              subtitle={[selectedResource.designation, selectedResource.employeeCode].filter(Boolean).join(" · ") || selectedResource.id.slice(0, 8)}
               meta={
                 <span className="text-muted small">
                   {regionName(selectedResource.regionId)} · {selectedResource.resourceType}
@@ -472,7 +569,7 @@ export function ResourcesPage() {
               status={<StatusBadge status={selectedResource.status} />}
               recordKey={selectedResource.id}
               layout="page"
-              avatarLabel={selectedResource.designation ?? selectedResource.employeeCode ?? "Resource"}
+              avatarLabel={resourceTitle(selectedResource)}
               onBack={recordNav.goBack}
               onPrev={recordNav.goPrev}
               onNext={recordNav.goNext}
@@ -487,8 +584,11 @@ export function ResourcesPage() {
               tabs={[
                 recordOverviewTab(
                   <RecordOverviewGrid>
+                    <RecordOverviewField label="Employee" value={selectedResource.employeeName ?? "—"} />
                     <RecordOverviewField label="Status" value={<StatusBadge status={selectedResource.status} />} />
                     <RecordOverviewField label="Type" value={selectedResource.resourceType} />
+                    <RecordOverviewField label="Department" value={selectedResource.departmentName ?? "—"} />
+                    <RecordOverviewField label="Reporting manager" value={selectedResource.managerName ?? "—"} />
                     <RecordOverviewField label="Region" value={regionName(selectedResource.regionId)} />
                     <RecordOverviewField label="Employee code" value={selectedResource.employeeCode ?? "—"} />
                     <RecordOverviewField label="Designation" value={selectedResource.designation ?? "—"} />
@@ -794,21 +894,13 @@ export function ResourcesPage() {
       filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       primaryAction={
         canManage ? (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              setEditingResourceId(null);
-              setFormError(null);
-              reset(RESOURCE_DEFAULTS);
-              setShowMore(false);
-              setShowForm(true);
-            }}
-          >
+          <button type="button" className="btn btn-primary btn-sm" onClick={openCreateResource}>
             Create Resource
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Resources by</p>
@@ -834,7 +926,15 @@ export function ResourcesPage() {
       {resourcesQuery.isLoading ? <LoadingState label="Loading resources..." /> : null}
       {resourcesQuery.error ? <ErrorState title="Unable to load resources" message="Try again." /> : null}
 
-      {!resourcesQuery.isLoading && !resourcesQuery.error ? (
+      {!resourcesQuery.isLoading && !resourcesQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({
+            canCreate: canManage,
+            createLabel: "Create Resource",
+            onCreate: openCreateResource,
+          })
+        : null}
+
+      {!resourcesQuery.isLoading && !resourcesQuery.error && (rows.length || activeFilterCount) ? (
         <div
           style={{ flex: 1, display: "flex", flexDirection: "column" }}
         >
@@ -842,6 +942,7 @@ export function ResourcesPage() {
             <ModuleListTable
               tableCode="resource"
               defaultColumns={[
+                { field: "employeeName", label: "Employee" },
                 { field: "employeeCode", label: "Code" },
                 { field: "designation", label: "Designation" },
                 { field: "resourceType", label: "Type" },
@@ -851,6 +952,7 @@ export function ResourcesPage() {
                 ...(canViewCostRate ? [{ field: "costRate", label: "Cost rate" }] : []),
                 ...(canViewBillingRate ? [{ field: "billingRate", label: "Billing rate" }] : []),
               ]}
+              optionalColumns={RESOURCE_OPTIONAL_COLUMNS}
               rows={rows}
               rowKey={(resource) => resource.id}
               selectedRowKey={(selected as Resource | null)?.id}
@@ -863,10 +965,14 @@ export function ResourcesPage() {
                 if (field === "status") return <StatusBadge status={resource.status} />;
                 if (field === "capacityHoursPerWeek") return resource.capacityHoursPerWeek != null ? `${resource.capacityHoursPerWeek}h` : "—";
                 if (field === "costRate" || field === "billingRate") return formatRate((resource as unknown as Record<string, number | null>)[field]);
+                if (field === "createdAt" || field === "updatedAt") return formatDateTime(resource[field]);
+                if (field === "userId") return resource.employeeName ?? "—";
+                if (field === "managerId") return resource.managerName ?? "—";
+                if (field === "departmentId") return resource.departmentName ?? "—";
                 const value = (resource as unknown as Record<string, unknown>)[field];
                 return value == null || value === "" ? "—" : String(value);
               }}
-              nameFields={["employeeCode", "designation"]}
+              nameFields={["employeeName", "employeeCode", "designation"]}
               excludedFields={[...(!canViewCostRate ? ["costRate"] : []), ...(!canViewBillingRate ? ["billingRate"] : [])]}
               emptyMessage="No resources match the current filters."
             />
@@ -882,9 +988,7 @@ export function ResourcesPage() {
                     setSkillsError(null);
                   }}
                 >
-                  <div className="tile-title">
-                    {resource.designation ?? resource.employeeCode ?? "Resource"}
-                  </div>
+                  <div className="tile-title">{resourceTitle(resource)}</div>
                   <div className="small text-muted">
                     {resource.resourceType} · {resource.status}
                   </div>
@@ -897,6 +1001,7 @@ export function ResourcesPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {bulkImport.dialog}
     </>
   );
 }

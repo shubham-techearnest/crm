@@ -98,6 +98,14 @@ public class DomainEventRecord {
         return payload;
     }
 
+    public int getAttempts() {
+        return attempts;
+    }
+
+    public String getLastError() {
+        return lastError;
+    }
+
     public Instant getProcessedAt() {
         return processedAt;
     }

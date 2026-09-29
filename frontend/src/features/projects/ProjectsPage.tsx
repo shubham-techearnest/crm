@@ -6,8 +6,18 @@ import { Link, useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
-import { TechEarnestFormKitCreateView, useTechEarnestCreateFlow, TechEarnestFormSelect, enumPickerOptions, optionsFromPairs } from "@/components/TechEarnestCreate";
+import {
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormUserSelect,
+  useTechEarnestCreateFlow,
+  TechEarnestFormSelect,
+  enumPickerOptions,
+  optionsFromPairs,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import {
   ModuleListShell,
@@ -48,6 +58,7 @@ import { listInvoices, listUnbilledTime } from "@/features/finance/invoiceApi";
 import { listPurchaseOrders } from "@/features/procurement/purchaseOrdersApi";
 import { listAllocations, listResources } from "@/features/resources/resourceApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   createMilestone,
   createProject,
@@ -174,7 +185,6 @@ export function ProjectsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [noteBody, setNoteBody] = useState("");
-  const [showMore, setShowMore] = useState(false);
 
   const listParams = useMemo(
     () => ({
@@ -289,6 +299,13 @@ export function ProjectsPage() {
     endTo,
     delayedOnly ? "1" : "",
   );
+  const bulkImport = useBulkImport("projects", () => queryClient.invalidateQueries({ queryKey: ["projects"] }));
+
+  function openCreateProject() {
+    setEditingProject(null);
+    reset(PROJECT_DEFAULTS);
+    setShowForm(true);
+  }
 
   const {
     register,
@@ -312,7 +329,6 @@ export function ProjectsPage() {
     setShowForm,
     setFormError,
     setSelected: (entity) => setSelected(entity as Project),
-    onResetExtras: () => setShowMore(false),
   });
 
   useEffect(() => {
@@ -452,7 +468,6 @@ export function ProjectsPage() {
   function openProjectEdit(project: Project) {
     setEditingProject(project);
     setFormError(null);
-    setShowMore(false);
     reset({
       name: project.name,
       projectCode: project.projectCode,
@@ -540,7 +555,7 @@ export function ProjectsPage() {
     const map = new Map(
       (resourcesQuery.data ?? []).map((resource) => [
         resource.id,
-        resource.employeeCode ?? resource.designation ?? resource.id.slice(0, 8),
+        resource.employeeName ?? resource.employeeCode ?? resource.designation ?? resource.id.slice(0, 8),
       ]),
     );
     return (id: string) => map.get(id) ?? id.slice(0, 8);
@@ -570,111 +585,118 @@ export function ProjectsPage() {
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
           photo={photo}
         >
-          <FormSection title="Primary details" description="Identity, account, and billing">
-            <div className="col-md-4">
-              <FormField label="Name" required error={errors.name} {...register("name")} />
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label={editingProject ? "Project code (read-only)" : "Project code"}
-                required
-                error={errors.projectCode}
-                readOnly={!!editingProject}
-                {...register("projectCode")}
-              />
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Account</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="accountId"
-                options={accountOptions}
-                searchPlaceholder="Search Accounts"
-                lookupIcon="building"
-                allowEmpty={false}
-                placeholder="Select account"
-                invalid={!!errors.accountId}
-              />
-              {errors.accountId ? (
-                <div className="invalid-feedback d-block">{errors.accountId.message}</div>
-              ) : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="regionId"
-                options={regionOptions}
-                searchPlaceholder="Search Regions"
-                allowEmpty={false}
-                placeholder="Select region"
-                invalid={!!errors.regionId}
-              />
-              {errors.regionId ? (
-                <div className="invalid-feedback d-block">{errors.regionId.message}</div>
-              ) : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Billing type</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="billingType"
-                options={billingTypeOptions}
-                searchPlaceholder="Search Billing Types"
-                allowEmpty={false}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="status"
-                options={projectStatusOptions}
-                searchPlaceholder="Search Statuses"
-                allowEmpty={false}
-              />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Schedule & planning">
-              <div className="col-md-3">
-                <FormField
-                  label="Project manager ID"
-                  error={errors.projectManagerId}
-                  {...register("projectManagerId")}
-                />
-              </div>
-              <div className="col-md-2">
-                <label className="form-label">Priority</label>
-                <TechEarnestFormSelect
-                  control={control}
-                  name="priority"
-                  options={projectPriorityOptions}
-                  searchPlaceholder="Search Priorities"
-                />
-              </div>
-              <div className="col-md-2">
-                <FormField label="Start date" type="date" {...register("startDate")} />
-              </div>
-              <div className="col-md-2">
-                <FormField label="End date" type="date" {...register("endDate")} />
-              </div>
-              <div className="col-md-2">
-                <FormField label="Budget" type="number" error={errors.budget} {...register("budget")} />
-              </div>
-              <div className="col-md-2">
-                <FormField
-                  label="Estimated hours"
-                  type="number"
-                  error={errors.estimatedHours}
-                  {...register("estimatedHours")}
-                />
-              </div>
-              <div className="col-12">
-                <FormField label="Description" error={errors.description} {...register("description")} />
-              </div>
-            </FormSection>
-          </FormMoreDetails>
+          <TechEarnestCreateSection title="Project Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Project Name" required error={errors.name?.message}>
+                  <input
+                    type="text"
+                    className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
+                    {...register("name")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Project Code" required error={errors.projectCode?.message}>
+                  <input
+                    type="text"
+                    maxLength={64}
+                    readOnly={!!editingProject}
+                    title={editingProject ? "The project code cannot be changed" : undefined}
+                    className={`form-control form-control-sm${errors.projectCode ? " is-invalid" : ""}`}
+                    {...register("projectCode")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Account Name" required error={errors.accountId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="accountId"
+                    options={accountOptions}
+                    searchPlaceholder="Search Accounts"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select account"
+                    invalid={!!errors.accountId}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Project Manager" error={errors.projectManagerId?.message}>
+                  <TechEarnestFormUserSelect
+                    control={control}
+                    name="projectManagerId"
+                    users={usersQuery.data ?? []}
+                    searchPlaceholder="Search Users"
+                    placeholder={canViewUsers ? "Select project manager" : "Users are not available"}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Region" required error={errors.regionId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="regionId"
+                    options={regionOptions}
+                    searchPlaceholder="Search Regions"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select region"
+                    invalid={!!errors.regionId}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Billing Type" required error={errors.billingType?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="billingType"
+                    options={billingTypeOptions}
+                    searchPlaceholder="Search Billing Types"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Status">
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="status"
+                    options={projectStatusOptions}
+                    searchPlaceholder="Search Statuses"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Priority">
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="priority"
+                    options={projectPriorityOptions}
+                    searchPlaceholder="Search Priorities"
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Start Date">
+                  <input type="date" className="form-control form-control-sm" {...register("startDate")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="End Date">
+                  <input type="date" className="form-control form-control-sm" {...register("endDate")} />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Budget & Effort">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Budget" error={errors.budget?.message}>
+                  <div className="input-group input-group-sm">
+                    <span className="input-group-text">Rs.</span>
+                    <input type="number" min={0} step="0.01" className="form-control" {...register("budget")} />
+                  </div>
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Estimated Hours" error={errors.estimatedHours?.message}>
+                  <input type="number" min={0} step="0.5" className="form-control form-control-sm" {...register("estimatedHours")} />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Description Information">
+            <TechEarnestCreateField label="Description" wide error={errors.description?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...register("description")} />
+            </TechEarnestCreateField>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : selected ? (
         <RecordShell
@@ -1198,20 +1220,13 @@ export function ProjectsPage() {
       filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       primaryAction={
         canCreate ? (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              setEditingProject(null);
-              reset(PROJECT_DEFAULTS);
-              setShowMore(false);
-              setShowForm(true);
-            }}
-          >
+          <button type="button" className="btn btn-primary btn-sm" onClick={openCreateProject}>
             Create Project
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Projects by</p>
@@ -1265,7 +1280,11 @@ export function ProjectsPage() {
       {projectsQuery.isLoading ? <LoadingState label="Loading projects..." /> : null}
       {projectsQuery.error ? <ErrorState title="Unable to load projects" message="Try again." /> : null}
 
-      {!projectsQuery.isLoading && !projectsQuery.error ? (
+      {!projectsQuery.isLoading && !projectsQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({ canCreate, createLabel: "Create Project", onCreate: openCreateProject })
+        : null}
+
+      {!projectsQuery.isLoading && !projectsQuery.error && (rows.length || activeFilterCount) ? (
         <div
           style={{ flex: 1, display: "flex", flexDirection: "column" }}
         >
@@ -1328,6 +1347,7 @@ export function ProjectsPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {bulkImport.dialog}
     </>
   );
 }

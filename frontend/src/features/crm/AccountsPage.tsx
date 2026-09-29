@@ -14,6 +14,7 @@ import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
 import { getPublishedRelatedLists } from "@/features/admin/studio/metadataApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   listAccountContacts,
   listAccountDeals,
@@ -139,6 +140,9 @@ export function AccountsPage() {
   );
   const activeFilterCount = [search, statusFilter, typeFilter, industryFilter, regionFilter].filter(Boolean)
     .length;
+  const bulkImport = useBulkImport("accounts", () =>
+    queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] }),
+  );
 
   async function handleAccountCreated(account: Account, mode: "save" | "saveAndNew") {
     await queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] });
@@ -408,6 +412,8 @@ export function AccountsPage() {
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Accounts by</p>
@@ -458,7 +464,11 @@ export function AccountsPage() {
       {accountsQuery.isLoading ? <LoadingState label="Loading accounts..." /> : null}
       {accountsQuery.error ? <ErrorState title="Unable to load accounts" message="Try again." /> : null}
 
-      {!accountsQuery.isLoading && !accountsQuery.error ? (
+      {!accountsQuery.isLoading && !accountsQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({ canCreate, createLabel: "Create Account", onCreate: () => openCreate() })
+        : null}
+
+      {!accountsQuery.isLoading && !accountsQuery.error && (rows.length || activeFilterCount) ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {viewMode === "list" ? (
             <ModuleListTable
@@ -506,6 +516,7 @@ export function AccountsPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {bulkImport.dialog}
     </>
   );
 }

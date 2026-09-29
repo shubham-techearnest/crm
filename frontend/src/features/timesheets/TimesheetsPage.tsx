@@ -5,7 +5,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { FormActions, FormMoreDetails, FormSection, UnsavedGuard } from "@/components/FormKit";
-import { TechEarnestFormKitCreateView, TechEarnestFormSelect, useTechEarnestCreateFlow } from "@/components/TechEarnestCreate";
+import {
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
@@ -120,11 +128,25 @@ export function TimesheetsPage() {
     register,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<CreateFormValues>({
     resolver: zodResolver(createSchema),
     defaultValues: TIMESHEET_DEFAULTS,
   });
+  const watchedWeekStart = watch("weekStartDate");
+  const weekEndLabel = useMemo(() => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(watchedWeekStart ?? "");
+    if (!match) return "—";
+    const end = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 6));
+    return end.toISOString().slice(0, 10);
+  }, [watchedWeekStart]);
+  const ownResourceLabel = useMemo(() => {
+    if (!auth.resourceId) return "Not linked — ask an admin to link your user to a resource";
+    const resource = resourcesQuery.data?.find((item) => item.id === auth.resourceId);
+    if (!resource) return auth.displayName;
+    return resource.employeeName ?? resource.employeeCode ?? resource.designation ?? auth.displayName;
+  }, [auth.resourceId, auth.displayName, resourcesQuery.data]);
 
   const { photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: TIMESHEET_DEFAULTS,
@@ -269,17 +291,39 @@ export function TimesheetsPage() {
           onSubmit={() => void onCreate()}
           photo={photo}
         >
-          <FormSection title="Primary details" description="Start a weekly timesheet">
-            <div className="col-md-3">
-              <FormField
-                label="Week start (Monday)"
-                type="date"
-                required
-                error={errors.weekStartDate}
-                {...register("weekStartDate")}
-              />
-            </div>
-          </FormSection>
+          <TechEarnestCreateSection title="Timesheet Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Resource">
+                  <input
+                    type="text"
+                    readOnly
+                    className="form-control form-control-sm"
+                    value={ownResourceLabel}
+                    title="Timesheets are created for the resource linked to your user"
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Status">
+                  <input type="text" readOnly className="form-control form-control-sm" value="Draft" />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Week Start (Monday)" required error={errors.weekStartDate?.message}>
+                  <input
+                    type="date"
+                    className={`form-control form-control-sm${errors.weekStartDate ? " is-invalid" : ""}`}
+                    {...register("weekStartDate")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Week End">
+                  <input type="text" readOnly className="form-control form-control-sm" value={weekEndLabel} />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+            <p className="small text-muted mb-0 mt-3">
+              Add time entries from the timesheet record after saving, then submit it for approval.
+            </p>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
@@ -341,7 +385,7 @@ export function TimesheetsPage() {
               value={weekStartFilter}
               onChange={(e) => setWeekStartFilter(e.target.value)}
             />
-            <TechEarnestFilterSelect label="Resource" value={resourceFilter} onChange={setResourceFilter} options={(resourcesQuery.data ?? []).map((resource) => ({ value: resource.id, label: resource.employeeCode ?? resource.designation ?? resource.id.slice(0, 8), subtitle: resource.designation && resource.employeeCode ? resource.designation : undefined }))} placeholder="All resources" emptyLabel="All resources" searchPlaceholder="Search resources" />
+            <TechEarnestFilterSelect label="Resource" value={resourceFilter} onChange={setResourceFilter} options={(resourcesQuery.data ?? []).map((resource) => ({ value: resource.id, label: resource.employeeName ?? resource.employeeCode ?? resource.designation ?? resource.id.slice(0, 8), subtitle: [resource.employeeName ? resource.employeeCode : null, resource.designation].filter(Boolean).join(" · ") || undefined }))} placeholder="All resources" emptyLabel="All resources" searchPlaceholder="Search resources" />
             <div className="form-check">
               <input
                 id="billableOnly"

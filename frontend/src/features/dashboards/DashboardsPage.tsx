@@ -193,12 +193,14 @@ export function DashboardsPage() {
               />
             </div>
           ) : null}
-          <div className="btn-group btn-group-sm" role="group" aria-label="Dashboard type">
+          <div className="module-view-tabs crm-dashboard-tabs" role="tablist" aria-label="Dashboard type">
             {tabs.map((tab) => (
               <button
                 key={tab.kind}
                 type="button"
-                className={`btn ${selectedKind === tab.kind ? "btn-primary" : "btn-outline-primary"}`}
+                role="tab"
+                aria-selected={selectedKind === tab.kind}
+                className={`module-view-tab${selectedKind === tab.kind ? " is-active" : ""}`}
                 onClick={() => setActiveKind(tab.kind)}
               >
                 {tab.label}

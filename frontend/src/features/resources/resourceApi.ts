@@ -13,10 +13,13 @@ export interface Resource {
   organizationId: string;
   regionId: string;
   userId: string | null;
+  employeeName: string | null;
   employeeCode: string | null;
   designation: string | null;
   departmentId: string | null;
+  departmentName: string | null;
   managerId: string | null;
+  managerName: string | null;
   resourceType: string;
   joiningDate: string | null;
   costRate: number | null;

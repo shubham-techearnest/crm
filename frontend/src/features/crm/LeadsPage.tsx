@@ -11,7 +11,7 @@ import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import type { ModuleMenuItem } from "@/components/ModuleListShell/ModuleListShell";
 import { buildOwnerOptions, buildFilterOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilterSelect, TechEarnestFormSelect } from "@/components/TechEarnestCreate";
-import { LeadBulkImportDialog } from "./LeadBulkImportDialog";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import { LeadCreateView } from "./LeadCreateView";
 import { LeadEditView } from "./LeadEditView";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
@@ -26,6 +26,7 @@ import {
 } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
+import { EmptyState } from "@/components/EmptyState/EmptyState";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
@@ -134,7 +135,6 @@ export function LeadsPage() {
   const [bulkOwnerId, setBulkOwnerId] = useState("");
   const [bulkStatus, setBulkStatus] = useState("");
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
-  const [showImportDialog, setShowImportDialog] = useState(false);
   const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
   const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
   const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
@@ -605,24 +605,37 @@ export function LeadsPage() {
     [auditQuery.data, activitiesQuery.data, notesQuery.data, auth.displayName, auth.userId, ownerName, selected],
   );
 
-  const createMenuItems: ModuleMenuItem[] = [
-    {
-      id: "import-csv",
-      label: "Import from CSV / Excel",
-      icon: "upload",
-      visible: canImport,
-      onClick: () => setShowImportDialog(true),
-    },
-  ];
+  const clearAllFilters = () => {
+    setSearch("");
+    setStatusFilter("");
+    setSourceFilter("");
+    setPriorityFilter("");
+    setRegionFilter("");
+    setOwnerFilter("");
+    setMinValueFilter("");
+    setCreatedFrom("");
+    setCreatedTo("");
+    setUnconvertedOnly(false);
+    setActiveViewId("");
+  };
+
+  const openCreateLead = () => {
+    setSelected(null);
+    setShowForm(true);
+  };
+
+  const bulkImport = useBulkImport("leads", async (result) => {
+    const extras = [
+      result.skipped ? `${result.skipped} skipped` : "",
+      result.failed ? `${result.failed} not imported` : "",
+    ].filter(Boolean);
+    setBulkMessage(`Imported ${result.imported} leads${extras.length ? ` (${extras.join(", ")})` : ""}.`);
+    if (result.imported) await refresh();
+  });
+  const createMenuItems: ModuleMenuItem[] = bulkImport.menuItems;
 
   const moreMenuItems: ModuleMenuItem[] = [
-    {
-      id: "import-csv-more",
-      label: "Import from CSV / Excel",
-      icon: "upload",
-      visible: canImport && !canCreate,
-      onClick: () => setShowImportDialog(true),
-    },
+    ...bulkImport.menuItems,
     {
       id: "export",
       label: "Export leads",
@@ -1087,14 +1100,7 @@ export function LeadsPage() {
         moreMenuItems={moreMenuItems}
         primaryAction={
           canCreate ? (
-            <button
-              type="button"
-              className="btn btn-primary btn-sm"
-              onClick={() => {
-                setSelected(null);
-                setShowForm(true);
-              }}
-            >
+            <button type="button" className="btn btn-primary btn-sm" onClick={openCreateLead}>
               Create Lead
             </button>
           ) : null
@@ -1228,23 +1234,7 @@ export function LeadsPage() {
                 </div>
               </div>
             ) : null}
-            <button
-              type="button"
-              className="btn btn-link btn-sm px-0"
-              onClick={() => {
-                setSearch("");
-                setStatusFilter("");
-                setSourceFilter("");
-                setPriorityFilter("");
-                setRegionFilter("");
-                setOwnerFilter("");
-                setMinValueFilter("");
-                setCreatedFrom("");
-                setCreatedTo("");
-                setUnconvertedOnly(false);
-                setActiveViewId("");
-              }}
-            >
+            <button type="button" className="btn btn-link btn-sm px-0" onClick={clearAllFilters}>
               Clear filters
             </button>
           </>
@@ -1259,7 +1249,52 @@ export function LeadsPage() {
           <ErrorState title="Unable to load leads" message="Check your connection and try again." />
         ) : null}
 
-        {!leadsQuery.isLoading && !leadsQuery.error ? (
+        {!leadsQuery.isLoading && !leadsQuery.error && !leads.length ? (
+          <div className="module-list-empty">
+            {activeFilterCount || activeViewId ? (
+              <EmptyState
+                workspace
+                title="No leads match this view"
+                description="Try changing or clearing the filters to see more leads."
+                action={
+                  <button type="button" className="btn btn-outline-primary btn-sm" onClick={clearAllFilters}>
+                    Clear filters
+                  </button>
+                }
+              />
+            ) : (
+              <EmptyState
+                workspace
+                title="No leads yet"
+                description={
+                  canImport
+                    ? "Create your first lead, or bulk upload many at once from an Excel or CSV file."
+                    : "Leads you create or are assigned will appear here."
+                }
+                action={
+                  canCreate || canImport ? (
+                    <div className="module-list-empty-actions">
+                      {canCreate ? (
+                        <button type="button" className="btn btn-primary btn-sm" onClick={openCreateLead}>
+                          <ToolbarIcon name="plus" className="module-toolbar-icon" />
+                          Create Lead
+                        </button>
+                      ) : null}
+                      {canImport ? (
+                        <button type="button" className="btn btn-outline-primary btn-sm" onClick={bulkImport.openDialog}>
+                          <ToolbarIcon name="upload" className="module-toolbar-icon" />
+                          Bulk upload
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null
+                }
+              />
+            )}
+          </div>
+        ) : null}
+
+        {!leadsQuery.isLoading && !leadsQuery.error && leads.length ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
             {viewMode === "tile" ? (
               <div className="module-tile-grid">
@@ -1323,19 +1358,7 @@ export function LeadsPage() {
       </ModuleListShell>
       )}
 
-      <LeadBulkImportDialog
-        open={showImportDialog}
-        regions={(regionsQuery.data ?? []).map((region) => ({ id: region.id, name: region.name }))}
-        onClose={() => setShowImportDialog(false)}
-        onImported={async (result) => {
-          const extras = [
-            result.skipped ? `${result.skipped} skipped` : "",
-            result.failed ? `${result.failed} failed` : "",
-          ].filter(Boolean);
-          setBulkMessage(`Imported ${result.imported} leads${extras.length ? ` (${extras.join(", ")})` : ""}.`);
-          if (result.imported) await refresh();
-        }}
-      />
+      {bulkImport.dialog}
 
       {leadToDelete ? (
         <div className="module-modal-backdrop" role="presentation" onClick={() => deleteMutation.isPending ? null : setLeadToDelete(null)}>

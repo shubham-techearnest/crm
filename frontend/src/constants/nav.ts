@@ -93,6 +93,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Roles", to: "/admin/roles", icon: "roles", permissions: ["ROLE_VIEW"], tableCode: "role" },
       { label: "Regions", to: "/admin/regions", icon: "regions", permissions: ["REGION_VIEW"], tableCode: "region" },
       { label: "Departments", to: "/admin/departments", icon: "departments", permissions: ["DEPARTMENT_VIEW"], tableCode: "department" },
+      { label: "Teams", to: "/admin/teams", icon: "users", permissions: ["TEAM_VIEW"] },
       { label: "Settings", to: "/admin/settings", icon: "settings", permissions: ["ORG_VIEW"] },
       { label: "Metadata Studio", to: "/admin/studio", icon: "studio", permissions: ["METADATA_VIEW"] },
       { label: "Workflows", to: "/admin/workflows", icon: "workflows", permissions: ["WORKFLOW_VIEW"] },

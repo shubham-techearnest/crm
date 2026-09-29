@@ -7,23 +7,26 @@ import { z } from "zod";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 import { DynamicForm, FormActions, UnsavedGuard } from "@/components/FormKit";
 import { ContactCreateView } from "./ContactCreateView";
-import { buildOwnerOptions, buildFilterOwnerOptions, enumPickerOptions, optionsFromPairs, ZohoFilterSelect } from "@/components/ZohoCreate";
+import { buildOwnerOptions, buildFilterOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilterSelect } from "@/components/TechEarnestCreate";
 import { EmptyState } from "@/components/EmptyState/EmptyState";
 import {
   ModuleListShell,
   countActiveFilters,
 } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, ZohoRecordTimeline } from "@/components/ZohoRecord";
+import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
-import { listAuditLogs, listUsers } from "@/features/admin/adminApi";
+import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
 import { getPublishedFormBundle, getPublishedRelatedLists } from "@/features/admin/studio/metadataApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   getAccount,
+  getContact,
   listAccountDeals,
   listAccounts,
   listActivities,
@@ -122,6 +125,18 @@ export function ContactsPage() {
     queryKey: ["crm", "contacts", listParams],
     queryFn: () => listContacts(listParams),
   });
+  const contactRecordQuery = useQuery({
+    queryKey: ["crm", "contacts", "record", selected?.id],
+    queryFn: () => getContact(selected!.id),
+    enabled: !!selected,
+  });
+  useEffect(() => {
+    if (contactRecordQuery.data && selected?.id === contactRecordQuery.data.id) {
+      setSelected((current) =>
+        current?.id === contactRecordQuery.data!.id ? contactRecordQuery.data! : current,
+      );
+    }
+  }, [contactRecordQuery.data, selected?.id]);
   const accountsQuery = useQuery({ queryKey: ["crm", "accounts"], queryFn: () => listAccounts() });
   const contactEditBundleQuery = useQuery({
     queryKey: ["metadata", "runtime", "contact", "form-bundle", "CREATE", "edit"],
@@ -133,6 +148,11 @@ export function ContactsPage() {
     queryKey: ["admin", "users"],
     queryFn: () => listUsers(),
     enabled: canViewUsers || (showForm && canCreate),
+  });
+  const regionsQuery = useQuery({
+    queryKey: ["admin", "regions", "contact-account-quick-create"],
+    queryFn: listRegions,
+    enabled: showForm && canCreate,
   });
   const relatedListsQuery = useQuery({
     queryKey: ["metadata", "runtime", "contact", "related-lists"],
@@ -151,22 +171,22 @@ export function ContactsPage() {
     enabled: !!selected,
   });
   const activitiesQuery = useQuery({
-    queryKey: ["crm", "activities", "CONTACT", selected?.id],
+    queryKey: ["crm", "activities", "CONTACT", (selected as Contact | null)?.id],
     queryFn: () => listActivities({ relatedEntityType: "CONTACT", relatedEntityId: selected!.id }),
     enabled: !!selected && canViewActivities,
   });
   const notesQuery = useQuery({
-    queryKey: ["crm", "notes", "CONTACT", selected?.id],
+    queryKey: ["crm", "notes", "CONTACT", (selected as Contact | null)?.id],
     queryFn: () => listNotes("CONTACT", selected!.id),
     enabled: !!selected && canViewNotes,
   });
   const docsQuery = useQuery({
-    queryKey: ["crm", "documents", "CONTACT", selected?.id],
+    queryKey: ["crm", "documents", "CONTACT", (selected as Contact | null)?.id],
     queryFn: () => listDocuments("CONTACT", selected!.id),
     enabled: !!selected && canViewDocs,
   });
   const auditQuery = useQuery({
-    queryKey: ["admin", "audit-logs", "CONTACT", selected?.id],
+    queryKey: ["admin", "audit-logs", "CONTACT", (selected as Contact | null)?.id],
     queryFn: () => listAuditLogs({ entityType: "CONTACT", entityId: selected!.id, size: 30 }),
     enabled: !!selected && canViewAudit,
   });
@@ -204,9 +224,12 @@ export function ContactsPage() {
     emailFilter,
     designationFilter,
   );
+  const bulkImport = useBulkImport("contacts", () =>
+    queryClient.invalidateQueries({ queryKey: ["crm", "contacts"] }),
+  );
   const relatedDeals = useMemo(
-    () => (dealsQuery.data ?? []).filter((deal) => deal.contactId === selected?.id),
-    [dealsQuery.data, selected?.id],
+    () => (dealsQuery.data ?? []).filter((deal) => deal.contactId === (selected as Contact | null)?.id),
+    [dealsQuery.data, (selected as Contact | null)?.id],
   );
 
   const {
@@ -335,6 +358,7 @@ export function ContactsPage() {
       {showForm && canCreate ? (
         <ContactCreateView
           accounts={(accountsQuery.data ?? []).map((account) => ({ id: account.id, name: account.name }))}
+          regions={(regionsQuery.data ?? []).map((region) => ({ id: region.id, name: region.name }))}
           users={ownerOptions}
           defaultOwnerId={auth.userId}
           onCancel={() => setShowForm(false)}
@@ -522,7 +546,7 @@ export function ContactsPage() {
               id: "timeline",
               label: "Timeline",
               visible: canViewActivities || canViewAudit,
-              content: <ZohoRecordTimeline entries={timelineEntries} />,
+              content: <TechEarnestRecordTimeline entries={timelineEntries} />,
             },
             {
               id: "notes",
@@ -660,6 +684,8 @@ export function ContactsPage() {
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Contacts by</p>
@@ -674,14 +700,14 @@ export function ContactsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <ZohoFilterSelect
+            <TechEarnestFilterSelect
               label="Status"
               value={statusFilter}
               onChange={setStatusFilter}
               options={statusFilterOptions}
               searchPlaceholder="Search Status"
             />
-            <ZohoFilterSelect
+            <TechEarnestFilterSelect
               label="Account"
               value={accountFilter}
               onChange={setAccountFilter}
@@ -689,7 +715,7 @@ export function ContactsPage() {
               searchPlaceholder="Search Accounts"
             />
             {canViewUsers ? (
-              <ZohoFilterSelect
+              <TechEarnestFilterSelect
                 label="Owner"
                 value={ownerFilter}
                 onChange={setOwnerFilter}
@@ -726,69 +752,48 @@ export function ContactsPage() {
         />
       ) : null}
 
-      {!contactsQuery.isLoading && !contactsQuery.error ? (
+      {!contactsQuery.isLoading && !contactsQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({ canCreate, createLabel: "Create Contact", onCreate: () => openCreate() })
+        : null}
+
+      {!contactsQuery.isLoading && !contactsQuery.error && (rows.length || activeFilterCount) ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Contact Name</th>
-                    <th>Account</th>
-                    <th>Email</th>
-                    <th>Phone</th>
-                    <th>Designation</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((contact) => (
-                    <tr
-                      key={contact.id}
-                      className={selected?.id === contact.id ? "is-selected" : undefined}
-                      onClick={() => {
-                        setSelected(contact);
-                        setShowEdit(false);
-                      }}
-                    >
-                      <td className="record-name">{contactName(contact)}</td>
-                      <td>{accountName(contact.accountId)}</td>
-                      <td>{contact.email ?? "—"}</td>
-                      <td>{contact.phone ?? contact.mobile ?? "—"}</td>
-                      <td>{contact.designation ?? "—"}</td>
-                      <td>
-                        <StatusBadge status={contact.status} />
-                      </td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={6} className="p-0 border-0">
-                        <EmptyState
-                          workspace
-                          title="No contacts found"
-                          description="Adjust filters or create a contact to get started."
-                          action={
-                            canCreate ? (
-                              <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>
-                                Create Contact
-                              </button>
-                            ) : undefined
-                          }
-                        />
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+                tableCode="contact"
+                defaultColumns={[
+                  { field: "firstName", label: "Contact Name" },
+                  { field: "accountId", label: "Account" },
+                  { field: "email", label: "Email" },
+                  { field: "phone", label: "Phone" },
+                  { field: "designation", label: "Designation" },
+                  { field: "status", label: "Status" },
+                ]}
+                rows={rows}
+                rowKey={(contact) => contact.id}
+                selectedRowKey={(selected as Contact | null)?.id}
+                onRowClick={(contact) => {
+                  setSelected(contact);
+                  setShowEdit(false);
+                }}
+                renderCell={(contact, field) => {
+                  if (field === "firstName") return contactName(contact);
+                  if (field === "accountId") return accountName(contact.accountId);
+                  if (field === "phone") return contact.phone ?? contact.mobile ?? "—";
+                  if (field === "status") return <StatusBadge status={contact.status} />;
+                  const value = (contact as unknown as Record<string, unknown>)[field];
+                  return value == null || value === "" ? "—" : String(value);
+                }}
+                nameFields={["firstName"]}
+                emptyMessage="No contacts found. Adjust filters or create a contact to get started."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((contact) => (
                 <button
                   key={contact.id}
                   type="button"
-                  className={`module-tile text-start${selected?.id === contact.id ? " is-selected" : ""}`}
+                  className={`module-tile text-start${(selected as Contact | null)?.id === contact.id ? " is-selected" : ""}`}
                   onClick={() => {
                     setSelected(contact);
                     setShowEdit(false);
@@ -813,6 +818,7 @@ export function ContactsPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {bulkImport.dialog}
     </>
   );
 }

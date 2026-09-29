@@ -7,11 +7,13 @@ import { FormField } from "@/components/FormField/FormField";
 import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -43,6 +45,8 @@ export function RolesPage() {
   const [selected, setSelected] = useState<Role | null>(null);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [permSearch, setPermSearch] = useState("");
+  const [confirmPermissionSave, setConfirmPermissionSave] = useState(false);
+  const [permissionSaveError, setPermissionSaveError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
 
@@ -70,7 +74,7 @@ export function RolesPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: ROLE_DEFAULTS,
     reset,
     setShowForm,
@@ -80,14 +84,18 @@ export function RolesPage() {
       setSelected(role);
       setSelectedPermissions([...role.permissionCodes]);
     },
-    onResetExtras: () => setShowMore(false),
+    onResetExtras: () => {
+      setShowMore(false);
+      setSelectedPermissions([]);
+      setPermSearch("");
+    },
   });
 
   const buildBody = (values: FormValues) => ({
     code: values.code,
     name: values.name,
     dataScope: values.dataScope,
-    permissionCodes: [] as string[],
+    permissionCodes: [...selectedPermissions],
   });
 
   const permissionsByModule = useMemo(() => {
@@ -141,11 +149,18 @@ export function RolesPage() {
   });
 
   const onCreateSubmit = (values: FormValues) => {
+    if (permissionsQuery.isError) {
+      setFormError("Permissions could not be loaded. Retry before creating the role.");
+      return;
+    }
     createMutation.mutate(buildBody(values));
   };
 
   function openCreate() {
     reset(ROLE_DEFAULTS);
+    setSelectedPermissions([]);
+    setPermSearch("");
+    setFormError(null);
     setShowForm(true);
   }
 
@@ -161,18 +176,43 @@ export function RolesPage() {
       await queryClient.invalidateQueries({ queryKey: ["admin", "roles"] });
       setSelected(role);
       setSelectedPermissions(role.permissionCodes);
+      setConfirmPermissionSave(false);
+    },
+    onError: (error) => {
+      const response = (error as { response?: { data?: { message?: string } } })?.response;
+      setPermissionSaveError(
+        response?.data?.message ??
+          (error instanceof Error && !error.message.includes("status code")
+            ? error.message
+            : "Could not save role permissions. Check your access and try again."),
+      );
     },
   });
 
   function openRole(role: Role) {
     setSelected(role);
     setSelectedPermissions([...role.permissionCodes]);
+    setPermissionSaveError(null);
   }
 
   function togglePermission(code: string) {
+    setPermissionSaveError(null);
     setSelectedPermissions((current) =>
       current.includes(code) ? current.filter((item) => item !== code) : [...current, code],
     );
+  }
+
+  function saveRolePermissions() {
+    if (!selected) return;
+    setPermissionSaveError(null);
+    updateMutation.mutate({
+      id: selected.id,
+      body: {
+        name: selected.name,
+        dataScope: selected.system ? undefined : selected.dataScope,
+        permissionCodes: selectedPermissions,
+      },
+    });
   }
 
   const rows = useMemo(() => {
@@ -199,7 +239,7 @@ export function RolesPage() {
         </div>
         <div className="col-md-3">
           <label className="form-label required">Data scope</label>
-          <ZohoFormSelect
+          <TechEarnestFormSelect
             control={control}
             name="dataScope"
             options={dataScopeOptions}
@@ -211,9 +251,43 @@ export function RolesPage() {
       <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
         <FormSection title="Permissions">
           <div className="col-12">
-            <p className="text-muted small mb-0">
-              Create the role first, then open it from the list to assign permissions.
+            <p className="text-muted small">
+              Choose what members assigned to this role can access. You can adjust permissions later.
             </p>
+            <input
+              className="form-control form-control-sm mb-3"
+              placeholder="Search permissions"
+              value={permSearch}
+              onChange={(event) => setPermSearch(event.target.value)}
+              aria-label="Search permissions"
+            />
+            {permissionsQuery.isLoading ? <p className="text-muted small">Loading permissions…</p> : null}
+            {permissionsQuery.isError ? (
+              <p className="text-danger small" role="alert">Permissions could not be loaded. Retry before creating the role.</p>
+            ) : null}
+            {!permissionsQuery.isLoading && !permissionsQuery.isError ? (
+              <div className="role-create-permissions">
+                {permissionsByModule.map(([module, permissions]) => (
+                  <section key={module} className="role-create-permission-group">
+                    <h3>{module}</h3>
+                    <div>
+                      {permissions.map((permission) => (
+                        <label key={permission.id} className="form-check form-check-inline small">
+                          <input
+                            className="form-check-input"
+                            type="checkbox"
+                            checked={selectedPermissions.includes(permission.code)}
+                            onChange={() => togglePermission(permission.code)}
+                          />
+                          <span className="form-check-label" title={permission.description}>{permission.code}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+                {!permissionsByModule.length ? <p className="text-muted small mb-0">No permissions match your search.</p> : null}
+              </div>
+            ) : null}
           </div>
         </FormSection>
       </FormMoreDetails>
@@ -223,7 +297,7 @@ export function RolesPage() {
   return (
     <>
       {showForm && canManage ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Role"
           entityLabel="Role"
           pending={isSubmitting || createMutation.isPending}
@@ -239,7 +313,7 @@ export function RolesPage() {
           photo={photo}
         >
           {roleFormFields}
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Roles"
@@ -276,19 +350,7 @@ export function RolesPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Data scope</h3>
-            <select
-              className="form-select form-select-sm"
-              value={scopeFilter}
-              onChange={(e) => setScopeFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="ORGANIZATION">ORGANIZATION</option>
-              <option value="REGION">REGION</option>
-              <option value="DEPARTMENT">DEPARTMENT</option>
-              <option value="TEAM">TEAM</option>
-              <option value="OWN">OWN</option>
-            </select>
+            <TechEarnestFilterSelect label="Data scope" value={scopeFilter} onChange={setScopeFilter} options={dataScopeOptions} placeholder="All scopes" emptyLabel="All scopes" searchPlaceholder="Search data scopes" />
           </div>
         </>
       }
@@ -303,46 +365,28 @@ export function RolesPage() {
           style={{ flex: 1, display: "flex", flexDirection: "column" }}
         >
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Code</th>
-                    <th>Scope</th>
-                    <th>Permissions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((role) => (
-                    <tr
-                      key={role.id}
-                      className={selected?.id === role.id ? "is-selected" : undefined}
-                      onClick={() => openRole(role)}
-                    >
-                      <td className="lead-name">
-                        {role.name}
-                        {role.system ? (
-                          <span className="badge text-bg-secondary ms-2">system</span>
-                        ) : null}
-                      </td>
-                      <td>
-                        <code>{role.code}</code>
-                      </td>
-                      <td>{role.dataScope}</td>
-                      <td>{role.permissionCodes.length}</td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={4} className="text-center text-muted py-5">
-                        No roles match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+              tableCode="role"
+              defaultColumns={[
+                { field: "name", label: "Name" },
+                { field: "code", label: "Code" },
+                { field: "dataScope", label: "Scope" },
+                { field: "permissionCodes", label: "Permissions" },
+              ]}
+              rows={rows}
+              rowKey={(role) => role.id}
+              selectedRowKey={selected?.id}
+              onRowClick={openRole}
+              renderCell={(role, field) => {
+                if (field === "name") return <>{role.name}{role.system ? <span className="badge text-bg-secondary ms-2">system</span> : null}</>;
+                if (field === "code") return <code>{role.code}</code>;
+                if (field === "permissionCodes") return role.permissionCodes.length;
+                const value = (role as unknown as Record<string, unknown>)[field];
+                return value == null || value === "" ? "—" : String(value);
+              }}
+              nameFields={["name", "code"]}
+              emptyMessage="No roles match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((role) => (
@@ -398,6 +442,9 @@ export function RolesPage() {
                   </div>
                 </div>
               ) : null}
+              {permissionSaveError ? (
+                <div className="alert alert-danger py-2" role="alert">{permissionSaveError}</div>
+              ) : null}
               <input
                 className="form-control form-control-sm mb-2"
                 placeholder="Search permissions"
@@ -445,20 +492,8 @@ export function RolesPage() {
                     const dirty =
                       JSON.stringify([...selectedPermissions].sort()) !==
                       JSON.stringify([...(selected.permissionCodes ?? [])].sort());
-                    if (
-                      dirty &&
-                      !window.confirm("Save permission changes for this role?")
-                    ) {
-                      return;
-                    }
-                    updateMutation.mutate({
-                      id: selected.id,
-                      body: {
-                        name: selected.name,
-                        dataScope: selected.system ? undefined : selected.dataScope,
-                        permissionCodes: selectedPermissions,
-                      },
-                    });
+                    if (dirty) setConfirmPermissionSave(true);
+                    else saveRolePermissions();
                   }}
                 >
                   Save permissions
@@ -470,6 +505,24 @@ export function RolesPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {confirmPermissionSave && selected && canManage ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => updateMutation.isPending ? null : setConfirmPermissionSave(false)}>
+          <section className="module-modal" role="alertdialog" aria-modal="true" aria-labelledby="save-role-permissions-title" onClick={(event) => event.stopPropagation()}>
+            <header className="d-flex align-items-center justify-content-between gap-3 mb-3">
+              <h2 id="save-role-permissions-title" className="h5 mb-0">Update role permissions?</h2>
+              <button type="button" className="btn-close" aria-label="Close" disabled={updateMutation.isPending} onClick={() => setConfirmPermissionSave(false)} />
+            </header>
+            <p>These changes affect what members assigned to <strong>{selected.name}</strong> can access and modify.</p>
+            {permissionSaveError ? <div className="alert alert-danger py-2" role="alert">{permissionSaveError}</div> : null}
+            <footer className="d-flex justify-content-end gap-2">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={updateMutation.isPending} onClick={() => setConfirmPermissionSave(false)}>Review permissions</button>
+              <button type="button" className="btn btn-primary btn-sm" disabled={updateMutation.isPending} onClick={saveRolePermissions}>
+                {updateMutation.isPending ? "Saving…" : "Update permissions"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
     </>
   );
 }

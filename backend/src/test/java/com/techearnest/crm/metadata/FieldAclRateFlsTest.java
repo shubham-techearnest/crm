@@ -5,7 +5,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.techearnest.crm.auth.api.dto.LoginRequest;
 import org.junit.jupiter.api.Test;
@@ -19,6 +18,8 @@ import org.springframework.test.web.servlet.MvcResult;
 @SpringBootTest
 @AutoConfigureMockMvc
 class FieldAclRateFlsTest {
+
+    private static final String SEED_RESOURCE_WITH_RATES = "bbbbbbb1-bbbb-4bbb-8bbb-000000000001";
 
     @Autowired
     private MockMvc mockMvc;
@@ -43,14 +44,12 @@ class FieldAclRateFlsTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.costRate").value("WRITE"));
 
-        MvcResult list = mockMvc.perform(get("/api/v1/resources").header("Authorization", "Bearer " + orgAdmin))
+        mockMvc.perform(get("/api/v1/resources").header("Authorization", "Bearer " + orgAdmin))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/resources/" + SEED_RESOURCE_WITH_RATES)
+                        .header("Authorization", "Bearer " + orgAdmin))
                 .andExpect(status().isOk())
-                .andReturn();
-        JsonNode data = objectMapper.readTree(list.getResponse().getContentAsString()).at("/data");
-        if (data.isArray() && !data.isEmpty()) {
-            org.assertj.core.api.Assertions.assertThat(data.get(0).hasNonNull("costRate") || data.get(0).has("costRate"))
-                    .isTrue();
-        }
+                .andExpect(jsonPath("$.data.costRate").isNotEmpty());
 
         mockMvc.perform(get("/api/v1/metadata/table-acls/me").header("Authorization", "Bearer " + orgAdmin))
                 .andExpect(status().isOk())

@@ -3,36 +3,45 @@ import { useMemo, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormSection } from "@/components/FormKit";
 import {
+  enumPickerOptions,
   optionsFromPairs,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
+  TechEarnestPicker,
+  TechEarnestFilterSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { useRecordNavigation } from "@/components/ZohoRecord";
+import { useRecordNavigation } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
-import { listRegions } from "@/features/admin/adminApi";
+import { listRegions, listUsers } from "@/features/admin/adminApi";
 import { listProjects } from "@/features/projects/projectApi";
 import { listTaxRates } from "@/features/finance/taxApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { listVendors } from "./vendorsApi";
+import { useBulkImport } from "@/features/import/useBulkImport";
+import { getVendor, listVendors } from "./vendorsApi";
 import {
   addPurchaseOrderItem,
   approvePurchaseOrder,
   closePurchaseOrder,
   createPurchaseOrder,
   getPurchaseOrder,
-  listPurchaseOrders,
+  queryPurchaseOrders,
   rejectPurchaseOrder,
   sendPurchaseOrder,
   submitPurchaseOrder,
+  updatePurchaseOrder,
   type PurchaseOrder,
 } from "./purchaseOrdersApi";
 
@@ -46,6 +55,7 @@ const PO_STATUSES = [
   "CLOSED",
   "CANCELLED",
 ] as const;
+const poStatusFilterOptions = enumPickerOptions(PO_STATUSES);
 
 const lineSchema = z.object({
   description: z.string().min(1, "Description required"),
@@ -58,6 +68,13 @@ const schema = z.object({
   regionId: z.string().min(1, "Region is required"),
   vendorId: z.string().min(1, "Vendor is required"),
   projectId: z.string().optional(),
+  requesterId: z.string().optional(),
+  poNumber: z.string().max(64).optional(),
+  currencyCode: z
+    .string()
+    .trim()
+    .refine((value) => !value || /^[A-Za-z]{3}$/.test(value), "Use a 3-letter currency code, e.g. INR")
+    .optional(),
   neededBy: z.string().optional(),
   notes: z.string().optional(),
   items: z.array(lineSchema).min(1, "Add at least one line"),
@@ -69,6 +86,9 @@ const DEFAULTS: FormValues = {
   regionId: "",
   vendorId: "",
   projectId: "",
+  requesterId: "",
+  poNumber: "",
+  currencyCode: "",
   neededBy: "",
   notes: "",
   items: [{ description: "", quantity: "1", unitPrice: "", taxRateId: "" }],
@@ -79,6 +99,7 @@ export function PurchaseOrdersPage() {
   const canCreate = useHasPermission("PO_CREATE");
   const canApprove = useHasPermission("PO_APPROVE");
   const canUpdate = useHasPermission("PO_UPDATE");
+  const canViewVendors = useHasPermission("VENDOR_VIEW");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
   const [statusFilter, setStatusFilter] = useState("");
@@ -91,6 +112,12 @@ export function PurchaseOrdersPage() {
   const [addQty, setAddQty] = useState("1");
   const [addPrice, setAddPrice] = useState("");
   const [rejectReason, setRejectReason] = useState("");
+  const [showEditDetails, setShowEditDetails] = useState(false);
+  const [editProjectId, setEditProjectId] = useState("");
+  const [editNeededBy, setEditNeededBy] = useState("");
+  const [editCurrencyCode, setEditCurrencyCode] = useState("");
+  const [editPoNumber, setEditPoNumber] = useState("");
+  const [editNotes, setEditNotes] = useState("");
 
   const listParams = useMemo(
     () => ({
@@ -104,11 +131,17 @@ export function PurchaseOrdersPage() {
 
   const posQuery = useQuery({
     queryKey: ["purchase-orders", listParams],
-    queryFn: () => listPurchaseOrders(listParams),
+    queryFn: () => queryPurchaseOrders(listParams),
   });
   const vendorsQuery = useQuery({ queryKey: ["vendors"], queryFn: () => listVendors() });
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
+  const usersQuery = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: () => listUsers(),
+    enabled: showForm && canCreate,
+    retry: false,
+  });
   const taxQuery = useQuery({
     queryKey: ["tax-rates", { activeOnly: true }],
     queryFn: () => listTaxRates({ activeOnly: true }),
@@ -131,7 +164,7 @@ export function PurchaseOrdersPage() {
   });
   const { fields, append, remove } = useFieldArray({ control, name: "items" });
 
-  const { photo, cancelCreate, afterCreateSuccess } = useZohoCreateFlow({
+  const { photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: DEFAULTS,
     reset,
     setShowForm,
@@ -142,31 +175,48 @@ export function PurchaseOrdersPage() {
   const invalidate = async () => {
     await queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
   };
+  const bulkImport = useBulkImport("purchase-orders", invalidate);
+
+  function openCreatePurchaseOrder() {
+    reset(DEFAULTS);
+    setShowForm(true);
+  }
 
   const createMutation = useMutation({
-    mutationFn: createPurchaseOrder,
+    mutationFn: async (values: FormValues) => {
+      let po = await createPurchaseOrder({
+        regionId: values.regionId,
+        vendorId: values.vendorId,
+        projectId: values.projectId || undefined,
+        requesterId: values.requesterId || undefined,
+        poNumber: values.poNumber?.trim() || undefined,
+        currencyCode: values.currencyCode ? values.currencyCode.toUpperCase() : undefined,
+        neededBy: values.neededBy || undefined,
+        notes: values.notes || undefined,
+      });
+      for (const line of values.items) {
+        po = await addPurchaseOrderItem(po.id, {
+          description: line.description.trim(),
+          quantity: Number(line.quantity),
+          unitPrice: Number(line.unitPrice),
+          taxRateId: line.taxRateId || undefined,
+        });
+      }
+      return po;
+    },
     onSuccess: async (po) => {
       await invalidate();
       setFormError(null);
       await afterCreateSuccess(po, "PURCHASE_ORDER");
     },
-    onError: () => setFormError("Could not create purchase order draft."),
+    onError: async () => {
+      await invalidate();
+      setFormError("Could not create the purchase order, or some line items were not saved. Check the draft in the list.");
+    },
   });
 
   const onCreateSubmit = (values: FormValues) => {
-    createMutation.mutate({
-      regionId: values.regionId,
-      vendorId: values.vendorId,
-      projectId: values.projectId || undefined,
-      neededBy: values.neededBy || undefined,
-      notes: values.notes || undefined,
-      items: values.items.map((line) => ({
-        description: line.description,
-        quantity: Number(line.quantity),
-        unitPrice: Number(line.unitPrice),
-        taxRateId: line.taxRateId || undefined,
-      })),
-    });
+    createMutation.mutate(values);
   };
 
   const addLineMutation = useMutation({
@@ -211,6 +261,15 @@ export function PurchaseOrdersPage() {
     onSuccess: invalidate,
     onError: () => setActionError("Could not close PO."),
   });
+  const updateMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Parameters<typeof updatePurchaseOrder>[1] }) => updatePurchaseOrder(id, body),
+    onSuccess: async () => {
+      setShowEditDetails(false);
+      setActionError(null);
+      await invalidate();
+    },
+    onError: () => setActionError("Could not update purchase order. Only draft purchase orders can be edited."),
+  });
 
   const rows = posQuery.data ?? [];
   const selectedRow = rows.find((row) => row.id === selectedId) ?? null;
@@ -220,7 +279,15 @@ export function PurchaseOrdersPage() {
     setRejectReason("");
   });
   const selected: PurchaseOrder | undefined = detailQuery.data;
-  const vendorName = (id: string) => vendorsQuery.data?.find((v) => v.id === id)?.name ?? id.slice(0, 8);
+  const selectedVendorQuery = useQuery({
+    queryKey: ["vendors", selected?.vendorId, "detail"],
+    queryFn: () => getVendor(selected!.vendorId),
+    enabled: !!selected && canViewVendors && !vendorsQuery.isLoading && !vendorsQuery.data?.some((vendor) => vendor.id === selected.vendorId),
+  });
+  const vendorName = (id: string) =>
+    vendorsQuery.data?.find((vendor) => vendor.id === id)?.name
+      ?? (selectedVendorQuery.data?.id === id ? selectedVendorQuery.data.name : null)
+      ?? id.slice(0, 8);
   const projectName = (id: string | null) =>
     id ? (projectsQuery.data?.find((p) => p.id === id)?.name ?? id.slice(0, 8)) : "—";
   const activeFilterCount = [search, statusFilter, vendorFilter, projectFilter].filter(Boolean).length;
@@ -251,7 +318,7 @@ export function PurchaseOrdersPage() {
   return (
     <>
       {showForm && canCreate ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Purchase Order"
           tableCode="purchase_order"
           entityLabel="Purchase Order"
@@ -263,108 +330,167 @@ export function PurchaseOrdersPage() {
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
           photo={photo}
         >
-          <FormSection title="Draft PO" description="Vendor, optional project, needed-by date">
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <ZohoFormSelect
-                control={control}
-                name="regionId"
-                options={regionOptions}
-                searchPlaceholder="Search Regions"
-                allowEmpty={false}
-                placeholder="Select"
-                invalid={!!errors.regionId}
-              />
-              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Vendor</label>
-              <ZohoFormSelect
-                control={control}
-                name="vendorId"
-                options={vendorOptions}
-                searchPlaceholder="Search Vendors"
-                allowEmpty={false}
-                placeholder="Select"
-                invalid={!!errors.vendorId}
-              />
-              {errors.vendorId ? <div className="invalid-feedback d-block">{errors.vendorId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label">Project</label>
-              <ZohoFormSelect
-                control={control}
-                name="projectId"
-                options={projectOptions}
-                searchPlaceholder="Search Projects"
-                lookupIcon="apps"
-                placeholder="Optional"
-              />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Needed by" type="date" error={errors.neededBy} {...register("neededBy")} />
-            </div>
-          </FormSection>
-          <FormSection title="Line items" description="Qty × unit price; tax optional">
-            {fields.map((field, index) => (
-              <div key={field.id} className="row g-2 mb-2 align-items-end">
-                <div className="col-md-4">
-                  <FormField
-                    label="Description"
-                    required
-                    error={errors.items?.[index]?.description}
-                    {...register(`items.${index}.description`)}
-                  />
-                </div>
-                <div className="col-md-2">
-                  <FormField
-                    label="Qty"
-                    type="number"
-                    required
-                    error={errors.items?.[index]?.quantity}
-                    {...register(`items.${index}.quantity`)}
-                  />
-                </div>
-                <div className="col-md-2">
-                  <FormField
-                    label="Unit price"
-                    type="number"
-                    required
-                    error={errors.items?.[index]?.unitPrice}
-                    {...register(`items.${index}.unitPrice`)}
-                  />
-                </div>
-                <div className="col-md-2">
-                  <label className="form-label">Tax rate</label>
-                  <ZohoFormSelect
+          <TechEarnestCreateSection title="Purchase Order Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Vendor Name" required error={errors.vendorId?.message}>
+                  <TechEarnestFormSelect
                     control={control}
-                    name={`items.${index}.taxRateId`}
-                    options={taxRateOptions}
-                    searchPlaceholder="Search Tax Rates"
-                    placeholder="None"
+                    name="vendorId"
+                    options={vendorOptions}
+                    searchPlaceholder="Search Vendors"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select vendor"
+                    invalid={!!errors.vendorId}
                   />
-                </div>
-                <div className="col-md-2">
-                  {fields.length > 1 ? (
-                    <button type="button" className="btn btn-sm btn-outline-danger" onClick={() => remove(index)}>
-                      Remove
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-            {errors.items?.root ? (
-              <div className="invalid-feedback d-block">{errors.items.root.message}</div>
-            ) : null}
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="PO Number" error={errors.poNumber?.message}>
+                  <input
+                    type="text"
+                    maxLength={64}
+                    placeholder="Generated automatically"
+                    className="form-control form-control-sm"
+                    {...register("poNumber")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Project">
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="projectId"
+                    options={projectOptions}
+                    searchPlaceholder="Search Projects"
+                    lookupIcon="apps"
+                    placeholder="Optional"
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Requester">
+                  <TechEarnestFormUserSelect
+                    control={control}
+                    name="requesterId"
+                    users={usersQuery.data ?? []}
+                    searchPlaceholder="Search Users"
+                    placeholder={usersQuery.isError ? "Users are not available" : "You (default)"}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Region" required error={errors.regionId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="regionId"
+                    options={regionOptions}
+                    searchPlaceholder="Search Regions"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select region"
+                    invalid={!!errors.regionId}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Needed By" error={errors.neededBy?.message}>
+                  <input type="date" className="form-control form-control-sm" {...register("neededBy")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Currency" error={errors.currencyCode?.message}>
+                  <input
+                    type="text"
+                    maxLength={3}
+                    placeholder="Organisation default"
+                    className={`form-control form-control-sm text-uppercase${errors.currencyCode ? " is-invalid" : ""}`}
+                    {...register("currencyCode")}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Line Items">
+            <div className="table-responsive">
+              <table className="table table-sm align-top techearnest-create-lines">
+                <thead>
+                  <tr>
+                    <th className="required">Description</th>
+                    <th style={{ width: "7rem" }} className="required">Quantity</th>
+                    <th style={{ width: "9rem" }} className="required">Unit price</th>
+                    <th style={{ width: "12rem" }}>Tax rate</th>
+                    <th style={{ width: "3rem" }} aria-label="Actions" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {fields.map((field, index) => (
+                    <tr key={field.id}>
+                      <td>
+                        <input
+                          type="text"
+                          maxLength={500}
+                          aria-label={`Line ${index + 1} description`}
+                          className={`form-control form-control-sm${errors.items?.[index]?.description ? " is-invalid" : ""}`}
+                          {...register(`items.${index}.description`)}
+                        />
+                        {errors.items?.[index]?.description ? (
+                          <div className="invalid-feedback d-block">{errors.items[index]?.description?.message}</div>
+                        ) : null}
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0.01}
+                          step="0.01"
+                          aria-label={`Line ${index + 1} quantity`}
+                          className={`form-control form-control-sm${errors.items?.[index]?.quantity ? " is-invalid" : ""}`}
+                          {...register(`items.${index}.quantity`)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          aria-label={`Line ${index + 1} unit price`}
+                          className={`form-control form-control-sm${errors.items?.[index]?.unitPrice ? " is-invalid" : ""}`}
+                          {...register(`items.${index}.unitPrice`)}
+                        />
+                      </td>
+                      <td>
+                        <TechEarnestFormSelect
+                          control={control}
+                          name={`items.${index}.taxRateId`}
+                          options={taxRateOptions}
+                          searchPlaceholder="Search Tax Rates"
+                          placeholder="None"
+                        />
+                      </td>
+                      <td className="text-end">
+                        {fields.length > 1 ? (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-light"
+                            aria-label={`Remove line ${index + 1}`}
+                            title="Remove line"
+                            onClick={() => remove(index)}
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {errors.items?.root ? <div className="invalid-feedback d-block">{errors.items.root.message}</div> : null}
             <button
               type="button"
-              className="btn btn-sm btn-outline-secondary"
+              className="btn btn-sm btn-light techearnest-create-btn"
               onClick={() => append({ description: "", quantity: "1", unitPrice: "", taxRateId: "" })}
             >
-              Add line
+              + Add line
             </button>
-          </FormSection>
-        </ZohoFormKitCreateView>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Description Information">
+            <TechEarnestCreateField label="Notes" wide error={errors.notes?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...register("notes")} />
+            </TechEarnestCreateField>
+          </TechEarnestCreateSection>
+        </TechEarnestFormKitCreateView>
       ) : selectedId ? (
         detailQuery.isLoading ? (
           <LoadingState label="Loading purchase order…" />
@@ -385,6 +511,23 @@ export function PurchaseOrdersPage() {
             relatedLinks={[...DEFAULT_RELATED_LINKS]}
             primaryAction={
               <>
+                {canUpdate && selected.status === "DRAFT" ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-outline-secondary"
+                    onClick={() => {
+                      setEditProjectId(selected.projectId ?? "");
+                      setEditNeededBy(selected.neededBy ?? "");
+                      setEditCurrencyCode(selected.currencyCode);
+                      setEditPoNumber(selected.poNumber ?? "");
+                      setEditNotes(selected.notes ?? "");
+                      setActionError(null);
+                      setShowEditDetails(true);
+                    }}
+                  >
+                    Edit details
+                  </button>
+                ) : null}
                 {canCreate && (selected.status === "DRAFT" || selected.status === "REJECTED") ? (
                   <button
                     type="button"
@@ -545,18 +688,13 @@ export function PurchaseOrdersPage() {
       }
       primaryAction={
         canCreate ? (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              reset(DEFAULTS);
-              setShowForm(true);
-            }}
-          >
+          <button type="button" className="btn btn-primary btn-sm" onClick={openCreatePurchaseOrder}>
             Create PO
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Purchase Orders by</p>
@@ -570,49 +708,13 @@ export function PurchaseOrdersPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Status</h3>
-            <select
-              className="form-select form-select-sm"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {PO_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={poStatusFilterOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search purchase order statuses" />
           </div>
           <div className="module-filter-section">
-            <h3>Vendor</h3>
-            <select
-              className="form-select form-select-sm"
-              value={vendorFilter}
-              onChange={(e) => setVendorFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(vendorsQuery.data ?? []).map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Vendor" value={vendorFilter} onChange={setVendorFilter} options={vendorOptions} placeholder="All vendors" emptyLabel="All vendors" searchPlaceholder="Search vendors" />
           </div>
           <div className="module-filter-section">
-            <h3>Project</h3>
-            <select
-              className="form-select form-select-sm"
-              value={projectFilter}
-              onChange={(e) => setProjectFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(projectsQuery.data ?? []).map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
           </div>
         </>
       }
@@ -621,55 +723,82 @@ export function PurchaseOrdersPage() {
       {posQuery.isLoading ? <LoadingState label="Loading purchase orders..." /> : null}
       {posQuery.error ? <ErrorState title="Unable to load purchase orders" message="Try again." /> : null}
 
-      {!posQuery.isLoading && !posQuery.error ? (
-        <div className="module-list-table-wrap">
-            <table className="table module-list-table align-middle">
-              <thead>
-                <tr>
-                  <th>Number</th>
-                  <th>Vendor</th>
-                  <th>Project</th>
-                  <th>Status</th>
-                  <th>Needed</th>
-                  <th>Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={selectedId === row.id ? "table-active" : undefined}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => {
-                      setSelectedId(row.id);
-                      setActionError(null);
-                    }}
-                  >
-                    <td className="lead-name">{row.poNumber ?? "Draft"}</td>
-                    <td>{vendorName(row.vendorId)}</td>
-                    <td>{projectName(row.projectId)}</td>
-                    <td>
-                      <StatusBadge status={row.status} />
-                    </td>
-                    <td>{row.neededBy ?? "—"}</td>
-                    <td>
-                      {row.currencyCode} {row.total}
-                    </td>
-                  </tr>
-                ))}
-                {rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="text-center text-muted py-5">
-                      No purchase orders
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+      {!posQuery.isLoading && !posQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({ canCreate, createLabel: "Create PO", onCreate: openCreatePurchaseOrder })
+        : null}
+
+      {!posQuery.isLoading && !posQuery.error && (rows.length || activeFilterCount) ? (
+        <ModuleListTable
+          tableCode="purchase_order"
+          defaultColumns={[
+            { field: "poNumber", label: "Number" },
+            { field: "vendorId", label: "Vendor" },
+            { field: "projectId", label: "Project" },
+            { field: "status", label: "Status" },
+            { field: "neededBy", label: "Needed" },
+            { field: "total", label: "Total" },
+          ]}
+          rows={rows}
+          rowKey={(row) => row.id}
+          selectedRowKey={selectedId}
+          onRowClick={(row) => {
+            setSelectedId(row.id);
+            setActionError(null);
+          }}
+          renderCell={(row, field) => {
+            if (field === "poNumber") return row.poNumber ?? "Draft";
+            if (field === "vendorId") return vendorName(row.vendorId);
+            if (field === "projectId") return projectName(row.projectId);
+            if (field === "status") return <StatusBadge status={row.status} />;
+            if (field === "total") return `${row.currencyCode} ${row.total}`;
+            const value = (row as unknown as Record<string, unknown>)[field];
+            return value == null || value === "" ? "—" : String(value);
+          }}
+          nameFields={["poNumber"]}
+          emptyMessage="No purchase orders"
+        />
       ) : null}
     </ModuleListShell>
       )}
+      {showEditDetails && selected ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => updateMutation.isPending ? null : setShowEditDetails(false)}>
+          <section className="module-modal" role="dialog" aria-modal="true" aria-labelledby="edit-po-title" onClick={(event) => event.stopPropagation()}>
+            <header className="d-flex align-items-center justify-content-between gap-3 mb-3">
+              <h2 id="edit-po-title" className="h5 mb-0">Edit purchase order</h2>
+              <button type="button" className="btn-close" aria-label="Close" disabled={updateMutation.isPending} onClick={() => setShowEditDetails(false)} />
+            </header>
+            <div className="mb-3">
+              <label className="form-label" htmlFor="edit-po-number">PO number</label>
+              <input id="edit-po-number" className="form-control" maxLength={80} value={editPoNumber} onChange={(event) => setEditPoNumber(event.target.value)} />
+            </div>
+            <div className="mb-3">
+              <label className="form-label" htmlFor="edit-po-project">Project</label>
+              <TechEarnestPicker value={editProjectId} onChange={setEditProjectId} options={projectOptions} searchPlaceholder="Search Projects" placeholder="No project" lookupIcon="apps" />
+            </div>
+            <div className="row g-3 mb-3">
+              <div className="col-6">
+                <label className="form-label" htmlFor="edit-po-needed-by">Needed by</label>
+                <input id="edit-po-needed-by" className="form-control" type="date" value={editNeededBy} onChange={(event) => setEditNeededBy(event.target.value)} />
+              </div>
+              <div className="col-6">
+                <label className="form-label" htmlFor="edit-po-currency">Currency code</label>
+                <input id="edit-po-currency" className="form-control" maxLength={3} value={editCurrencyCode} onChange={(event) => setEditCurrencyCode(event.target.value.toUpperCase())} />
+              </div>
+            </div>
+            <div className="mb-3">
+              <label className="form-label" htmlFor="edit-po-notes">Notes</label>
+              <textarea id="edit-po-notes" className="form-control" rows={3} maxLength={2000} value={editNotes} onChange={(event) => setEditNotes(event.target.value)} />
+            </div>
+            <footer className="d-flex justify-content-end gap-2">
+              <button type="button" className="btn btn-outline-secondary btn-sm" disabled={updateMutation.isPending} onClick={() => setShowEditDetails(false)}>Cancel</button>
+              <button type="button" className="btn btn-primary btn-sm" disabled={!editCurrencyCode.trim() || updateMutation.isPending} onClick={() => updateMutation.mutate({ id: selected.id, body: { projectId: editProjectId || null, poNumber: editPoNumber.trim() || undefined, currencyCode: editCurrencyCode.trim(), neededBy: editNeededBy || null, notes: editNotes || null } })}>
+                {updateMutation.isPending ? "Saving…" : "Save changes"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+      {bulkImport.dialog}
     </>
   );
 }

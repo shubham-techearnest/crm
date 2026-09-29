@@ -4,20 +4,26 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link } from "react-router-dom";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
+  useTechEarnestCreateFlow,
+  type TechEarnestPickerUser,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import {
   ModuleListShell,
   countActiveFilters,
 } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import {
   RecordShell,
   DEFAULT_RELATED_LINKS,
@@ -28,17 +34,20 @@ import {
   recordOverviewTab,
   recordTimelineTab,
 } from "@/components/RecordShell";
-import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, ZohoRecordTimeline } from "@/components/ZohoRecord";
+import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
-import { listRegions } from "@/features/admin/adminApi";
+import { listDepartments, listRegions, listUsers } from "@/features/admin/adminApi";
 import { getMyFieldAcls } from "@/features/admin/studio/metadataApi";
 import { listActivities } from "@/features/crm/crmApi";
 import { listProjects, listTasks } from "@/features/projects/projectApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   createResource,
+  getResource,
+  updateResource,
   getUtilization,
   listAllocations,
   listResourceSkills,
@@ -57,6 +66,9 @@ const resourceTypeOptions = enumPickerOptions(RESOURCE_TYPES);
 const resourceStatusOptions = enumPickerOptions(RESOURCE_STATUSES);
 
 const resourceSchema = z.object({
+  userId: z.string().optional(),
+  departmentId: z.string().optional(),
+  managerId: z.string().optional(),
   regionId: z.string().min(1, "Region is required"),
   resourceType: z.string().min(1, "Type is required"),
   designation: z.string().optional(),
@@ -71,6 +83,9 @@ const resourceSchema = z.object({
 type ResourceFormValues = z.infer<typeof resourceSchema>;
 
 const RESOURCE_DEFAULTS: ResourceFormValues = {
+  userId: "",
+  departmentId: "",
+  managerId: "",
   regionId: "",
   resourceType: "EMPLOYEE",
   designation: "",
@@ -103,6 +118,24 @@ function formatRate(value: number | null | undefined): string {
   return value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function formatDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function resourceTitle(resource: Resource): string {
+  return resource.employeeName ?? resource.designation ?? resource.employeeCode ?? "Resource";
+}
+
+const RESOURCE_OPTIONAL_COLUMNS = [
+  { field: "departmentName", label: "Department" },
+  { field: "managerName", label: "Manager" },
+  { field: "joiningDate", label: "Joining date" },
+  { field: "createdAt", label: "Created time" },
+  { field: "updatedAt", label: "Modified time" },
+];
+
 export function ResourcesPage() {
   const queryClient = useQueryClient();
   const canManage = useHasPermission("RESOURCE_MANAGE");
@@ -110,18 +143,21 @@ export function ResourcesPage() {
   const canViewProjects = useHasPermission("PROJECT_VIEW");
   const canViewTasks = useHasPermission("TASK_VIEW");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
+  const hasRateViewPermission = useHasPermission("RATE_VIEW");
   const rateAclQuery = useQuery({
     queryKey: ["metadata", "field-acls", "me", "resource"],
     queryFn: () => getMyFieldAcls("resource"),
     staleTime: 60_000,
     retry: false,
   });
-  const canViewRates =
-    useHasPermission("RATE_VIEW") ||
-    rateAclQuery.data?.costRate === "READ" ||
-    rateAclQuery.data?.costRate === "WRITE" ||
-    rateAclQuery.data?.billingRate === "READ" ||
-    rateAclQuery.data?.billingRate === "WRITE";
+  const canViewCostRate = rateAclQuery.data?.costRate != null
+    ? ["READ", "WRITE"].includes(rateAclQuery.data.costRate)
+    : hasRateViewPermission;
+  const canViewBillingRate = rateAclQuery.data?.billingRate != null
+    ? ["READ", "WRITE"].includes(rateAclQuery.data.billingRate)
+    : hasRateViewPermission;
+  const canWriteCostRate = rateAclQuery.data?.costRate === "WRITE";
+  const canWriteBillingRate = rateAclQuery.data?.billingRate === "WRITE";
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
   const [statusFilter, setStatusFilter] = useState("");
@@ -129,11 +165,11 @@ export function ResourcesPage() {
   const [skillFilter, setSkillFilter] = useState("");
   const [selected, setSelected] = useState<Resource | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+  const [editingResourceId, setEditingResourceId] = useState<string | null>(null);
   const [skillsError, setSkillsError] = useState<string | null>(null);
   const [draftSkills, setDraftSkills] = useState<ResourceSkillItem[]>([]);
   const [newSkillId, setNewSkillId] = useState("");
   const [newProficiency, setNewProficiency] = useState<string>("INTERMEDIATE");
-  const [showMore, setShowMore] = useState(false);
   const monthRange = useMemo(() => currentMonthRange(), []);
 
   const listParams = useMemo(
@@ -150,24 +186,41 @@ export function ResourcesPage() {
     queryKey: ["resources", listParams],
     queryFn: () => listResources(listParams),
   });
+  const resourceDetailQuery = useQuery({
+    queryKey: ["resources", selected?.id, "detail"],
+    queryFn: () => getResource(selected!.id),
+    enabled: !!selected,
+  });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
+  const usersQuery = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: () => listUsers(),
+    enabled: showForm && canManage,
+    retry: false,
+  });
+  const departmentsQuery = useQuery({
+    queryKey: ["admin", "departments"],
+    queryFn: listDepartments,
+    enabled: showForm && canManage,
+    retry: false,
+  });
   const skillsCatalogQuery = useQuery({
     queryKey: ["skills"],
     queryFn: () => listSkills(),
   });
   const resourceSkillsQuery = useQuery({
-    queryKey: ["resources", selected?.id, "skills"],
+    queryKey: ["resources", (selected as Resource | null)?.id, "skills"],
     queryFn: () => listResourceSkills(selected!.id),
     enabled: !!selected,
   });
   const utilizationQuery = useQuery({
-    queryKey: ["resources", selected?.id, "utilization", monthRange.periodStart, monthRange.periodEnd],
+    queryKey: ["resources", (selected as Resource | null)?.id, "utilization", monthRange.periodStart, monthRange.periodEnd],
     queryFn: () =>
       getUtilization(selected!.id, monthRange.periodStart, monthRange.periodEnd),
     enabled: !!selected,
   });
   const allocationsQuery = useQuery({
-    queryKey: ["allocations", "resource", selected?.id],
+    queryKey: ["allocations", "resource", (selected as Resource | null)?.id],
     queryFn: () => listAllocations({ resourceId: selected!.id }),
     enabled: !!selected && (canViewAllocations || canViewProjects),
   });
@@ -177,12 +230,12 @@ export function ResourcesPage() {
     enabled: !!selected && canViewProjects,
   });
   const assignedTasksQuery = useQuery({
-    queryKey: ["tasks", "resource", selected?.id],
+    queryKey: ["tasks", "resource", (selected as Resource | null)?.id],
     queryFn: () => listTasks({ assignedResourceId: selected!.id }),
     enabled: !!selected && canViewTasks,
   });
   const activitiesQuery = useQuery({
-    queryKey: ["crm", "activities", "RESOURCE", selected?.id],
+    queryKey: ["crm", "activities", "RESOURCE", (selected as Resource | null)?.id],
     queryFn: () => listActivities({ relatedEntityType: "RESOURCE", relatedEntityId: selected!.id }),
     enabled: !!selected && canViewActivities,
   });
@@ -193,9 +246,9 @@ export function ResourcesPage() {
         undefined,
         activitiesQuery.data,
         undefined,
-        recordLifecycleInfo("Resource", selected ? { ...selected, ownerId: selected.userId } : null),
+        recordLifecycleInfo("Resource", resourceDetailQuery.data ? { ...resourceDetailQuery.data, ownerId: resourceDetailQuery.data.userId } : selected ? { ...selected, ownerId: selected.userId } : null),
       ),
-    [activitiesQuery.data, selected],
+    [activitiesQuery.data, selected, resourceDetailQuery.data],
   );
 
   useEffect(() => {
@@ -226,23 +279,25 @@ export function ResourcesPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: RESOURCE_DEFAULTS,
     reset,
     setShowForm,
     setFormError,
     setSelected: (entity) => setSelected(entity as Resource),
-    onResetExtras: () => setShowMore(false),
   });
 
   const buildResourceBody = (values: ResourceFormValues) => ({
+    userId: values.userId || null,
+    departmentId: values.departmentId || null,
+    managerId: values.managerId || null,
     regionId: values.regionId,
     resourceType: values.resourceType,
     designation: values.designation || undefined,
     employeeCode: values.employeeCode || undefined,
     capacityHoursPerWeek: parseOptionalNumber(values.capacityHoursPerWeek) ?? null,
-    costRate: canViewRates ? parseOptionalNumber(values.costRate) ?? null : undefined,
-    billingRate: canViewRates ? parseOptionalNumber(values.billingRate) ?? null : undefined,
+    costRate: canWriteCostRate ? parseOptionalNumber(values.costRate) ?? null : undefined,
+    billingRate: canWriteBillingRate ? parseOptionalNumber(values.billingRate) ?? null : undefined,
     status: values.status || "AVAILABLE",
     joiningDate: values.joiningDate || undefined,
   });
@@ -257,9 +312,47 @@ export function ResourcesPage() {
     onError: () => setFormError("Could not create resource. Check required fields."),
   });
 
+  const updateMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Parameters<typeof updateResource>[1] }) => updateResource(id, body),
+    onSuccess: async (resource) => {
+      await queryClient.invalidateQueries({ queryKey: ["resources"] });
+      setSelected(resource);
+      setEditingResourceId(null);
+      setFormError(null);
+      setShowForm(false);
+      reset(RESOURCE_DEFAULTS);
+    },
+    onError: () => setFormError("Could not update resource. Check required fields and unique employee code."),
+  });
+
   const onCreateSubmit = (values: ResourceFormValues) => {
     createMutation.mutate(buildResourceBody(values));
   };
+
+  const onUpdateSubmit = (values: ResourceFormValues) => {
+    if (!editingResourceId) return;
+    updateMutation.mutate({ id: editingResourceId, body: buildResourceBody(values) });
+  };
+
+  function openResourceEdit(resource: Resource) {
+    setEditingResourceId(resource.id);
+    setFormError(null);
+    reset({
+      userId: resource.userId ?? "",
+      departmentId: resource.departmentId ?? "",
+      managerId: resource.managerId ?? "",
+      regionId: resource.regionId,
+      resourceType: resource.resourceType,
+      designation: resource.designation ?? "",
+      employeeCode: resource.employeeCode ?? "",
+      capacityHoursPerWeek: resource.capacityHoursPerWeek != null ? String(resource.capacityHoursPerWeek) : "",
+      costRate: resource.costRate != null ? String(resource.costRate) : "",
+      billingRate: resource.billingRate != null ? String(resource.billingRate) : "",
+      status: resource.status,
+      joiningDate: resource.joiningDate ?? "",
+    });
+    setShowForm(true);
+  }
 
   const skillsMutation = useMutation({
     mutationFn: () => putResourceSkills(selected!.id, { skills: draftSkills }),
@@ -277,8 +370,17 @@ export function ResourcesPage() {
     regionsQuery.data?.find((r) => r.id === id)?.name ?? id.slice(0, 8);
 
   const rows = resourcesQuery.data ?? [];
+  const selectedResource = resourceDetailQuery.data ?? selected;
   const recordNav = useRecordNavigation(rows, selected, setSelected);
   const activeFilterCount = countActiveFilters(search, statusFilter, regionFilter, skillFilter);
+  const bulkImport = useBulkImport("resources", () => queryClient.invalidateQueries({ queryKey: ["resources"] }));
+
+  function openCreateResource() {
+    setEditingResourceId(null);
+    setFormError(null);
+    reset(RESOURCE_DEFAULTS);
+    setShowForm(true);
+  }
 
   const projectName = useMemo(() => {
     const map = new Map((projectsQuery.data ?? []).map((project) => [project.id, project.name]));
@@ -297,152 +399,216 @@ export function ResourcesPage() {
       ),
     [regionsQuery.data],
   );
+  const editingResource = editingResourceId ? rows.find((row) => row.id === editingResourceId) ?? selectedResource : null;
+  const pickerUsers = useMemo(() => {
+    const users: TechEarnestPickerUser[] = (usersQuery.data ?? []).map((user) => ({
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+    }));
+    const known = new Set(users.map((user) => user.id));
+    const addFallback = (id: string | null | undefined, name: string | null | undefined) => {
+      if (id && name && !known.has(id)) {
+        known.add(id);
+        users.push({ id, firstName: name, lastName: "", email: null });
+      }
+    };
+    addFallback(editingResource?.userId, editingResource?.employeeName);
+    addFallback(editingResource?.managerId, editingResource?.managerName);
+    return users;
+  }, [usersQuery.data, editingResource]);
+  const departmentOptions = useMemo(() => {
+    const options = (departmentsQuery.data ?? []).map((department) => ({ value: department.id, label: department.name }));
+    if (
+      editingResource?.departmentId
+      && editingResource.departmentName
+      && !options.some((option) => option.value === editingResource.departmentId)
+    ) {
+      options.push({ value: editingResource.departmentId, label: editingResource.departmentName });
+    }
+    return optionsFromPairs(options);
+  }, [departmentsQuery.data, editingResource]);
+  const skillFilterOptions = useMemo(
+    () => optionsFromPairs((skillsCatalogQuery.data ?? []).map((skill) => ({ value: skill.id, label: skill.name }))),
+    [skillsCatalogQuery.data],
+  );
 
   return (
     <>
       {showForm && canManage ? (
-        <ZohoFormKitCreateView
-          title="Create Resource"
+        <TechEarnestFormKitCreateView
+          title={editingResourceId ? "Edit Resource" : "Create Resource"}
           tableCode="resource"
           entityLabel="Resource"
-          pending={isSubmitting || createMutation.isPending}
+          pending={isSubmitting || createMutation.isPending || updateMutation.isPending}
           isDirty={isDirty}
           formError={formError}
-          onCancel={() => cancelCreate(isDirty)}
-          onSave={() => void handleSubmit(onCreateSubmit)()}
-          onSaveAndNew={() => {
+          onCancel={() => {
+            if (editingResourceId) {
+              setEditingResourceId(null);
+              setShowForm(false);
+              reset(RESOURCE_DEFAULTS);
+            } else cancelCreate(isDirty);
+          }}
+          onSave={() => void handleSubmit(editingResourceId ? onUpdateSubmit : onCreateSubmit)()}
+          onSaveAndNew={!editingResourceId ? () => {
             setSaveAndNew(true);
             void handleSubmit(onCreateSubmit)();
-          }}
-          onSubmit={() => void handleSubmit(onCreateSubmit)()}
+          } : undefined}
+          onSubmit={() => void handleSubmit(editingResourceId ? onUpdateSubmit : onCreateSubmit)()}
           photo={photo}
         >
-          <FormSection title="Primary details" description="Region, type, and identity">
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <ZohoFormSelect
-                control={control}
-                name="regionId"
-                options={regionOptions}
-                searchPlaceholder="Search Regions"
-                allowEmpty={false}
-                placeholder="Select region"
-                invalid={!!errors.regionId}
-              />
-              {errors.regionId ? (
-                <div className="invalid-feedback d-block">{errors.regionId.message}</div>
-              ) : null}
-            </div>
-            <div className="col-md-2">
-              <label className="form-label required">Type</label>
-              <ZohoFormSelect
-                control={control}
-                name="resourceType"
-                options={resourceTypeOptions}
-                searchPlaceholder="Search Types"
-                allowEmpty={false}
-                invalid={!!errors.resourceType}
-              />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Designation" error={errors.designation} {...register("designation")} />
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="Employee code"
-                error={errors.employeeCode}
-                {...register("employeeCode")}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <ZohoFormSelect
-                control={control}
-                name="status"
-                options={resourceStatusOptions}
-                searchPlaceholder="Search Statuses"
-                allowEmpty={false}
-              />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Capacity & rates">
-              <div className="col-md-3">
-                <FormField
-                  label="Capacity hrs/week"
-                  type="number"
-                  error={errors.capacityHoursPerWeek}
-                  {...register("capacityHoursPerWeek")}
-                />
-              </div>
-              <div className="col-md-3">
-                <FormField label="Joining date" type="date" {...register("joiningDate")} />
-              </div>
-              {canViewRates ? (
-                <>
-                  <div className="col-md-3">
-                    <FormField
-                      label="Cost rate"
-                      type="number"
-                      error={errors.costRate}
-                      {...register("costRate")}
-                    />
-                  </div>
-                  <div className="col-md-3">
-                    <FormField
-                      label="Billing rate"
-                      type="number"
-                      error={errors.billingRate}
-                      {...register("billingRate")}
-                    />
-                  </div>
-                </>
-              ) : null}
-            </FormSection>
-          </FormMoreDetails>
-        </ZohoFormKitCreateView>
-      ) : selected ? (
+          <TechEarnestCreateSection title="Resource Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Employee">
+                  <TechEarnestFormUserSelect
+                    control={control}
+                    name="userId"
+                    users={pickerUsers}
+                    searchPlaceholder="Search Users"
+                    placeholder={usersQuery.isError ? "Users are not available" : "Select employee"}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Employee Code" error={errors.employeeCode?.message}>
+                  <input type="text" maxLength={64} className="form-control form-control-sm" {...register("employeeCode")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Designation" error={errors.designation?.message}>
+                  <input type="text" maxLength={128} className="form-control form-control-sm" {...register("designation")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Department">
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="departmentId"
+                    options={departmentOptions}
+                    searchPlaceholder="Search Departments"
+                    lookupIcon="building"
+                    placeholder={departmentsQuery.isError ? "Departments are not available" : "Select department"}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Reporting Manager">
+                  <TechEarnestFormUserSelect
+                    control={control}
+                    name="managerId"
+                    users={pickerUsers}
+                    searchPlaceholder="Search Users"
+                    placeholder={usersQuery.isError ? "Users are not available" : "Select manager"}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Region" required error={errors.regionId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="regionId"
+                    options={regionOptions}
+                    searchPlaceholder="Search Regions"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select region"
+                    invalid={!!errors.regionId}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Resource Type" required error={errors.resourceType?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="resourceType"
+                    options={resourceTypeOptions}
+                    searchPlaceholder="Search Types"
+                    allowEmpty={false}
+                    invalid={!!errors.resourceType}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Status">
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="status"
+                    options={resourceStatusOptions}
+                    searchPlaceholder="Search Statuses"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Joining Date">
+                  <input type="date" className="form-control form-control-sm" {...register("joiningDate")} />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Capacity & Rates">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Capacity (hrs/week)" error={errors.capacityHoursPerWeek?.message}>
+                  <input type="number" min={0} step="0.5" className="form-control form-control-sm" {...register("capacityHoursPerWeek")} />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                {canWriteCostRate ? (
+                  <TechEarnestCreateField label="Cost Rate" error={errors.costRate?.message}>
+                    <input type="number" min={0} step="0.01" className="form-control form-control-sm" {...register("costRate")} />
+                  </TechEarnestCreateField>
+                ) : null}
+                {canWriteBillingRate ? (
+                  <TechEarnestCreateField label="Billing Rate" error={errors.billingRate?.message}>
+                    <input type="number" min={0} step="0.01" className="form-control form-control-sm" {...register("billingRate")} />
+                  </TechEarnestCreateField>
+                ) : null}
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+        </TechEarnestFormKitCreateView>
+      ) : selectedResource ? (
         <RecordShell
-              title={selected.designation ?? selected.employeeCode ?? "Resource"}
-              subtitle={selected.employeeCode ?? selected.id.slice(0, 8)}
+              title={resourceTitle(selectedResource)}
+              subtitle={[selectedResource.designation, selectedResource.employeeCode].filter(Boolean).join(" · ") || selectedResource.id.slice(0, 8)}
               meta={
                 <span className="text-muted small">
-                  {regionName(selected.regionId)} · {selected.resourceType}
+                  {regionName(selectedResource.regionId)} · {selectedResource.resourceType}
                 </span>
               }
-              status={<StatusBadge status={selected.status} />}
-              recordKey={selected.id}
+              status={<StatusBadge status={selectedResource.status} />}
+              recordKey={selectedResource.id}
               layout="page"
-              avatarLabel={selected.designation ?? selected.employeeCode ?? "Resource"}
+              avatarLabel={resourceTitle(selectedResource)}
               onBack={recordNav.goBack}
               onPrev={recordNav.goPrev}
               onNext={recordNav.goNext}
               hasPrev={recordNav.hasPrev}
               hasNext={recordNav.hasNext}
               relatedLinks={[...DEFAULT_RELATED_LINKS]}
+              primaryAction={canManage ? (
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => openResourceEdit(selectedResource)}>
+                  Edit resource
+                </button>
+              ) : null}
               tabs={[
                 recordOverviewTab(
                   <RecordOverviewGrid>
-                    <RecordOverviewField label="Status" value={<StatusBadge status={selected.status} />} />
-                    <RecordOverviewField label="Type" value={selected.resourceType} />
-                    <RecordOverviewField label="Region" value={regionName(selected.regionId)} />
-                    <RecordOverviewField label="Employee code" value={selected.employeeCode ?? "—"} />
-                    <RecordOverviewField label="Designation" value={selected.designation ?? "—"} />
+                    <RecordOverviewField label="Employee" value={selectedResource.employeeName ?? "—"} />
+                    <RecordOverviewField label="Status" value={<StatusBadge status={selectedResource.status} />} />
+                    <RecordOverviewField label="Type" value={selectedResource.resourceType} />
+                    <RecordOverviewField label="Department" value={selectedResource.departmentName ?? "—"} />
+                    <RecordOverviewField label="Reporting manager" value={selectedResource.managerName ?? "—"} />
+                    <RecordOverviewField label="Region" value={regionName(selectedResource.regionId)} />
+                    <RecordOverviewField label="Employee code" value={selectedResource.employeeCode ?? "—"} />
+                    <RecordOverviewField label="Designation" value={selectedResource.designation ?? "—"} />
                     <RecordOverviewField
                       label="Capacity"
                       value={
-                        selected.capacityHoursPerWeek != null
-                          ? `${selected.capacityHoursPerWeek} hrs/week`
+                        selectedResource.capacityHoursPerWeek != null
+                          ? `${selectedResource.capacityHoursPerWeek} hrs/week`
                           : "—"
                       }
                     />
-                    <RecordOverviewField label="Joining date" value={selected.joiningDate ?? "—"} />
-                    {canViewRates ? (
+                    <RecordOverviewField label="Joining date" value={selectedResource.joiningDate ?? "—"} />
+                    {canViewCostRate ? (
+                      <RecordOverviewField label="Cost rate" value={formatRate(selectedResource.costRate)} />
+                    ) : null}
+                    {canViewBillingRate ? (
                       <>
-                        <RecordOverviewField label="Cost rate" value={formatRate(selected.costRate)} />
                         <RecordOverviewField
                           label="Billing rate"
-                          value={formatRate(selected.billingRate)}
+                          value={formatRate(selectedResource.billingRate)}
                         />
                       </>
                     ) : null}
@@ -710,7 +876,7 @@ export function ResourcesPage() {
                   </>,
                   { visible: canViewProjects || canViewTasks },
                 ),
-                recordTimelineTab(<ZohoRecordTimeline entries={timelineEntries} />, {
+                recordTimelineTab(<TechEarnestRecordTimeline entries={timelineEntries} />, {
                   visible: canViewActivities,
                   id: "timeline",
                 }),
@@ -728,19 +894,13 @@ export function ResourcesPage() {
       filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       primaryAction={
         canManage ? (
-          <button
-            type="button"
-            className="btn btn-primary btn-sm"
-            onClick={() => {
-              reset(RESOURCE_DEFAULTS);
-              setShowMore(false);
-              setShowForm(true);
-            }}
-          >
+          <button type="button" className="btn btn-primary btn-sm" onClick={openCreateResource}>
             Create Resource
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Resources by</p>
@@ -755,45 +915,9 @@ export function ResourcesPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Availability</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {RESOURCE_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
-            <label className="form-label small mb-1">Region</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={regionFilter}
-              onChange={(e) => setRegionFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(regionsQuery.data ?? []).map((region) => (
-                <option key={region.id} value={region.id}>
-                  {region.name}
-                </option>
-              ))}
-            </select>
-            <label className="form-label small mb-1">Skill</label>
-            <select
-              className="form-select form-select-sm"
-              value={skillFilter}
-              onChange={(e) => setSkillFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {(skillsCatalogQuery.data ?? []).map((skill) => (
-                <option key={skill.id} value={skill.id}>
-                  {skill.name}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Availability" value={statusFilter} onChange={setStatusFilter} options={resourceStatusOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search resource statuses" />
+            <TechEarnestFilterSelect label="Region" value={regionFilter} onChange={setRegionFilter} options={regionOptions} placeholder="All regions" emptyLabel="All regions" searchPlaceholder="Search regions" />
+            <TechEarnestFilterSelect label="Skill" value={skillFilter} onChange={setSkillFilter} options={skillFilterOptions} placeholder="All skills" emptyLabel="All skills" searchPlaceholder="Search skills" />
           </div>
         </>
       }
@@ -802,80 +926,69 @@ export function ResourcesPage() {
       {resourcesQuery.isLoading ? <LoadingState label="Loading resources..." /> : null}
       {resourcesQuery.error ? <ErrorState title="Unable to load resources" message="Try again." /> : null}
 
-      {!resourcesQuery.isLoading && !resourcesQuery.error ? (
+      {!resourcesQuery.isLoading && !resourcesQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({
+            canCreate: canManage,
+            createLabel: "Create Resource",
+            onCreate: openCreateResource,
+          })
+        : null}
+
+      {!resourcesQuery.isLoading && !resourcesQuery.error && (rows.length || activeFilterCount) ? (
         <div
           style={{ flex: 1, display: "flex", flexDirection: "column" }}
         >
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th>Designation</th>
-                    <th>Type</th>
-                    <th>Region</th>
-                    <th>Capacity</th>
-                    <th>Status</th>
-                    {canViewRates ? <th>Rates</th> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((resource) => (
-                    <tr
-                      key={resource.id}
-                      className={selected?.id === resource.id ? "is-selected" : undefined}
-                      onClick={() => {
-                        setSelected(resource);
-                        setSkillsError(null);
-                      }}
-                    >
-                      <td className="lead-name">{resource.employeeCode ?? "—"}</td>
-                      <td>{resource.designation ?? "—"}</td>
-                      <td>{resource.resourceType}</td>
-                      <td>{regionName(resource.regionId)}</td>
-                      <td>
-                        {resource.capacityHoursPerWeek != null
-                          ? `${resource.capacityHoursPerWeek}h`
-                          : "—"}
-                      </td>
-                      <td>
-                        <StatusBadge status={resource.status} />
-                      </td>
-                      {canViewRates ? (
-                        <td className="small">
-                          {resource.costRate != null || resource.billingRate != null
-                            ? `C ${resource.costRate ?? "—"} / B ${resource.billingRate ?? "—"}`
-                            : "—"}
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={canViewRates ? 7 : 6} className="text-center text-muted py-5">
-                        No resources match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+              tableCode="resource"
+              defaultColumns={[
+                { field: "employeeName", label: "Employee" },
+                { field: "employeeCode", label: "Code" },
+                { field: "designation", label: "Designation" },
+                { field: "resourceType", label: "Type" },
+                { field: "regionId", label: "Region" },
+                { field: "capacityHoursPerWeek", label: "Capacity" },
+                { field: "status", label: "Status" },
+                ...(canViewCostRate ? [{ field: "costRate", label: "Cost rate" }] : []),
+                ...(canViewBillingRate ? [{ field: "billingRate", label: "Billing rate" }] : []),
+              ]}
+              optionalColumns={RESOURCE_OPTIONAL_COLUMNS}
+              rows={rows}
+              rowKey={(resource) => resource.id}
+              selectedRowKey={(selected as Resource | null)?.id}
+              onRowClick={(resource) => {
+                setSelected(resource);
+                setSkillsError(null);
+              }}
+              renderCell={(resource, field) => {
+                if (field === "regionId") return regionName(resource.regionId);
+                if (field === "status") return <StatusBadge status={resource.status} />;
+                if (field === "capacityHoursPerWeek") return resource.capacityHoursPerWeek != null ? `${resource.capacityHoursPerWeek}h` : "—";
+                if (field === "costRate" || field === "billingRate") return formatRate((resource as unknown as Record<string, number | null>)[field]);
+                if (field === "createdAt" || field === "updatedAt") return formatDateTime(resource[field]);
+                if (field === "userId") return resource.employeeName ?? "—";
+                if (field === "managerId") return resource.managerName ?? "—";
+                if (field === "departmentId") return resource.departmentName ?? "—";
+                const value = (resource as unknown as Record<string, unknown>)[field];
+                return value == null || value === "" ? "—" : String(value);
+              }}
+              nameFields={["employeeName", "employeeCode", "designation"]}
+              excludedFields={[...(!canViewCostRate ? ["costRate"] : []), ...(!canViewBillingRate ? ["billingRate"] : [])]}
+              emptyMessage="No resources match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((resource) => (
                 <button
                   key={resource.id}
                   type="button"
-                  className={`module-tile text-start${selected?.id === resource.id ? " is-selected" : ""}`}
+                  className={`module-tile text-start${(selected as Resource | null)?.id === resource.id ? " is-selected" : ""}`}
                   onClick={() => {
                     setSelected(resource);
                     setSkillsError(null);
                   }}
                 >
-                  <div className="tile-title">
-                    {resource.designation ?? resource.employeeCode ?? "Resource"}
-                  </div>
+                  <div className="tile-title">{resourceTitle(resource)}</div>
                   <div className="small text-muted">
                     {resource.resourceType} · {resource.status}
                   </div>
@@ -888,6 +1001,7 @@ export function ResourcesPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {bulkImport.dialog}
     </>
   );
 }

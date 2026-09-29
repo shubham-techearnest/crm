@@ -1,11 +1,11 @@
 import { FormField } from "@/components/FormField/FormField";
 import {
-  ZohoDealStagePipeline,
-  ZohoRecordInfoSection,
-  ZohoRecordRelatedCard,
-  ZohoRecordSummaryStrip,
+  TechEarnestDealStagePipeline,
+  TechEarnestRecordInfoSection,
+  TechEarnestRecordRelatedCard,
+  TechEarnestRecordSummaryStrip,
   formatDealStage,
-} from "@/components/ZohoRecord";
+} from "@/components/TechEarnestRecord";
 import type { Deal } from "./crmApi";
 
 const DEAL_STAGES = [
@@ -91,7 +91,7 @@ export function DealRecordOverview({
 }: DealRecordOverviewProps) {
   return (
     <>
-      <ZohoDealStagePipeline
+      <TechEarnestDealStagePipeline
         stages={DEAL_STAGES}
         currentStage={deal.stage}
         startDate={deal.createdAt}
@@ -100,7 +100,7 @@ export function DealRecordOverview({
         disabled={stagePending}
       />
 
-      <ZohoRecordSummaryStrip
+      <TechEarnestRecordSummaryStrip
         fields={[
           { label: "Deal Owner", value: ownerName },
           { label: "Stage", value: formatDealStage(deal.stage) },
@@ -111,25 +111,25 @@ export function DealRecordOverview({
       />
 
       {contactName ? (
-        <div className="zoho-deal-contact-card">
-          <div className="zoho-deal-contact-avatar" aria-hidden="true">
+        <div className="techearnest-deal-contact-card">
+          <div className="techearnest-deal-contact-avatar" aria-hidden="true">
             {contactName.slice(0, 1).toUpperCase()}
           </div>
           <div>
-            <div className="zoho-deal-contact-name">{contactName}</div>
-            <div className="zoho-deal-contact-account">at {accountName}</div>
+            <div className="techearnest-deal-contact-name">{contactName}</div>
+            <div className="techearnest-deal-contact-account">at {accountName}</div>
           </div>
         </div>
       ) : null}
 
-      <ZohoRecordInfoSection
+      <TechEarnestRecordInfoSection
         title="Deal Information"
         fields={[
           { label: "Deal Owner", value: ownerName },
           { label: "Amount", value: formatMoney(deal.value) },
           { label: "Deal Name", value: deal.name },
           { label: "Closing Date", value: deal.expectedCloseDate ? new Date(deal.expectedCloseDate).toLocaleDateString() : "—" },
-          { label: "Account Name", value: <span className="zoho-record-link">{accountName}</span> },
+          { label: "Account Name", value: <span className="techearnest-record-link">{accountName}</span> },
           { label: "Stage", value: formatDealStage(deal.stage) },
           { label: "Type", value: deal.source ?? "—" },
           { label: "Probability (%)", value: deal.probability ?? "—" },
@@ -137,7 +137,7 @@ export function DealRecordOverview({
           { label: "Expected Revenue", value: expectedRevenue(deal) },
           { label: "Lead Source", value: deal.source ?? "—" },
           { label: "Campaign Source", value: deal.competitor ?? "—" },
-          { label: "Contact Name", value: contactName ? <span className="zoho-record-link">{contactName}</span> : "—" },
+          { label: "Contact Name", value: contactName ? <span className="techearnest-record-link">{contactName}</span> : "—" },
           {
             label: "Created By",
             value: `${new Date(deal.createdAt).toLocaleString()}`,
@@ -146,7 +146,7 @@ export function DealRecordOverview({
       />
 
       {deal.description ? (
-        <ZohoRecordInfoSection
+        <TechEarnestRecordInfoSection
           title="Description Information"
           collapsible={false}
           fields={[{ label: "Description", value: deal.description }]}
@@ -158,7 +158,7 @@ export function DealRecordOverview({
       {projectSuccess ? <div className="alert alert-success py-2">{projectSuccess}</div> : null}
 
       {canStage && deal.stage !== "WON" && deal.stage !== "LOST" ? (
-        <div className="zoho-deal-stage-actions mb-3">
+        <div className="techearnest-deal-stage-actions mb-3">
           <FormField label="Lost reason (if LOST)" value={lostReason} onChange={(e) => onLostReasonChange(e.target.value)} />
           <FormField
             label="Close date (if WON)"
@@ -175,14 +175,14 @@ export function DealRecordOverview({
         </button>
       ) : null}
 
-      <ZohoRecordRelatedCard
-        id="zoho-record-section-stage-history"
+      <TechEarnestRecordRelatedCard
+        id="techearnest-record-section-stage-history"
         title="Stage History"
         isEmpty={false}
         actions={<span className="badge text-bg-light">{DEAL_STAGES.indexOf(deal.stage as (typeof DEAL_STAGES)[number]) + 1}</span>}
       >
         <div className="table-responsive">
-          <table className="table table-sm zoho-record-table mb-0">
+          <table className="table table-sm techearnest-record-table mb-0">
             <thead>
               <tr>
                 <th>Stage</th>
@@ -205,24 +205,24 @@ export function DealRecordOverview({
             </tbody>
           </table>
         </div>
-      </ZohoRecordRelatedCard>
+      </TechEarnestRecordRelatedCard>
 
-      <ZohoRecordRelatedCard id="zoho-record-section-competitors" title="Competitors" isEmpty={!deal.competitor} emptyLabel="No records found">
+      <TechEarnestRecordRelatedCard id="techearnest-record-section-competitors" title="Competitors" isEmpty={!deal.competitor} emptyLabel="No records found">
         {deal.competitor ? <div>{deal.competitor}</div> : null}
-      </ZohoRecordRelatedCard>
+      </TechEarnestRecordRelatedCard>
 
-      <ZohoRecordRelatedCard id="zoho-record-section-open-activities" title="Open Activities" isEmpty emptyLabel="No records found" />
-      <ZohoRecordRelatedCard id="zoho-record-section-closed-activities" title="Closed Activities" isEmpty emptyLabel="No records found" />
+      <TechEarnestRecordRelatedCard id="techearnest-record-section-open-activities" title="Open Activities" isEmpty emptyLabel="No records found" />
+      <TechEarnestRecordRelatedCard id="techearnest-record-section-closed-activities" title="Closed Activities" isEmpty emptyLabel="No records found" />
 
-      <ZohoRecordRelatedCard
-        id="zoho-record-section-contact-roles"
+      <TechEarnestRecordRelatedCard
+        id="techearnest-record-section-contact-roles"
         title="Contact Roles"
         isEmpty={!contactName}
         emptyLabel="No records found"
       >
         {contactName ? (
           <div className="table-responsive">
-            <table className="table table-sm zoho-record-table mb-0">
+            <table className="table table-sm techearnest-record-table mb-0">
               <thead>
                 <tr>
                   <th>Contact Name</th>
@@ -232,19 +232,19 @@ export function DealRecordOverview({
               </thead>
               <tbody>
                 <tr>
-                  <td><span className="zoho-record-link">{contactName}</span></td>
-                  <td><span className="zoho-record-link">{accountName}</span></td>
+                  <td><span className="techearnest-record-link">{contactName}</span></td>
+                  <td><span className="techearnest-record-link">{accountName}</span></td>
                   <td>Primary Contact</td>
                 </tr>
               </tbody>
             </table>
           </div>
         ) : null}
-      </ZohoRecordRelatedCard>
+      </TechEarnestRecordRelatedCard>
 
       {canViewNotes ? (
-        <ZohoRecordRelatedCard
-          id="zoho-record-section-notes"
+        <TechEarnestRecordRelatedCard
+          id="techearnest-record-section-notes"
           title="Notes"
           isEmpty={!notes.length && !canCreateNotes}
           emptyLabel="No notes yet"
@@ -273,12 +273,12 @@ export function DealRecordOverview({
               </li>
             ))}
           </ul>
-        </ZohoRecordRelatedCard>
+        </TechEarnestRecordRelatedCard>
       ) : null}
 
       {canViewDocs ? (
-        <ZohoRecordRelatedCard
-          id="zoho-record-section-attachments"
+        <TechEarnestRecordRelatedCard
+          id="techearnest-record-section-attachments"
           title="Attachments"
           isEmpty={!documents.length}
           emptyLabel="No Attachment"
@@ -306,10 +306,10 @@ export function DealRecordOverview({
               </li>
             ))}
           </ul>
-        </ZohoRecordRelatedCard>
+        </TechEarnestRecordRelatedCard>
       ) : null}
 
-      <ZohoRecordRelatedCard id="zoho-record-section-emails" title="Emails" isEmpty emptyLabel="No records found" />
+      <TechEarnestRecordRelatedCard id="techearnest-record-section-emails" title="Emails" isEmpty emptyLabel="No records found" />
     </>
   );
 }

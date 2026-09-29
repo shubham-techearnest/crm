@@ -6,11 +6,10 @@ import { z } from "zod";
 import { UnsavedGuard } from "@/components/FormKit";
 import {
   enumPickerOptions,
-  ZohoFormSelect,
-  ZohoFormUserSelect,
-  type ZohoPickerUser,
-} from "@/components/ZohoCreate";
-import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
+  TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
+  type TechEarnestPickerUser,
+} from "@/components/TechEarnestCreate";
 import { useHasPermission } from "@/features/auth/AuthContext";
 import { LeadFormLayoutEditor } from "./LeadFormLayoutEditor";
 import {
@@ -70,7 +69,7 @@ type LeadFormValues = z.infer<typeof leadSchema>;
 
 export interface LeadCreateViewProps {
   regions: { id: string; name: string }[];
-  users: ZohoPickerUser[];
+  users: TechEarnestPickerUser[];
   defaultOwnerId: string;
   defaultRegionId?: string;
   onCancel: () => void;
@@ -122,7 +121,7 @@ function buildCreateBody(values: LeadFormValues): Parameters<typeof createLead>[
   };
 }
 
-function ZohoField({
+function TechEarnestField({
   label,
   required,
   error,
@@ -139,10 +138,10 @@ function ZohoField({
 }) {
   return (
     <div
-      className={`zoho-field${required ? " zoho-field--required" : ""}${wide ? " zoho-field--wide" : ""} ${className}`.trim()}
+      className={`techearnest-field${required ? " techearnest-field--required" : ""}${wide ? " techearnest-field--wide" : ""} ${className}`.trim()}
     >
-      <label className={`zoho-field-label${required ? " required" : ""}`}>{label}</label>
-      <div className="zoho-field-control">
+      <label className={`techearnest-field-label${required ? " required" : ""}`}>{label}</label>
+      <div className="techearnest-field-control">
         {children}
         {error ? <div className="invalid-feedback d-block">{error}</div> : null}
       </div>
@@ -317,26 +316,26 @@ export function LeadCreateView({
   const pending = isSubmitting || createMutation.isPending;
 
   return (
-    <div className="zoho-create-page">
-      <div className="zoho-create-topbar">
-        <div className="zoho-create-topbar-left">
-          <h1 className="zoho-create-title">Create Lead</h1>
+    <div className="techearnest-create-page">
+      <div className="techearnest-create-topbar">
+        <div className="techearnest-create-topbar-left">
+          <h1 className="techearnest-create-title">Create Lead</h1>
           <button
             type="button"
-            className="zoho-create-layout-link"
+            className="techearnest-create-layout-link"
             title={canManageLayout ? "Customize lead create form sections" : "View lead create form layout"}
             onClick={() => setLayoutEditorOpen(true)}
           >
             Edit Page Layout
           </button>
         </div>
-        <div className="zoho-create-topbar-actions">
-          <button type="button" className="btn btn-light btn-sm zoho-create-btn" onClick={requestCancel}>
+        <div className="techearnest-create-topbar-actions">
+          <button type="button" className="btn btn-light btn-sm techearnest-create-btn" onClick={requestCancel}>
             Cancel
           </button>
           <button
             type="button"
-            className="btn btn-light btn-sm zoho-create-btn"
+            className="btn btn-light btn-sm techearnest-create-btn"
             disabled={pending}
             onClick={() => {
               setSaveMode("saveAndNew");
@@ -347,7 +346,7 @@ export function LeadCreateView({
           </button>
           <button
             type="button"
-            className="btn btn-primary btn-sm zoho-create-btn zoho-create-btn--save"
+            className="btn btn-primary btn-sm techearnest-create-btn techearnest-create-btn--save"
             disabled={pending}
             onClick={() => {
               setSaveMode("save");
@@ -360,7 +359,7 @@ export function LeadCreateView({
       </div>
 
       <form
-        className="zoho-create-form"
+        className="techearnest-create-form"
         onSubmit={(event) => {
           event.preventDefault();
           setSaveMode("save");
@@ -405,29 +404,29 @@ export function LeadCreateView({
           </div>
         ) : null}
 
-        <div className="zoho-create-layout" key={layoutVersion}>
-          <div className="zoho-create-fields">
-            <section className="zoho-create-section zoho-create-section--lead-image">
-              <h2 className="zoho-create-section-title">Lead Image</h2>
-              <div className="zoho-lead-image-block">
+        <div className="techearnest-create-layout" key={layoutVersion}>
+          <div className="techearnest-create-fields">
+            <section className="techearnest-create-section techearnest-create-section--lead-image">
+              <h2 className="techearnest-create-section-title">Lead Image</h2>
+              <div className="techearnest-lead-image-block">
                 <input
                   ref={photoInputRef}
                   type="file"
                   accept="image/jpeg,image/png,image/gif,image/webp"
-                  className="zoho-create-avatar-input"
+                  className="techearnest-create-avatar-input"
                   onChange={onPhotoSelected}
                 />
                 <button
                   type="button"
-                  className="zoho-lead-image-btn"
+                  className="techearnest-lead-image-btn"
                   onClick={() => photoInputRef.current?.click()}
                   title={photoFile ? "Change lead photo" : "Upload lead photo"}
                   aria-label={photoFile ? "Change lead photo" : "Upload lead photo"}
                 >
                   {photoPreviewUrl ? (
-                    <img src={photoPreviewUrl} alt="" className="zoho-lead-image-preview" />
+                    <img src={photoPreviewUrl} alt="" className="techearnest-lead-image-preview" />
                   ) : (
-                    <span className="zoho-lead-image-placeholder" aria-hidden="true">
+                    <span className="techearnest-lead-image-placeholder" aria-hidden="true">
                       <svg viewBox="0 0 24 24" focusable="false">
                         <circle cx="12" cy="8" r="4.25" fill="currentColor" />
                         <path
@@ -442,7 +441,7 @@ export function LeadCreateView({
                   )}
                 </button>
                 {photoFile ? (
-                  <div className="zoho-lead-image-actions">
+                  <div className="techearnest-lead-image-actions">
                     <button type="button" className="btn btn-link btn-sm p-0" onClick={() => photoInputRef.current?.click()}>
                       Change
                     </button>
@@ -456,23 +455,23 @@ export function LeadCreateView({
               </div>
             </section>
 
-            <section className="zoho-create-section">
-              <h2 className="zoho-create-section-title">Lead Information</h2>
-              <div className="zoho-create-grid">
-                <div className="zoho-create-col">
-                  <ZohoField label="Lead Owner">
-                    <ZohoFormUserSelect
+            <section className="techearnest-create-section">
+              <h2 className="techearnest-create-section-title">Lead Information</h2>
+              <div className="techearnest-create-grid">
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Lead Owner">
+                    <TechEarnestFormUserSelect
                       control={control}
                       name="ownerId"
                       users={users}
                       allowEmpty={false}
                       searchPlaceholder="Search Users"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="First Name">
+                  <TechEarnestField label="First Name">
                     <div className="input-group input-group-sm">
-                      <select className="form-select zoho-salutation-select" {...register("salutation")}>
+                      <select className="form-select techearnest-salutation-select" {...register("salutation")}>
                         {LEAD_SALUTATIONS.map((item) => (
                           <option key={item || "none"} value={item}>
                             {item ? item : "—None—"}
@@ -481,166 +480,166 @@ export function LeadCreateView({
                       </select>
                       <input type="text" className="form-control" {...register("firstName")} />
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Title" error={errors.designation?.message}>
+                  <TechEarnestField label="Title" error={errors.designation?.message}>
                     <input type="text" className="form-control form-control-sm" {...register("designation")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Phone">
+                  <TechEarnestField label="Phone">
                     <input type="tel" className="form-control form-control-sm" {...register("phone")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Mobile">
+                  <TechEarnestField label="Mobile">
                     <input type="tel" className="form-control form-control-sm" {...register("mobile")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Lead Source">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Lead Source">
+                    <TechEarnestFormSelect
                       control={control}
                       name="source"
                       options={sourceOptions}
                       searchPlaceholder="Search Lead Sources"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Industry">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Industry">
+                    <TechEarnestFormSelect
                       control={control}
                       name="industry"
                       options={industryOptions}
                       searchPlaceholder="Search Industries"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Annual Revenue" error={errors.estimatedValue?.message}>
+                  <TechEarnestField label="Annual Revenue" error={errors.estimatedValue?.message}>
                     <div className="input-group input-group-sm">
                       <span className="input-group-text">Rs.</span>
                       <input type="number" min={0} step="0.01" className="form-control" {...register("estimatedValue")} />
-                      <button type="button" className="btn btn-light zoho-info-btn" tabIndex={-1} title="Estimated annual revenue">
+                      <button type="button" className="btn btn-light techearnest-info-btn" tabIndex={-1} title="Estimated annual revenue">
                         i
                       </button>
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Email Opt Out">
-                    <div className="form-check zoho-checkbox-field">
+                  <TechEarnestField label="Email Opt Out">
+                    <div className="form-check techearnest-checkbox-field">
                       <input type="checkbox" className="form-check-input" id="leadEmailOptOut" {...register("emailOptOut")} />
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
 
-                <div className="zoho-create-col">
-                  <ZohoField label="Company" required error={errors.companyName?.message}>
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Company" required error={errors.companyName?.message}>
                     <input
                       type="text"
                       className={`form-control form-control-sm${errors.companyName ? " is-invalid" : ""}`}
                       {...register("companyName")}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Last Name" required error={errors.lastName?.message}>
+                  <TechEarnestField label="Last Name" required error={errors.lastName?.message}>
                     <input
                       type="text"
                       className={`form-control form-control-sm${errors.lastName ? " is-invalid" : ""}`}
                       {...register("lastName")}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Email" error={errors.email?.message}>
+                  <TechEarnestField label="Email" error={errors.email?.message}>
                     <input
                       type="email"
                       className={`form-control form-control-sm${errors.email ? " is-invalid" : ""}`}
                       {...register("email")}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Fax">
+                  <TechEarnestField label="Fax">
                     <input type="text" className="form-control form-control-sm" {...register("fax")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Website">
+                  <TechEarnestField label="Website">
                     <input type="url" className="form-control form-control-sm" {...register("website")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Lead Status">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Lead Status">
+                    <TechEarnestFormSelect
                       control={control}
                       name="status"
                       options={statusOptions}
                       searchPlaceholder="Search Statuses"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="No. of Employees" error={errors.noOfEmployees?.message}>
+                  <TechEarnestField label="No. of Employees" error={errors.noOfEmployees?.message}>
                     <input type="number" min={0} className="form-control form-control-sm" {...register("noOfEmployees")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Rating">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Rating">
+                    <TechEarnestFormSelect
                       control={control}
                       name="rating"
                       options={ratingOptions}
                       searchPlaceholder="Search Ratings"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Skype ID">
+                  <TechEarnestField label="Skype ID">
                     <input type="text" className="form-control form-control-sm" {...register("skypeId")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Secondary Email" error={errors.secondaryEmail?.message}>
+                  <TechEarnestField label="Secondary Email" error={errors.secondaryEmail?.message}>
                     <input
                       type="email"
                       className={`form-control form-control-sm${errors.secondaryEmail ? " is-invalid" : ""}`}
                       {...register("secondaryEmail")}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Twitter">
+                  <TechEarnestField label="Twitter">
                     <div className="input-group input-group-sm">
                       <span className="input-group-text">@</span>
                       <input type="text" className="form-control" {...register("twitter")} />
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
               </div>
             </section>
 
-            <section className="zoho-create-section">
-              <h2 className="zoho-create-section-title">Address Information</h2>
-              <div className="zoho-address-box">
-                <div className="zoho-address-box-title">Address</div>
-                <ZohoField label="Country / Region" wide>
-                  <ZohoFormSelect
+            <section className="techearnest-create-section">
+              <h2 className="techearnest-create-section-title">Address Information</h2>
+              <div className="techearnest-address-box">
+                <div className="techearnest-address-box-title">Address</div>
+                <TechEarnestField label="Country / Region" wide>
+                  <TechEarnestFormSelect
                     control={control}
                     name="addressCountry"
                     options={countryOptions}
                     searchPlaceholder="Search Countries"
                   />
-                </ZohoField>
-                <ZohoField label="Flat / House No. / Building / Apartment Name" wide>
+                </TechEarnestField>
+                <TechEarnestField label="Flat / House No. / Building / Apartment Name" wide>
                   <input type="text" className="form-control form-control-sm" {...register("addressFlat")} />
-                </ZohoField>
-                <ZohoField label="Street Address" wide>
+                </TechEarnestField>
+                <TechEarnestField label="Street Address" wide>
                   <input type="text" className="form-control form-control-sm" {...register("addressStreet")} />
-                </ZohoField>
-                <ZohoField label="City" wide>
+                </TechEarnestField>
+                <TechEarnestField label="City" wide>
                   <input type="text" className="form-control form-control-sm" {...register("addressCity")} />
-                </ZohoField>
-                <ZohoField label="State / Province" wide>
-                  <ZohoFormSelect
+                </TechEarnestField>
+                <TechEarnestField label="State / Province" wide>
+                  <TechEarnestFormSelect
                     control={control}
                     name="addressState"
                     options={stateOptions}
                     searchPlaceholder="Search States"
                   />
-                </ZohoField>
-                <ZohoField label="Zip / Postal Code" wide>
+                </TechEarnestField>
+                <TechEarnestField label="Zip / Postal Code" wide>
                   <input type="text" className="form-control form-control-sm" {...register("addressZip")} />
-                </ZohoField>
-                <ZohoField label="Coordinates" wide>
-                  <div className="zoho-coordinates">
+                </TechEarnestField>
+                <TechEarnestField label="Coordinates" wide>
+                  <div className="techearnest-coordinates">
                     <input
                       type="text"
                       className="form-control form-control-sm"
@@ -654,8 +653,8 @@ export function LeadCreateView({
                       {...register("addressLongitude")}
                     />
                   </div>
-                </ZohoField>
-                <div className="zoho-address-clear">
+                </TechEarnestField>
+                <div className="techearnest-address-clear">
                   <button type="button" className="btn btn-link btn-sm" onClick={clearAddress}>
                     Clear All
                   </button>
@@ -663,11 +662,11 @@ export function LeadCreateView({
               </div>
             </section>
 
-            <section className="zoho-create-section">
-              <h2 className="zoho-create-section-title">Description Information</h2>
-              <ZohoField label="Description" wide>
+            <section className="techearnest-create-section">
+              <h2 className="techearnest-create-section-title">Description Information</h2>
+              <TechEarnestField label="Description" wide>
                 <textarea className="form-control form-control-sm" rows={5} {...register("description")} />
-              </ZohoField>
+              </TechEarnestField>
             </section>
           </div>
         </div>

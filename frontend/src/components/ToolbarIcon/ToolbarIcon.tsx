@@ -21,8 +21,10 @@ export type ToolbarIconName =
   | "upload"
   | "export"
   | "columns"
+  | "eye"
   | "users"
-  | "building";
+  | "building"
+  | "trash";
 
 interface ToolbarIconProps {
   name: ToolbarIconName;
@@ -172,6 +174,12 @@ const ICONS: Record<ToolbarIconName, ReactNode> = {
       <path d="M8 6h2M8 8.5h2" />
     </>
   ),
+  eye: (
+    <>
+      <path d="M1.8 8s2.1-3.5 6.2-3.5S14.2 8 14.2 8s-2.1 3.5-6.2 3.5S1.8 8 1.8 8Z" />
+      <circle cx="8" cy="8" r="1.6" />
+    </>
+  ),
   users: (
     <>
       <circle cx="5.5" cy="6" r="1.75" />
@@ -184,6 +192,12 @@ const ICONS: Record<ToolbarIconName, ReactNode> = {
       <path d="M3.5 13V5.5l4.5-2 4.5 2V13" />
       <path d="M6.5 13V9.5h3V13" />
       <path d="M3.5 7.5 8 9.5 12.5 7.5" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M3.5 5h9M6 5V3.5h4V5M5 5l.5 8h5L11 5" />
+      <path d="M6.75 7v4M9.25 7v4" />
     </>
   ),
 };

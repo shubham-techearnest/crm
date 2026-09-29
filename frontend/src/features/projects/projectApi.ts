@@ -346,6 +346,10 @@ export async function updateTask(id: string, body: UpdateTaskBody): Promise<Proj
   return unwrap(data);
 }
 
+export async function deleteTask(id: string): Promise<void> {
+  await api.delete(`/tasks/${id}`);
+}
+
 export async function assignTask(id: string, body: AssignTaskBody): Promise<ProjectTask> {
   const { data } = await api.post<ApiResponse<ProjectTask>>(`/tasks/${id}/assign`, body);
   return unwrap(data);

@@ -21,6 +21,9 @@ import com.techearnest.crm.deal.domain.Deal;
 import com.techearnest.crm.deal.domain.DealRepository;
 import com.techearnest.crm.region.domain.Region;
 import com.techearnest.crm.region.domain.RegionRepository;
+import com.techearnest.crm.project.api.dto.ProjectDtos.ProjectResponse;
+import com.techearnest.crm.project.domain.Project;
+import com.techearnest.crm.project.domain.ProjectRepository;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -37,6 +40,7 @@ public class AccountService {
     private final DealRepository dealRepository;
     private final ActivityRepository activityRepository;
     private final RegionRepository regionRepository;
+    private final ProjectRepository projectRepository;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
 
@@ -46,6 +50,7 @@ public class AccountService {
             DealRepository dealRepository,
             ActivityRepository activityRepository,
             RegionRepository regionRepository,
+            ProjectRepository projectRepository,
             TenantAccess tenantAccess,
             AuditService auditService) {
         this.accountRepository = accountRepository;
@@ -53,6 +58,7 @@ public class AccountService {
         this.dealRepository = dealRepository;
         this.activityRepository = activityRepository;
         this.regionRepository = regionRepository;
+        this.projectRepository = projectRepository;
         this.tenantAccess = tenantAccess;
         this.auditService = auditService;
     }
@@ -185,11 +191,26 @@ public class AccountService {
     @Transactional(readOnly = true)
     public ProjectPageResult listProjects(UUID accountId, Pageable pageable) {
         tenantAccess.requirePermission("ACCOUNT_VIEW");
-        requireVisibleAccount(accountId);
+        tenantAccess.requirePermission("PROJECT_VIEW");
+        Account account = requireVisibleAccount(accountId);
+        Collection<UUID> regionIds = tenantAccess.regionFilterOrNull();
+        Collection<UUID> managerIds = tenantAccess.ownerIdsFilterOrNull();
+        Page<Project> page = projectRepository.search(
+                account.getOrganizationId(),
+                null,
+                regionIds,
+                managerIds,
+                null,
+                accountId,
+                null,
+                null,
+                null,
+                false,
+                pageable);
         return new ProjectPageResult(
-                List.of(),
-                new PaginationMeta(pageable.getPageNumber(), pageable.getPageSize(), 0, 0),
-                "Projects will be available in Phase 6");
+                page.getContent().stream().map(project -> ProjectResponse.from(project, null, null)).toList(),
+                PaginationMeta.from(page),
+                "Account projects");
     }
 
     private Account requireVisibleAccount(UUID id) {
@@ -222,5 +243,5 @@ public class AccountService {
 
     public record ActivityPageResult(List<ActivityResponse> data, PaginationMeta pagination) {}
 
-    public record ProjectPageResult(List<?> data, PaginationMeta pagination, String message) {}
+    public record ProjectPageResult(List<ProjectResponse> data, PaginationMeta pagination, String message) {}
 }

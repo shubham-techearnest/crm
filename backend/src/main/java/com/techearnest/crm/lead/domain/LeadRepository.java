@@ -58,8 +58,9 @@ public interface LeadRepository extends JpaRepository<Lead, UUID>, JpaSpecificat
             where l.organizationId = :organizationId
               and l.deletedAt is null
               and (
-                (:email is not null and lower(l.email) = lower(:email))
-                or (:companyName is not null and lower(l.companyName) = lower(:companyName))
+                (cast(:email as string) is not null and lower(l.email) = lower(cast(:email as string)))
+                or (cast(:companyName as string) is not null
+                    and lower(l.companyName) = lower(cast(:companyName as string)))
               )
             order by l.createdAt desc
             """)

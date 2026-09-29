@@ -33,7 +33,7 @@ export function PlatformOrganizationDetailPage() {
     return <LoadingState label="Loading organization…" />;
   }
   if (query.isError || !query.data) {
-    return <ErrorState title="Organization not found" />;
+    return <ErrorState title="Organization not found" message="The organization could not be loaded." />;
   }
 
   const org = query.data;

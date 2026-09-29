@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { Control, FieldError, FieldErrors, FieldValues, Path, UseFormRegister } from "react-hook-form";
 import { FormField } from "@/components/FormField/FormField";
 import { FormMoreDetails, FormSection } from "@/components/FormKit";
-import { ZohoFormSelect } from "@/components/ZohoCreate";
+import { TechEarnestFormSelect } from "@/components/TechEarnestCreate";
 import type { FormLayoutJson, SysField } from "@/features/admin/studio/metadataApi";
 
 export interface DynamicFormOption {
@@ -93,7 +93,7 @@ export function DynamicForm<T extends FieldValues>({
       return (
         <div className={col} key={code}>
           <label className={`form-label${meta.mandatory ? " required" : ""}`}>{meta.label}</label>
-          <ZohoFormSelect
+          <TechEarnestFormSelect
             control={control}
             name={path}
             options={pickerOptions}

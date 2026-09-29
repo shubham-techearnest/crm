@@ -1,5 +1,5 @@
 import { createBrowserRouter, Navigate } from "react-router-dom";
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { AppShell } from "@/layouts/AppShell";
 import { PlatformShell } from "@/layouts/PlatformShell";
 import { AuthLayout } from "@/layouts/AuthLayout";
@@ -7,52 +7,58 @@ import { GuestGuard } from "@/features/auth/GuestGuard";
 import { AuthGuard } from "@/features/auth/AuthGuard";
 import { PlatformGuard, TenantGuard } from "@/features/auth/ScopeGuards";
 import { RoutePermission } from "@/components/PermissionGuard/RoutePermission";
-import { DashboardsPage } from "@/features/dashboards/DashboardsPage";
-import { UsersPage } from "@/features/admin/UsersPage";
-import { RolesPage } from "@/features/admin/RolesPage";
-import { RegionsPage } from "@/features/admin/RegionsPage";
-import { DepartmentsPage } from "@/features/admin/DepartmentsPage";
-import { SettingsPage } from "@/features/admin/SettingsPage";
-import { AuditLogsPage } from "@/features/admin/AuditLogsPage";
-import { StudioPage } from "@/features/admin/studio/StudioPage";
-import { AclMatrixPage } from "@/features/admin/AclMatrixPage";
-import { FieldAclMatrixPage } from "@/features/admin/FieldAclMatrixPage";
-import { LeadsPage } from "@/features/crm/LeadsPage";
-import { ContactsPage } from "@/features/crm/ContactsPage";
-import { AccountsPage } from "@/features/crm/AccountsPage";
-import { DealsPage } from "@/features/crm/DealsPage";
-import { ActivitiesPage } from "@/features/crm/ActivitiesPage";
-import { DocumentsPage } from "@/features/crm/DocumentsPage";
-import { ProjectsPage } from "@/features/projects/ProjectsPage";
-import { TasksPage } from "@/features/projects/TasksPage";
-import { MilestonesPage } from "@/features/projects/MilestonesPage";
-import { ResourcesPage } from "@/features/resources/ResourcesPage";
-import { AllocationsPage } from "@/features/resources/AllocationsPage";
-import { SkillsPage } from "@/features/resources/SkillsPage";
-import { TimesheetsPage } from "@/features/timesheets/TimesheetsPage";
-import { ApprovalsPage } from "@/features/approvals/ApprovalsPage";
-import { TaxRatesPage } from "@/features/finance/TaxRatesPage";
-import { InvoicesPage } from "@/features/finance/InvoicesPage";
-import { ContractsPage } from "@/features/contracts/ContractsPage";
-import { ExpensesPage } from "@/features/expenses/ExpensesPage";
-import { VendorsPage } from "@/features/procurement/VendorsPage";
-import { PurchaseOrdersPage } from "@/features/procurement/PurchaseOrdersPage";
-import { ReportsPage } from "@/features/reports/ReportsPage";
-import { WorkflowAdminPage } from "@/features/admin/WorkflowAdminPage";
 import { PortalGuard } from "@/features/portal/PortalGuard";
-import { PortalLoginPage } from "@/features/portal/PortalLoginPage";
-import { PortalHomePage } from "@/features/portal/PortalHomePage";
-import { PortalListPage } from "@/features/portal/PortalListPage";
 import { PortalShell } from "@/layouts/PortalShell";
-import { PlatformDashboardPage } from "@/features/platform/PlatformDashboardPage";
-import { PlatformPlaceholderPage } from "@/features/platform/PlatformPlaceholderPage";
-import { PlatformProspectsPage } from "@/features/platform/PlatformProspectsPage";
-import { PlatformOrganizationsPage } from "@/features/platform/PlatformOrganizationsPage";
-import { PlatformOrganizationCreatePage } from "@/features/platform/PlatformOrganizationCreatePage";
-import { PlatformOrganizationDetailPage } from "@/features/platform/PlatformOrganizationDetailPage";
+
+const DashboardsPage = lazy(() => import("@/features/dashboards/DashboardsPage").then((m) => ({ default: m.DashboardsPage })));
+const UsersPage = lazy(() => import("@/features/admin/UsersPage").then((m) => ({ default: m.UsersPage })));
+const RolesPage = lazy(() => import("@/features/admin/RolesPage").then((m) => ({ default: m.RolesPage })));
+const RegionsPage = lazy(() => import("@/features/admin/RegionsPage").then((m) => ({ default: m.RegionsPage })));
+const DepartmentsPage = lazy(() => import("@/features/admin/DepartmentsPage").then((m) => ({ default: m.DepartmentsPage })));
+const TeamsPage = lazy(() => import("@/features/admin/TeamsPage").then((m) => ({ default: m.TeamsPage })));
+const SettingsPage = lazy(() => import("@/features/admin/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const AuditLogsPage = lazy(() => import("@/features/admin/AuditLogsPage").then((m) => ({ default: m.AuditLogsPage })));
+const StudioPage = lazy(() => import("@/features/admin/studio/StudioPage").then((m) => ({ default: m.StudioPage })));
+const AclMatrixPage = lazy(() => import("@/features/admin/AclMatrixPage").then((m) => ({ default: m.AclMatrixPage })));
+const FieldAclMatrixPage = lazy(() => import("@/features/admin/FieldAclMatrixPage").then((m) => ({ default: m.FieldAclMatrixPage })));
+const LeadsPage = lazy(() => import("@/features/crm/LeadsPage").then((m) => ({ default: m.LeadsPage })));
+const ContactsPage = lazy(() => import("@/features/crm/ContactsPage").then((m) => ({ default: m.ContactsPage })));
+const AccountsPage = lazy(() => import("@/features/crm/AccountsPage").then((m) => ({ default: m.AccountsPage })));
+const DealsPage = lazy(() => import("@/features/crm/DealsPage").then((m) => ({ default: m.DealsPage })));
+const ActivitiesPage = lazy(() => import("@/features/crm/ActivitiesPage").then((m) => ({ default: m.ActivitiesPage })));
+const DocumentsPage = lazy(() => import("@/features/crm/DocumentsPage").then((m) => ({ default: m.DocumentsPage })));
+const ProjectsPage = lazy(() => import("@/features/projects/ProjectsPage").then((m) => ({ default: m.ProjectsPage })));
+const TasksPage = lazy(() => import("@/features/projects/TasksPage").then((m) => ({ default: m.TasksPage })));
+const MilestonesPage = lazy(() => import("@/features/projects/MilestonesPage").then((m) => ({ default: m.MilestonesPage })));
+const ResourcesPage = lazy(() => import("@/features/resources/ResourcesPage").then((m) => ({ default: m.ResourcesPage })));
+const AllocationsPage = lazy(() => import("@/features/resources/AllocationsPage").then((m) => ({ default: m.AllocationsPage })));
+const SkillsPage = lazy(() => import("@/features/resources/SkillsPage").then((m) => ({ default: m.SkillsPage })));
+const TimesheetsPage = lazy(() => import("@/features/timesheets/TimesheetsPage").then((m) => ({ default: m.TimesheetsPage })));
+const ApprovalsPage = lazy(() => import("@/features/approvals/ApprovalsPage").then((m) => ({ default: m.ApprovalsPage })));
+const TaxRatesPage = lazy(() => import("@/features/finance/TaxRatesPage").then((m) => ({ default: m.TaxRatesPage })));
+const InvoicesPage = lazy(() => import("@/features/finance/InvoicesPage").then((m) => ({ default: m.InvoicesPage })));
+const ContractsPage = lazy(() => import("@/features/contracts/ContractsPage").then((m) => ({ default: m.ContractsPage })));
+const ExpensesPage = lazy(() => import("@/features/expenses/ExpensesPage").then((m) => ({ default: m.ExpensesPage })));
+const VendorsPage = lazy(() => import("@/features/procurement/VendorsPage").then((m) => ({ default: m.VendorsPage })));
+const PurchaseOrdersPage = lazy(() => import("@/features/procurement/PurchaseOrdersPage").then((m) => ({ default: m.PurchaseOrdersPage })));
+const ReportsPage = lazy(() => import("@/features/reports/ReportsPage").then((m) => ({ default: m.ReportsPage })));
+const WorkflowAdminPage = lazy(() => import("@/features/admin/WorkflowAdminPage").then((m) => ({ default: m.WorkflowAdminPage })));
+const PortalLoginPage = lazy(() => import("@/features/portal/PortalLoginPage").then((m) => ({ default: m.PortalLoginPage })));
+const PortalHomePage = lazy(() => import("@/features/portal/PortalHomePage").then((m) => ({ default: m.PortalHomePage })));
+const PortalListPage = lazy(() => import("@/features/portal/PortalListPage").then((m) => ({ default: m.PortalListPage })));
+const PlatformDashboardPage = lazy(() => import("@/features/platform/PlatformDashboardPage").then((m) => ({ default: m.PlatformDashboardPage })));
+const PlatformPlaceholderPage = lazy(() => import("@/features/platform/PlatformPlaceholderPage").then((m) => ({ default: m.PlatformPlaceholderPage })));
+const PlatformProspectsPage = lazy(() => import("@/features/platform/PlatformProspectsPage").then((m) => ({ default: m.PlatformProspectsPage })));
+const PlatformOrganizationsPage = lazy(() => import("@/features/platform/PlatformOrganizationsPage").then((m) => ({ default: m.PlatformOrganizationsPage })));
+const PlatformOrganizationCreatePage = lazy(() => import("@/features/platform/PlatformOrganizationCreatePage").then((m) => ({ default: m.PlatformOrganizationCreatePage })));
+const PlatformOrganizationDetailPage = lazy(() => import("@/features/platform/PlatformOrganizationDetailPage").then((m) => ({ default: m.PlatformOrganizationDetailPage })));
+
+function suspend(element: ReactNode) {
+  return <Suspense fallback={<div className="route-loading" role="status">Loading page…</div>}>{element}</Suspense>;
+}
 
 function guard(anyOf: string[], element: ReactNode) {
-  return <RoutePermission anyOf={anyOf}>{element}</RoutePermission>;
+  return suspend(<RoutePermission anyOf={anyOf}>{element}</RoutePermission>);
 }
 
 export const router = createBrowserRouter([
@@ -60,7 +66,7 @@ export const router = createBrowserRouter([
     element: <AuthLayout />,
     children: [
       { path: "/login", element: <GuestGuard /> },
-      { path: "/portal/login", element: <PortalLoginPage /> },
+      { path: "/portal/login", element: suspend(<PortalLoginPage />) },
     ],
   },
   {
@@ -70,10 +76,10 @@ export const router = createBrowserRouter([
       {
         element: <PortalShell />,
         children: [
-          { index: true, element: <PortalHomePage /> },
-          { path: "projects", element: <PortalListPage tab="projects" /> },
-          { path: "invoices", element: <PortalListPage tab="invoices" /> },
-          { path: "documents", element: <PortalListPage tab="documents" /> },
+          { index: true, element: suspend(<PortalHomePage />) },
+          { path: "projects", element: suspend(<PortalListPage tab="projects" />) },
+          { path: "invoices", element: suspend(<PortalListPage tab="invoices" />) },
+          { path: "documents", element: suspend(<PortalListPage tab="documents" />) },
         ],
       },
     ],
@@ -87,30 +93,30 @@ export const router = createBrowserRouter([
           {
             element: <PlatformShell />,
             children: [
-              { path: "/platform", element: <PlatformDashboardPage /> },
-              { path: "/platform/organizations", element: <PlatformOrganizationsPage /> },
-              { path: "/platform/organizations/new", element: <PlatformOrganizationCreatePage /> },
-              { path: "/platform/organizations/:id", element: <PlatformOrganizationDetailPage /> },
+              { path: "/platform", element: suspend(<PlatformDashboardPage />) },
+              { path: "/platform/organizations", element: suspend(<PlatformOrganizationsPage />) },
+              { path: "/platform/organizations/new", element: suspend(<PlatformOrganizationCreatePage />) },
+              { path: "/platform/organizations/:id", element: suspend(<PlatformOrganizationDetailPage />) },
               {
                 path: "/platform/prospects",
-                element: <PlatformProspectsPage />,
+                element: suspend(<PlatformProspectsPage />),
               },
               {
                 path: "/platform/settings",
-                element: (
+                element: suspend(
                   <PlatformPlaceholderPage
                     title="Platform Settings"
                     description="Feature flags and platform-level defaults will land in a later sprint."
-                  />
+                  />,
                 ),
               },
               {
                 path: "/platform/audit",
-                element: (
+                element: suspend(
                   <PlatformPlaceholderPage
                     title="Platform Audit"
                     description="Platform-scoped audit of org create/suspend actions is planned with Organizations."
-                  />
+                  />,
                 ),
               },
             ],
@@ -167,6 +173,7 @@ export const router = createBrowserRouter([
               { path: "/admin/roles", element: guard(["ROLE_VIEW"], <RolesPage />) },
               { path: "/admin/regions", element: guard(["REGION_VIEW"], <RegionsPage />) },
               { path: "/admin/departments", element: guard(["DEPARTMENT_VIEW"], <DepartmentsPage />) },
+              { path: "/admin/teams", element: guard(["TEAM_VIEW"], <TeamsPage />) },
               { path: "/admin/settings", element: guard(["ORG_VIEW"], <SettingsPage />) },
               { path: "/admin/studio", element: guard(["METADATA_VIEW"], <StudioPage />) },
               { path: "/admin/acl-matrix", element: guard(["ACL_VIEW"], <AclMatrixPage />) },

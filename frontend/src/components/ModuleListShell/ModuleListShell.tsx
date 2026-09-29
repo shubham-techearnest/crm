@@ -5,7 +5,6 @@ import { NavIcon } from "@/components/NavIcon/NavIcon";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import {
   ModuleFilterButton,
-  ModuleMoreButton,
   ModulePagination,
   ModuleRecordCount,
   ModuleSearchInput,
@@ -33,6 +32,9 @@ export {
 } from "./moduleWorkspaceUi";
 export { ModuleCreateSplit, ModuleMenuDropdown, type ModuleMenuItem } from "./ModuleMenuDropdown";
 export type { ModulePaginationProps } from "./moduleWorkspaceUi";
+export { ModuleListTable, useModuleListColumns } from "./ModuleListTable";
+export type { ModuleListColumnsState, ModuleListTableProps } from "./ModuleListTable";
+export { ManageColumnsModal } from "./ManageColumnsModal";
 
 interface ModuleListShellProps {
   title: string;
@@ -107,7 +109,7 @@ function resolveViewTabs(viewSelector: ReactNode | undefined): ReactNode {
   return <div className="module-list-view">{viewSelector}</div>;
 }
 
-/** Shared Zoho-like module list workspace used by every CRM/ops module. */
+/** Shared TechEarnest-like module list workspace used by every CRM/ops module. */
 export function ModuleListShell({
   title,
   moduleIcon,

@@ -3,6 +3,7 @@ package com.techearnest.crm.resource.application;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
 import com.techearnest.crm.common.exception.BusinessException;
+import com.techearnest.crm.common.exception.ForbiddenException;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.TenantAccess;
@@ -65,9 +66,10 @@ public class AllocationService {
         Collection<UUID> regionIds = tenantAccess.regionFilterOrNull();
         Page<ResourceAllocation> page = allocationRepository.search(
                 orgId, resourceId, projectId, blankToNull(status), regionIds, overlapOnly, pageable);
-        boolean includeRates = canViewRates();
+        boolean includeBillingRate = canViewRate("billingRate");
+        boolean includeCostRate = canViewRate("costRate");
         List<AllocationResponse> data = page.getContent().stream()
-                .map(a -> AllocationResponse.from(a, includeRates, null))
+                .map(a -> AllocationResponse.from(a, includeBillingRate, includeCostRate, null))
                 .toList();
         return new PageResult(data, PaginationMeta.from(page));
     }
@@ -76,12 +78,15 @@ public class AllocationService {
     public AllocationResponse get(UUID id) {
         tenantAccess.requirePermission("ALLOCATION_VIEW");
         ResourceAllocation allocation = requireVisibleAllocation(id);
-        return AllocationResponse.from(allocation, canViewRates(), null);
+        return AllocationResponse.from(
+                allocation, canViewRate("billingRate"), canViewRate("costRate"), null);
     }
 
     @Transactional
     public AllocationResult create(CreateAllocationRequest request) {
         CurrentUser user = tenantAccess.requirePermission("RESOURCE_ALLOCATE");
+        requireRateWrite("billingRate", request.billingRate());
+        requireRateWrite("costRate", request.costRate());
         UUID orgId = tenantAccess.resolveOrganizationId(request.organizationId());
 
         Resource resource = resourceService.requireVisibleResource(request.resourceId());
@@ -120,7 +125,7 @@ public class AllocationService {
 
         if (Boolean.TRUE.equals(request.dryRun())) {
             return new AllocationResult(
-                    AllocationResponse.from(allocation, canViewRates(), warning),
+                    AllocationResponse.from(allocation, canViewRate("billingRate"), canViewRate("costRate"), warning),
                     warning != null ? warning : "Dry run completed");
         }
 
@@ -128,13 +133,15 @@ public class AllocationService {
         resourceService.refreshDerivedStatus(resource);
         auditService.record(orgId, user.userId(), "CREATE", "ALLOCATION", allocation.getId());
         return new AllocationResult(
-                AllocationResponse.from(allocation, canViewRates(), warning),
+                AllocationResponse.from(allocation, canViewRate("billingRate"), canViewRate("costRate"), warning),
                 warning != null ? "Allocation created with over-allocation warning" : "Allocation created successfully");
     }
 
     @Transactional
     public AllocationResult update(UUID id, UpdateAllocationRequest request) {
         CurrentUser user = tenantAccess.requirePermission("RESOURCE_ALLOCATE");
+        requireRateWrite("billingRate", request.billingRate());
+        requireRateWrite("costRate", request.costRate());
         ResourceAllocation allocation = requireVisibleAllocation(id);
         Resource resource = resourceService.requireVisibleResource(allocation.getResourceId());
 
@@ -165,7 +172,7 @@ public class AllocationService {
 
         if (Boolean.TRUE.equals(request.dryRun())) {
             return new AllocationResult(
-                    AllocationResponse.from(candidate, canViewRates(), warning),
+                    AllocationResponse.from(candidate, canViewRate("billingRate"), canViewRate("costRate"), warning),
                     warning != null ? warning : "Dry run completed");
         }
 
@@ -184,10 +191,21 @@ public class AllocationService {
         auditService.record(
                 allocation.getOrganizationId(), user.userId(), "UPDATE", "ALLOCATION", allocation.getId());
         return new AllocationResult(
-                AllocationResponse.from(allocation, canViewRates(), warning),
+                AllocationResponse.from(allocation, canViewRate("billingRate"), canViewRate("costRate"), warning),
                 warning != null
                         ? "Allocation updated with over-allocation warning"
                         : "Allocation updated successfully");
+    }
+
+    @Transactional
+    public void delete(UUID id) {
+        CurrentUser user = tenantAccess.requirePermission("RESOURCE_ALLOCATE");
+        ResourceAllocation allocation = requireVisibleAllocation(id);
+        Resource resource = resourceService.requireVisibleResource(allocation.getResourceId());
+        allocation.markDeleted();
+        resourceService.refreshDerivedStatus(resource);
+        auditService.record(
+                allocation.getOrganizationId(), user.userId(), "DELETE", "ALLOCATION", allocation.getId());
     }
 
     private String handleOverAllocation(UtilizationResponse utilization, boolean dryRun, CurrentUser user) {
@@ -211,8 +229,14 @@ public class AllocationService {
         return allocation;
     }
 
-    private boolean canViewRates() {
-        return fieldAclEvaluator.canViewAllocationRates();
+    private boolean canViewRate(String fieldCode) {
+        return fieldAclEvaluator.canView("allocation", fieldCode);
+    }
+
+    private void requireRateWrite(String fieldCode, java.math.BigDecimal value) {
+        if (value != null && !fieldAclEvaluator.canWrite("allocation", fieldCode)) {
+            throw new ForbiddenException("You do not have permission to change allocation " + fieldCode);
+        }
     }
 
     private static String blankToNull(String value) {

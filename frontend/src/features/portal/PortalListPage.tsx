@@ -11,14 +11,15 @@ import {
 } from "./portalApi";
 
 type PortalTab = "projects" | "invoices" | "documents";
+type PortalRow = PortalProjectSummary | PortalInvoiceSummary | PortalDocumentSummary;
 
 export function PortalListPage({ tab }: { tab: PortalTab }) {
-  const query = useQuery({
+  const query = useQuery<PortalRow[]>({
     queryKey: ["portal", tab],
     queryFn: () => {
-      if (tab === "projects") return listPortalProjects();
-      if (tab === "invoices") return listPortalInvoices();
-      return listPortalDocuments();
+      if (tab === "projects") return listPortalProjects() as Promise<PortalRow[]>;
+      if (tab === "invoices") return listPortalInvoices() as Promise<PortalRow[]>;
+      return listPortalDocuments() as Promise<PortalRow[]>;
     },
   });
 

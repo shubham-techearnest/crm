@@ -4,6 +4,7 @@ import { EmptyState } from "@/components/EmptyState/EmptyState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { useHasPermission } from "@/features/auth/AuthContext";
+import { FormPolicyStudio } from "./FormPolicyStudio";
 import {
   createSysField,
   deactivateSysField,
@@ -11,23 +12,32 @@ import {
   discardListLayoutDraft,
   getFormLayout,
   getListLayout,
+  listRelatedLists,
   listSysFields,
   listSysTables,
+  publishRelatedList,
   publishFormLayout,
   publishListLayout,
   saveFormLayoutDraft,
   saveListLayoutDraft,
+  saveRelatedList,
   updateSysField,
   updateSysTable,
   type FormLayoutJson,
   type ListLayoutJson,
+  type RelatedListLayout,
   type SysField,
   type SysTable,
 } from "./metadataApi";
 import "./StudioPage.scss";
 
 const FIELD_TYPES = ["STRING", "TEXT", "NUMBER", "BOOLEAN", "DATE", "DATETIME", "REFERENCE", "ENUM"] as const;
-type CanvasTab = "fields" | "form" | "list";
+type CanvasTab = "fields" | "form" | "list" | "related" | "policies";
+
+const SUPPORTED_RELATED_TABLES: Record<string, string[]> = {
+  account: ["contact", "deal", "activity", "project", "document", "note"],
+  contact: ["deal", "activity"],
+};
 
 const EMPTY_FORM: FormLayoutJson = {
   sections: [
@@ -58,6 +68,11 @@ export function StudioPage() {
   const [newFilterable, setNewFilterable] = useState(false);
   const [formDraft, setFormDraft] = useState<FormLayoutJson>(EMPTY_FORM);
   const [listDraft, setListDraft] = useState<ListLayoutJson>(EMPTY_LIST);
+  const [relatedDrafts, setRelatedDrafts] = useState<RelatedListLayout[]>([]);
+  const [newRelatedChildCode, setNewRelatedChildCode] = useState("");
+  const [newRelatedLabel, setNewRelatedLabel] = useState("");
+  const [newRelatedPermission, setNewRelatedPermission] = useState("");
+  const [newRelatedColumns, setNewRelatedColumns] = useState<string[]>([]);
   const [formDirty, setFormDirty] = useState(false);
   const [listDirty, setListDirty] = useState(false);
 
@@ -65,6 +80,7 @@ export function StudioPage() {
     queryKey: ["metadata", "tables"],
     queryFn: listSysTables,
   });
+  const tables = tablesQuery.data ?? [];
 
   const fieldsQuery = useQuery({
     queryKey: ["metadata", "fields", selectedTableId],
@@ -86,6 +102,31 @@ export function StudioPage() {
     retry: false,
   });
 
+  const relatedListsQuery = useQuery({
+    queryKey: ["metadata", "related-lists", selectedTableId],
+    queryFn: () => listRelatedLists(selectedTableId!),
+    enabled: !!selectedTableId && canvasTab === "related",
+  });
+
+  const childTable = tables.find((table) => table.code === newRelatedChildCode);
+  const childFieldsQuery = useQuery({
+    queryKey: ["metadata", "fields", childTable?.id],
+    queryFn: () => listSysFields(childTable!.id),
+    enabled: !!childTable && canvasTab === "related",
+  });
+
+  useEffect(() => {
+    if (relatedListsQuery.data) setRelatedDrafts(structuredClone(relatedListsQuery.data));
+  }, [relatedListsQuery.data]);
+
+  useEffect(() => {
+    setNewRelatedLabel(childTable?.plural ?? "");
+  }, [childTable?.id, childTable?.plural]);
+
+  useEffect(() => {
+    setNewRelatedColumns((childFieldsQuery.data ?? []).filter((field) => field.active).slice(0, 4).map((field) => field.code));
+  }, [childFieldsQuery.data]);
+
   useEffect(() => {
     if (formLayoutQuery.data?.layout) {
       setFormDraft(structuredClone(formLayoutQuery.data.layout));
@@ -106,7 +147,6 @@ export function StudioPage() {
     }
   }, [listLayoutQuery.data, listLayoutQuery.isError, selectedTableId]);
 
-  const tables = tablesQuery.data ?? [];
   const groups = useMemo(
     () => Array.from(new Set(tables.map((t) => t.moduleGroup))).sort(),
     [tables],
@@ -116,6 +156,9 @@ export function StudioPage() {
     [tables, groupFilter],
   );
   const selectedTable: SysTable | undefined = tables.find((t) => t.id === selectedTableId);
+  const allowedRelatedTables = selectedTable
+    ? (SUPPORTED_RELATED_TABLES[selectedTable.code] ?? []).map((code) => tables.find((table) => table.code === code)).filter((table): table is SysTable => !!table)
+    : [];
   const fields = fieldsQuery.data ?? [];
   const selectedField: SysField | undefined = fields.find((f) => f.id === selectedFieldId);
   const usedFormFields = useMemo(
@@ -133,6 +176,8 @@ export function StudioPage() {
     queryClient.invalidateQueries({ queryKey: ["metadata", "form-layout", selectedTableId, layoutKey] });
   const refreshList = () =>
     queryClient.invalidateQueries({ queryKey: ["metadata", "list-layout", selectedTableId] });
+  const refreshRelatedLists = () =>
+    queryClient.invalidateQueries({ queryKey: ["metadata", "related-lists", selectedTableId] });
 
   const updateTableMutation = useMutation({
     mutationFn: (body: { label?: string; plural?: string; active?: boolean }) =>
@@ -256,6 +301,38 @@ export function StudioPage() {
     onSuccess: async () => {
       await refreshList();
       setToast("List draft discarded");
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const saveRelatedMutation = useMutation({
+    mutationFn: ({ childTableCode, label, sortOrder, permissionCode, columns, active }: {
+      childTableCode: string; label: string; sortOrder: number; permissionCode?: string;
+      columns: { field: string; label: string; width?: number }[]; active: boolean;
+    }) => saveRelatedList(selectedTableId!, { childTableCode, label, sortOrder, permissionCode, columns, active }),
+    onSuccess: (saved) => {
+      setRelatedDrafts((prev) => {
+        const existingDraft = prev.findIndex((item) => item.childTableCode === saved.childTableCode && item.status === "DRAFT");
+        if (existingDraft < 0) return [...prev, saved];
+        return prev.map((item, index) => index === existingDraft ? saved : item);
+      });
+      setToast("Related list draft saved");
+      setError(null);
+      setNewRelatedChildCode("");
+      setNewRelatedLabel("");
+      setNewRelatedPermission("");
+      setNewRelatedColumns([]);
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const publishRelatedMutation = useMutation({
+    mutationFn: publishRelatedList,
+    onSuccess: async () => {
+      await refreshRelatedLists();
+      await queryClient.invalidateQueries({ queryKey: ["metadata", "runtime"] });
+      setToast("Related list published");
+      setError(null);
     },
     onError: (err: Error) => setError(err.message),
   });
@@ -460,6 +537,11 @@ export function StudioPage() {
                       setError(null);
                       setFormDirty(false);
                       setListDirty(false);
+                      setRelatedDrafts([]);
+                      setNewRelatedChildCode("");
+                      setNewRelatedLabel("");
+                      setNewRelatedPermission("");
+                      setNewRelatedColumns([]);
                     }}
                   >
                     <span>{table.plural}</span>
@@ -478,6 +560,8 @@ export function StudioPage() {
                 ["fields", "Fields"],
                 ["form", "Form layout"],
                 ["list", "List layout"],
+                ["related", "Related lists"],
+                ["policies", "Form policies"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -645,7 +729,7 @@ export function StudioPage() {
                 </div>
               )}
             </>
-          ) : (
+          ) : canvasTab === "list" ? (
             <>
               <div className="d-flex align-items-center gap-2 mb-3">
                 <strong>{selectedTable.plural} list columns</strong>
@@ -745,6 +829,109 @@ export function StudioPage() {
                 </div>
               )}
             </>
+          ) : canvasTab === "related" ? (
+            <section className="studio-related-designer">
+              <div className="studio-canvas-meta mb-3">
+                <div>
+                  <strong>{selectedTable.plural} related lists</strong>
+                  <p className="small text-muted mb-0">Configure only related record types supported by this module.</p>
+                </div>
+              </div>
+              {relatedListsQuery.isLoading ? <LoadingState label="Loading related lists..." /> : null}
+              {relatedListsQuery.error ? <ErrorState title="Unable to load related lists" message="Check metadata access and try again." /> : null}
+              {!relatedListsQuery.isLoading && !relatedListsQuery.error ? (
+                <div className="studio-related-list-items">
+                  {relatedDrafts.map((layout) => {
+                    const draft = (patch: Partial<RelatedListLayout>) =>
+                      setRelatedDrafts((prev) => prev.map((item) => item.id === layout.id ? { ...item, ...patch } : item));
+                    return (
+                      <article className="studio-related-list-card" key={layout.id}>
+                        <div className="studio-related-list-card-head">
+                          <div>
+                            <strong>{layout.childTableCode}</strong>
+                            <span className={`badge ms-2 ${layout.status === "PUBLISHED" ? "text-bg-success" : "text-bg-warning"}`}>{layout.status}</span>
+                          </div>
+                          <label className="form-check form-switch mb-0">
+                            <input className="form-check-input" type="checkbox" checked={layout.active} disabled={!canManage} onChange={(event) => draft({ active: event.target.checked })} />
+                            <span className="form-check-label small">Active</span>
+                          </label>
+                        </div>
+                        <div className="row g-2 mt-1">
+                          <div className="col-md-5">
+                            <label className="form-label small">Label</label>
+                            <input className="form-control form-control-sm" value={layout.label} disabled={!canManage} onChange={(event) => draft({ label: event.target.value })} />
+                          </div>
+                          <div className="col-md-4">
+                            <label className="form-label small">Permission code</label>
+                            <input className="form-control form-control-sm" value={layout.permissionCode ?? ""} disabled={!canManage} placeholder="Optional" onChange={(event) => draft({ permissionCode: event.target.value || null })} />
+                          </div>
+                          <div className="col-md-3">
+                            <label className="form-label small">Order</label>
+                            <input className="form-control form-control-sm" type="number" value={layout.sortOrder} disabled={!canManage} onChange={(event) => draft({ sortOrder: Number(event.target.value) || 0 })} />
+                          </div>
+                        </div>
+                        <div className="small text-muted mt-2">
+                          Columns: {layout.columns?.map((column) => column.label).join(", ") || "No columns configured"}
+                        </div>
+                        <div className="d-flex justify-content-end gap-2 mt-3">
+                          <button type="button" className="btn btn-outline-primary btn-sm" disabled={!canManage || saveRelatedMutation.isPending || !layout.label.trim()} onClick={() => saveRelatedMutation.mutate({ childTableCode: layout.childTableCode, label: layout.label.trim(), sortOrder: layout.sortOrder, permissionCode: layout.permissionCode || undefined, columns: layout.columns ?? [], active: layout.active })}>Save draft</button>
+                          <button type="button" className="btn btn-primary btn-sm" disabled={!canManage || layout.status === "PUBLISHED" || publishRelatedMutation.isPending} onClick={() => publishRelatedMutation.mutate(layout.id)}>Publish</button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {relatedDrafts.length === 0 ? <EmptyState title="No related lists configured" description="Add a supported relationship to show it on module records." /> : null}
+                </div>
+              ) : null}
+              {allowedRelatedTables.length > 0 ? (
+                <div className="studio-related-list-card studio-related-list-create">
+                  <h3 className="h6">Add a related list</h3>
+                  <div className="row g-2">
+                    <div className="col-md-4">
+                      <label className="form-label small">Related module</label>
+                      <select className="form-select form-select-sm" value={newRelatedChildCode} disabled={!canManage} onChange={(event) => setNewRelatedChildCode(event.target.value)}>
+                        <option value="">Choose a module</option>
+                        {allowedRelatedTables.filter((table) => !relatedDrafts.some((item) => item.childTableCode === table.code && item.status === "PUBLISHED")).map((table) => <option value={table.code} key={table.id}>{table.plural}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-md-4">
+                      <label className="form-label small">Display label</label>
+                      <input className="form-control form-control-sm" value={newRelatedLabel} disabled={!canManage} onChange={(event) => setNewRelatedLabel(event.target.value)} />
+                    </div>
+                    <div className="col-md-4">
+                      <label className="form-label small">Permission code</label>
+                      <input className="form-control form-control-sm" value={newRelatedPermission} disabled={!canManage} placeholder="Optional" onChange={(event) => setNewRelatedPermission(event.target.value)} />
+                    </div>
+                  </div>
+                  {childFieldsQuery.isLoading ? <div className="small text-muted mt-2">Loading available columns…</div> : null}
+                  {childTable && !childFieldsQuery.isLoading ? (
+                    <fieldset className="mt-3" disabled={!canManage}>
+                      <legend className="form-label small">Visible columns</legend>
+                      <div className="studio-related-column-options">
+                        {(childFieldsQuery.data ?? []).filter((field) => field.active).map((field) => (
+                          <label className="form-check" key={field.id}>
+                            <input className="form-check-input" type="checkbox" checked={newRelatedColumns.includes(field.code)} onChange={(event) => setNewRelatedColumns((prev) => event.target.checked ? [...prev, field.code] : prev.filter((code) => code !== field.code))} />
+                            <span className="form-check-label">{field.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </fieldset>
+                  ) : null}
+                  <div className="d-flex justify-content-end mt-3">
+                    <button type="button" className="btn btn-outline-primary btn-sm" disabled={!canManage || !childTable || !newRelatedLabel.trim() || childFieldsQuery.isLoading || saveRelatedMutation.isPending} onClick={() => saveRelatedMutation.mutate({ childTableCode: newRelatedChildCode, label: newRelatedLabel.trim(), sortOrder: relatedDrafts.length * 10 + 10, permissionCode: newRelatedPermission.trim() || undefined, columns: newRelatedColumns.flatMap((code) => { const field = childFieldsQuery.data?.find((candidate) => candidate.code === code); return field ? [{ field: code, label: field.label, width: 160 }] : []; }), active: true })}>Save related list draft</button>
+                  </div>
+                </div>
+              ) : (
+                <p className="small text-muted">Related list configuration is available for Account and Contact records where the application has matching related-record views.</p>
+              )}
+            </section>
+          ) : selectedTable.code === "deal" ? (
+            <FormPolicyStudio tableId={selectedTable.id} canManage={canManage} />
+          ) : (
+            <EmptyState
+              title="No stage-policy workflow for this module"
+              description="Form policies currently run when a deal stage changes and can require a closing date or lost reason."
+            />
           )}
         </main>
 

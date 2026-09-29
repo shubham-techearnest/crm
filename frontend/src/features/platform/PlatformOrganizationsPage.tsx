@@ -83,7 +83,7 @@ export function PlatformOrganizationsPage() {
       footerLeft={<span className="small text-muted">{total} organizations</span>}
     >
       {query.isLoading ? <LoadingState label="Loading organizations…" /> : null}
-      {query.isError ? <ErrorState title="Could not load organizations" /> : null}
+      {query.isError ? <ErrorState title="Could not load organizations" message="Try again in a moment." /> : null}
       {!query.isLoading && !query.isError ? (
         <div className="table-responsive">
           <table className="table table-sm table-hover align-middle mb-0">

@@ -2,6 +2,7 @@ package com.techearnest.crm.common.security;
 
 import com.techearnest.crm.auth.application.JwtService;
 import com.techearnest.crm.common.logging.RequestContext;
+import com.techearnest.crm.portal.application.PortalAuthService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -19,6 +20,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
+    private static final String PORTAL_PATH_PREFIX = "/api/v1/portal/";
+
     private final JwtService jwtService;
 
     public JwtAuthenticationFilter(JwtService jwtService) {
@@ -33,7 +36,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String token = header.substring(7).trim();
             if (!token.isEmpty()) {
                 try {
-                    CurrentUser user = jwtService.parseAccessToken(token);
+                    CurrentUser user = jwtService.parseAccessToken(token, expectedAudience(request));
                     UsernamePasswordAuthenticationToken authentication =
                             new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
@@ -48,5 +51,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
         filterChain.doFilter(request, response);
+    }
+
+    private static String expectedAudience(HttpServletRequest request) {
+        String path = request.getRequestURI().substring(request.getContextPath().length());
+        return path.startsWith(PORTAL_PATH_PREFIX) ? PortalAuthService.AUDIENCE : JwtService.INTERNAL_AUDIENCE;
     }
 }

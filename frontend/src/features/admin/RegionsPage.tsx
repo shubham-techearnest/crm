@@ -7,12 +7,14 @@ import { FormField } from "@/components/FormField/FormField";
 import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   optionsFromPairs,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -56,7 +58,7 @@ export function RegionsPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: REGION_DEFAULTS,
     reset,
     setShowForm,
@@ -126,7 +128,7 @@ export function RegionsPage() {
         <FormSection title="Hierarchy">
           <div className="col-md-4">
             <label className="form-label">Parent region</label>
-            <ZohoFormSelect
+            <TechEarnestFormSelect
               control={control}
               name="parentId"
               options={parentRegionOptions}
@@ -142,7 +144,7 @@ export function RegionsPage() {
   return (
     <>
       {showForm && canManage ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Region"
           entityLabel="Region"
           pending={isSubmitting || createMutation.isPending}
@@ -158,7 +160,7 @@ export function RegionsPage() {
           photo={photo}
         >
           {regionFormFields}
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Regions"
@@ -195,16 +197,7 @@ export function RegionsPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Status</h3>
-            <select
-              className="form-select form-select-sm"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="ACTIVE">ACTIVE</option>
-              <option value="INACTIVE">INACTIVE</option>
-            </select>
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={[{ value: "ACTIVE", label: "Active" }, { value: "INACTIVE", label: "Inactive" }]} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search region statuses" />
           </div>
         </>
       }
@@ -216,39 +209,26 @@ export function RegionsPage() {
       {!regionsQuery.isLoading && !regionsQuery.error ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Code</th>
-                    <th>Status</th>
-                    <th>Parent</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((region) => (
-                    <tr key={region.id}>
-                      <td className="lead-name">{region.name}</td>
-                      <td>
-                        <code>{region.code}</code>
-                      </td>
-                      <td>
-                        <StatusBadge status={region.status} />
-                      </td>
-                      <td>{parentName(region.parentId)}</td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={4} className="text-center text-muted py-5">
-                        No regions match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+              tableCode="region"
+              defaultColumns={[
+                { field: "name", label: "Name" },
+                { field: "code", label: "Code" },
+                { field: "status", label: "Status" },
+                { field: "parentId", label: "Parent" },
+              ]}
+              rows={rows}
+              rowKey={(region) => region.id}
+              renderCell={(region, field) => {
+                if (field === "code") return <code>{region.code}</code>;
+                if (field === "status") return <StatusBadge status={region.status} />;
+                if (field === "parentId") return parentName(region.parentId);
+                const value = (region as unknown as Record<string, unknown>)[field];
+                return value == null || value === "" ? "—" : String(value);
+              }}
+              nameFields={["name"]}
+              emptyMessage="No regions match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((region) => (

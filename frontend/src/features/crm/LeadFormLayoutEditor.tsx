@@ -1,4 +1,4 @@
-import { FormLayoutEditorModal } from "@/components/ZohoCreate";
+import { FormLayoutEditorModal } from "@/components/TechEarnestCreate";
 
 export interface LeadFormLayoutEditorProps {
   open: boolean;

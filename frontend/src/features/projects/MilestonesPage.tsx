@@ -8,12 +8,14 @@ import { FormField } from "@/components/FormField/FormField";
 import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -110,7 +112,7 @@ export function MilestonesPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow<CreateFormValues, Milestone>({
+  } = useTechEarnestCreateFlow<CreateFormValues, Milestone>({
     defaults: MILESTONE_DEFAULTS,
     reset: createForm.reset,
     setShowForm,
@@ -189,7 +191,7 @@ export function MilestonesPage() {
   return (
     <>
       {showForm && canManage && projectId ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title="Create Milestone"
           tableCode="milestone"
           entityLabel="Milestone"
@@ -219,7 +221,7 @@ export function MilestonesPage() {
             </div>
             <div className="col-md-2">
               <label className="form-label">Status</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={createForm.control}
                 name="status"
                 options={milestoneStatusOptions}
@@ -238,7 +240,7 @@ export function MilestonesPage() {
               </div>
             </FormSection>
           </FormMoreDetails>
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title="Milestones"
@@ -283,32 +285,8 @@ export function MilestonesPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Project</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={projectId}
-              onChange={(e) => selectProject(e.target.value)}
-            >
-              <option value="">All projects</option>
-              {(projectsQuery.data ?? []).map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name} ({project.projectCode})
-                </option>
-              ))}
-            </select>
-            <label className="form-label small mb-1">Status</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {MILESTONE_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
+            <TechEarnestFilterSelect label="Project" value={projectId} onChange={selectProject} options={(projectsQuery.data ?? []).map((project) => ({ value: project.id, label: project.name, subtitle: project.projectCode }))} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
+            <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={MILESTONE_STATUSES.map((value) => ({ value, label: value }))} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search milestone statuses" />
             <label className="form-label small mb-1">Due from</label>
             <input
               className="form-control form-control-sm mb-2"
@@ -343,51 +321,35 @@ export function MilestonesPage() {
           style={{ flex: 1, display: "flex", flexDirection: "column" }}
         >
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Due</th>
-                    <th>Status</th>
-                    <th>Order</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((milestone) => (
-                    <tr
-                      key={milestone.id}
-                      className={selected?.id === milestone.id ? "is-selected" : undefined}
-                      onClick={() => {
-                        setSelected(milestone);
-                        setUpdateError(null);
-                        updateForm.reset({
-                          name: milestone.name,
-                          description: milestone.description ?? "",
-                          dueDate: milestone.dueDate ?? "",
-                          status: milestone.status,
-                          sortOrder: String(milestone.sortOrder),
-                        });
-                      }}
-                    >
-                      <td className="lead-name">{milestone.name}</td>
-                      <td>{milestone.dueDate ?? "—"}</td>
-                      <td>
-                        <StatusBadge status={milestone.status} />
-                      </td>
-                      <td>{milestone.sortOrder}</td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={4} className="text-center text-muted py-5">
-                        No milestones match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+              tableCode="milestone"
+              defaultColumns={[
+                { field: "name", label: "Name" },
+                { field: "dueDate", label: "Due" },
+                { field: "status", label: "Status" },
+                { field: "sortOrder", label: "Order" },
+              ]}
+              rows={rows}
+              rowKey={(milestone) => milestone.id}
+              selectedRowKey={selected?.id}
+              onRowClick={(milestone) => {
+                setSelected(milestone);
+                setUpdateError(null);
+                updateForm.reset({
+                  name: milestone.name,
+                  description: milestone.description ?? "",
+                  dueDate: milestone.dueDate ?? "",
+                  status: milestone.status,
+                  sortOrder: String(milestone.sortOrder),
+                });
+              }}
+              renderCell={(milestone, field) => {
+                if (field === "status") return <StatusBadge status={milestone.status} />;
+                const value = (milestone as unknown as Record<string, unknown>)[field];
+                return value == null || value === "" ? "—" : String(value);
+              }}
+              emptyMessage="No milestones match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((milestone) => (

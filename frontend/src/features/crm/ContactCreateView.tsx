@@ -7,20 +7,20 @@ import { UnsavedGuard } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
-  ZohoFormSelect,
-  ZohoFormUserSelect,
-  type ZohoPickerOption,
-  type ZohoPickerUser,
-} from "@/components/ZohoCreate";
+  TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
+  type TechEarnestPickerOption,
+  type TechEarnestPickerUser,
+} from "@/components/TechEarnestCreate";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
-import { FormLayoutEditorModal } from "@/components/ZohoCreate/FormLayoutEditorModal";
-import { ZohoCreateField as ZohoField } from "@/components/ZohoCreate/ZohoCreateField";
-import { ZohoCreateSection } from "@/components/ZohoCreate/ZohoCreateSection";
-import { clearAddressFields, ZohoAddressBox } from "@/components/ZohoCreate/ZohoAddressBox";
-import { ZohoRecordImage } from "@/components/ZohoCreate/ZohoRecordImage";
-import { useZohoRecordPhoto } from "@/components/ZohoCreate/useZohoRecordPhoto";
-import { addressPrefix } from "@/components/ZohoCreate/zohoAddressUtils";
-import { attachRecordPhoto } from "@/components/ZohoCreate/attachRecordPhoto";
+import { FormLayoutEditorModal } from "@/components/TechEarnestCreate/FormLayoutEditorModal";
+import { TechEarnestCreateField as TechEarnestField } from "@/components/TechEarnestCreate/TechEarnestCreateField";
+import { TechEarnestCreateSection } from "@/components/TechEarnestCreate/TechEarnestCreateSection";
+import { clearAddressFields, TechEarnestAddressBox } from "@/components/TechEarnestCreate/TechEarnestAddressBox";
+import { TechEarnestRecordImage } from "@/components/TechEarnestCreate/TechEarnestRecordImage";
+import { useTechEarnestRecordPhoto } from "@/components/TechEarnestCreate/useTechEarnestRecordPhoto";
+import { addressPrefix } from "@/components/TechEarnestCreate/techearnestAddressUtils";
+import { attachRecordPhoto } from "@/components/TechEarnestCreate/attachRecordPhoto";
 import { createAccount, createContact, type Contact } from "./crmApi";
 import { LEAD_SALUTATIONS, LEAD_SOURCES, noneLabel } from "./leadFormConstants";
 
@@ -76,7 +76,8 @@ type ContactFormValues = z.infer<typeof contactSchema>;
 
 export interface ContactCreateViewProps {
   accounts: { id: string; name: string }[];
-  users: ZohoPickerUser[];
+  regions: { id: string; name: string }[];
+  users: TechEarnestPickerUser[];
   defaultOwnerId: string;
   defaultAccountId?: string;
   onCancel: () => void;
@@ -102,6 +103,7 @@ function buildCreateBody(values: ContactFormValues): Parameters<typeof createCon
 
 export function ContactCreateView({
   accounts,
+  regions,
   users,
   defaultOwnerId,
   defaultAccountId,
@@ -109,11 +111,11 @@ export function ContactCreateView({
   onCreated,
 }: ContactCreateViewProps) {
   const queryClient = useQueryClient();
-  const photo = useZohoRecordPhoto();
+  const photo = useTechEarnestRecordPhoto();
   const [layoutEditorOpen, setLayoutEditorOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [saveMode, setSaveMode] = useState<"save" | "saveAndNew">("save");
-  const [extraAccountOptions, setExtraAccountOptions] = useState<ZohoPickerOption[]>([]);
+  const [extraAccountOptions, setExtraAccountOptions] = useState<TechEarnestPickerOption[]>([]);
 
   const defaults: ContactFormValues = useMemo(
     () => ({
@@ -226,21 +228,21 @@ export function ContactCreateView({
   const pending = isSubmitting || createMutation.isPending;
 
   return (
-    <div className="zoho-create-page">
-      <div className="zoho-create-topbar">
-        <div className="zoho-create-topbar-left">
-          <h1 className="zoho-create-title">Create Contact</h1>
-          <button type="button" className="zoho-create-layout-link" onClick={() => setLayoutEditorOpen(true)}>
+    <div className="techearnest-create-page">
+      <div className="techearnest-create-topbar">
+        <div className="techearnest-create-topbar-left">
+          <h1 className="techearnest-create-title">Create Contact</h1>
+          <button type="button" className="techearnest-create-layout-link" onClick={() => setLayoutEditorOpen(true)}>
             Edit Page Layout
           </button>
         </div>
-        <div className="zoho-create-topbar-actions">
-          <button type="button" className="btn btn-light btn-sm zoho-create-btn" onClick={requestCancel}>
+        <div className="techearnest-create-topbar-actions">
+          <button type="button" className="btn btn-light btn-sm techearnest-create-btn" onClick={requestCancel}>
             Cancel
           </button>
           <button
             type="button"
-            className="btn btn-light btn-sm zoho-create-btn"
+            className="btn btn-light btn-sm techearnest-create-btn"
             disabled={pending}
             onClick={() => {
               setSaveMode("saveAndNew");
@@ -251,7 +253,7 @@ export function ContactCreateView({
           </button>
           <button
             type="button"
-            className="btn btn-primary btn-sm zoho-create-btn zoho-create-btn--save"
+            className="btn btn-primary btn-sm techearnest-create-btn techearnest-create-btn--save"
             disabled={pending}
             onClick={() => {
               setSaveMode("save");
@@ -264,7 +266,7 @@ export function ContactCreateView({
       </div>
 
       <form
-        className="zoho-create-form"
+        className="techearnest-create-form"
         onSubmit={(event) => {
           event.preventDefault();
           setSaveMode("save");
@@ -274,9 +276,9 @@ export function ContactCreateView({
         <UnsavedGuard when={isDirty} />
         {formError ? <div className="alert alert-danger py-2 mx-4 mt-3 mb-0">{formError}</div> : null}
 
-        <div className="zoho-create-layout">
-          <div className="zoho-create-fields">
-            <ZohoRecordImage
+        <div className="techearnest-create-layout">
+          <div className="techearnest-create-fields">
+            <TechEarnestRecordImage
               photoInputRef={photo.photoInputRef}
               photoPreviewUrl={photo.photoPreviewUrl}
               photoError={photo.photoError}
@@ -287,22 +289,22 @@ export function ContactCreateView({
               imageLabel="Contact Image"
             />
 
-            <ZohoCreateSection title="Contact Information">
-              <div className="zoho-create-grid">
-                <div className="zoho-create-col">
-                  <ZohoField label="Contact Owner">
-                    <ZohoFormUserSelect
+            <TechEarnestCreateSection title="Contact Information">
+              <div className="techearnest-create-grid">
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Contact Owner">
+                    <TechEarnestFormUserSelect
                       control={control}
                       name="ownerId"
                       users={users}
                       allowEmpty={false}
                       searchPlaceholder="Search Users"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="First Name" required error={errors.firstName?.message}>
+                  <TechEarnestField label="First Name" required error={errors.firstName?.message}>
                     <div className="input-group input-group-sm">
-                      <select className="form-select zoho-salutation-select" {...register("salutation")}>
+                      <select className="form-select techearnest-salutation-select" {...register("salutation")}>
                         {LEAD_SALUTATIONS.map((item) => (
                           <option key={item || "none"} value={item}>
                             {item ? item : "—None—"}
@@ -315,10 +317,10 @@ export function ContactCreateView({
                         {...register("firstName")}
                       />
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Account Name" required error={errors.accountId?.message}>
-                    <ZohoFormSelect
+                  <TechEarnestField label="Account Name" required error={errors.accountId?.message}>
+                    <TechEarnestFormSelect
                       control={control}
                       name="accountId"
                       options={accountOptions}
@@ -330,10 +332,18 @@ export function ContactCreateView({
                       invalid={!!errors.accountId}
                       quickCreate={{
                         title: "Create Account",
-                        fields: [{ name: "name", label: "Account Name", required: true }],
+                        fields: [
+                          { name: "name", label: "Account Name", required: true },
+                          { name: "regionId", label: "Region", type: "select", required: true,
+                            options: regions.map((region) => ({ value: region.id, label: region.name })) },
+                          { name: "accountType", label: "Account Type", type: "select", required: true,
+                            options: ["PROSPECT", "CUSTOMER", "PARTNER", "VENDOR"].map((type) => ({ value: type, label: type })) },
+                        ],
                         submitLabel: "Save and Select",
                         onSubmit: async (values) => {
-                          const account = await createAccount({ name: values.name.trim() });
+                          const account = await createAccount({
+                            name: values.name.trim(), regionId: values.regionId, accountType: values.accountType,
+                          });
                           const option = { value: account.id, label: account.name };
                           setExtraAccountOptions((current) => [...current, option]);
                           await queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] });
@@ -341,113 +351,113 @@ export function ContactCreateView({
                         },
                       }}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Email" error={errors.email?.message}>
+                  <TechEarnestField label="Email" error={errors.email?.message}>
                     <input type="email" className="form-control form-control-sm" {...register("email")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Phone">
+                  <TechEarnestField label="Phone">
                     <input type="tel" className="form-control form-control-sm" {...register("phone")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Other Phone">
+                  <TechEarnestField label="Other Phone">
                     <input type="tel" className="form-control form-control-sm" {...register("otherPhone")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Mobile">
+                  <TechEarnestField label="Mobile">
                     <input type="tel" className="form-control form-control-sm" {...register("mobile")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Assistant">
+                  <TechEarnestField label="Assistant">
                     <input type="text" className="form-control form-control-sm" {...register("assistant")} />
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
 
-                <div className="zoho-create-col">
-                  <ZohoField label="Lead Source">
-                    <ZohoFormSelect
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Lead Source">
+                    <TechEarnestFormSelect
                       control={control}
                       name="leadSource"
                       options={leadSourceOptions}
                       searchPlaceholder="Search Lead Sources"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Last Name" required error={errors.lastName?.message}>
+                  <TechEarnestField label="Last Name" required error={errors.lastName?.message}>
                     <input
                       type="text"
                       className={`form-control form-control-sm${errors.lastName ? " is-invalid" : ""}`}
                       {...register("lastName")}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Title">
+                  <TechEarnestField label="Title">
                     <input type="text" className="form-control form-control-sm" {...register("designation")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Department">
+                  <TechEarnestField label="Department">
                     <input type="text" className="form-control form-control-sm" {...register("department")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Home Phone">
+                  <TechEarnestField label="Home Phone">
                     <input type="tel" className="form-control form-control-sm" {...register("homePhone")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Fax">
+                  <TechEarnestField label="Fax">
                     <input type="text" className="form-control form-control-sm" {...register("fax")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Date of Birth">
+                  <TechEarnestField label="Date of Birth">
                     <input type="date" className="form-control form-control-sm" {...register("dateOfBirth")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Asst Phone">
+                  <TechEarnestField label="Asst Phone">
                     <input type="tel" className="form-control form-control-sm" {...register("asstPhone")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Email Opt Out">
-                    <div className="form-check zoho-checkbox-field">
+                  <TechEarnestField label="Email Opt Out">
+                    <div className="form-check techearnest-checkbox-field">
                       <input type="checkbox" className="form-check-input" id="contactEmailOptOut" {...register("emailOptOut")} />
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Skype ID">
+                  <TechEarnestField label="Skype ID">
                     <input type="text" className="form-control form-control-sm" {...register("skypeId")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Secondary Email" error={errors.secondaryEmail?.message}>
+                  <TechEarnestField label="Secondary Email" error={errors.secondaryEmail?.message}>
                     <input type="email" className="form-control form-control-sm" {...register("secondaryEmail")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Reporting To">
+                  <TechEarnestField label="Reporting To">
                     <div className="input-group input-group-sm">
                       <input type="text" className="form-control" {...register("reportingTo")} />
-                      <button type="button" className="btn btn-light zoho-lookup-btn" tabIndex={-1} aria-hidden="true">
+                      <button type="button" className="btn btn-light techearnest-lookup-btn" tabIndex={-1} aria-hidden="true">
                         <ToolbarIcon name="users" />
                       </button>
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
               </div>
-            </ZohoCreateSection>
+            </TechEarnestCreateSection>
 
-            <section className="zoho-create-section">
-              <div className="zoho-address-section-header">
-                <h2 className="zoho-create-section-title mb-0">Address Information</h2>
+            <section className="techearnest-create-section">
+              <div className="techearnest-address-section-header">
+                <h2 className="techearnest-create-section-title mb-0">Address Information</h2>
                 <button type="button" className="btn btn-light btn-sm" onClick={copyMailingToOther}>
                   Copy Address
                 </button>
               </div>
-              <div className="zoho-address-dual-grid">
-                <ZohoAddressBox
+              <div className="techearnest-address-dual-grid">
+                <TechEarnestAddressBox
                   title="Mailing Address"
                   prefix={mailingPrefix}
                   register={register}
                   control={control}
                   onClear={() => clearAddressFields(mailingPrefix, setValue)}
                 />
-                <ZohoAddressBox
+                <TechEarnestAddressBox
                   title="Other Address"
                   prefix={otherPrefix}
                   register={register}
@@ -457,11 +467,11 @@ export function ContactCreateView({
               </div>
             </section>
 
-            <ZohoCreateSection title="Description Information">
-              <ZohoField label="Description" wide>
+            <TechEarnestCreateSection title="Description Information">
+              <TechEarnestField label="Description" wide>
                 <textarea className="form-control form-control-sm" rows={5} {...register("description")} />
-              </ZohoField>
-            </ZohoCreateSection>
+              </TechEarnestField>
+            </TechEarnestCreateSection>
           </div>
         </div>
       </form>

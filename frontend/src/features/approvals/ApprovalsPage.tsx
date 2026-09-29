@@ -2,11 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { TechEarnestFilterSelect, enumPickerOptions } from "@/components/TechEarnestCreate";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import { actOnApproval, listApprovalRequests } from "./approvalApi";
+
+const APPROVAL_TYPES = enumPickerOptions(["TIMESHEET", "DEAL", "EXPENSE", "PURCHASE_ORDER"]);
+const APPROVAL_STATUSES = enumPickerOptions(["PENDING", "APPROVED", "REJECTED"]);
 
 export function ApprovalsPage() {
   const queryClient = useQueryClient();
@@ -95,22 +100,26 @@ export function ApprovalsPage() {
             />
           </div>
           <div className="module-filter-section">
-            <h3>Type</h3>
-            <select className="form-select form-select-sm" value={targetType} onChange={(e) => setTargetType(e.target.value)}>
-              <option value="">All</option>
-              <option value="TIMESHEET">TIMESHEET</option>
-              <option value="DEAL">DEAL</option>
-              <option value="EXPENSE">EXPENSE</option>
-              <option value="PURCHASE_ORDER">PURCHASE_ORDER</option>
-            </select>
+            <TechEarnestFilterSelect
+              label="Type"
+              value={targetType}
+              onChange={setTargetType}
+              options={APPROVAL_TYPES}
+              placeholder="All types"
+              emptyLabel="All types"
+              searchPlaceholder="Search approval types"
+            />
           </div>
           <div className="module-filter-section">
-            <h3>Status</h3>
-            <select className="form-select form-select-sm" value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="PENDING">PENDING</option>
-              <option value="APPROVED">APPROVED</option>
-              <option value="REJECTED">REJECTED</option>
-            </select>
+            <TechEarnestFilterSelect
+              label="Status"
+              value={status}
+              onChange={setStatus}
+              options={APPROVAL_STATUSES}
+              placeholder="Select status"
+              allowEmpty={false}
+              searchPlaceholder="Search approval statuses"
+            />
           </div>
         </>
       }
@@ -120,87 +129,54 @@ export function ApprovalsPage() {
       {query.isLoading ? <LoadingState label="Loading approvals..." /> : null}
       {query.error ? <ErrorState title="Unable to load approvals" message="Try again." /> : null}
       {!query.isLoading && !query.error ? (
-        <div className="module-list-table-wrap">
-          <table className="table module-list-table align-middle">
-            <thead>
-              <tr>
-                <th>Type</th>
-                <th>Target</th>
-                <th>Submitted</th>
-                <th>Status</th>
-                <th>Comment</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.targetType}</td>
-                  <td className="small text-muted">{row.targetId.slice(0, 8)}…</td>
-                  <td className="small">{new Date(row.submittedAt).toLocaleString()}</td>
-                  <td>
-                    <StatusBadge status={row.status} />
-                  </td>
-                  <td style={{ minWidth: 160 }}>
-                    {row.status === "PENDING" && canAct ? (
-                      <input
-                        className="form-control form-control-sm"
-                        placeholder="Optional comment"
-                        value={commentById[row.id] ?? ""}
-                        onChange={(e) =>
-                          setCommentById((prev) => ({ ...prev, [row.id]: e.target.value }))
-                        }
-                      />
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="text-nowrap">
-                    {row.status === "PENDING" && canAct ? (
-                      <>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-success me-1"
-                          disabled={actMutation.isPending}
-                          onClick={() =>
-                            actMutation.mutate({
-                              id: row.id,
-                              action: "APPROVE",
-                              comment: commentById[row.id],
-                            })
-                          }
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-danger"
-                          disabled={actMutation.isPending}
-                          onClick={() =>
-                            actMutation.mutate({
-                              id: row.id,
-                              action: "REJECT",
-                              comment: commentById[row.id] || "Rejected",
-                            })
-                          }
-                        >
-                          Reject
-                        </button>
-                      </>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-              {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="text-center text-muted py-5">
-                    No approval requests
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <ModuleListTable
+          tableCode="approval_request"
+          enabled={false}
+          defaultColumns={[
+            { field: "targetType", label: "Type" },
+            { field: "targetId", label: "Target" },
+            { field: "submittedAt", label: "Submitted" },
+            { field: "status", label: "Status" },
+            { field: "comment", label: "Comment" },
+          ]}
+          rows={rows}
+          rowKey={(row) => row.id}
+          renderCell={(row, field) => {
+            if (field === "targetId") return <span className="small text-muted">{row.targetId.slice(0, 8)}…</span>;
+            if (field === "submittedAt") return <span className="small">{new Date(row.submittedAt).toLocaleString()}</span>;
+            if (field === "status") return <StatusBadge status={row.status} />;
+            if (field === "comment") return row.status === "PENDING" && canAct ? (
+              <input
+                className="form-control form-control-sm"
+                placeholder="Optional comment"
+                value={commentById[row.id] ?? ""}
+                onChange={(event) => setCommentById((previous) => ({ ...previous, [row.id]: event.target.value }))}
+              />
+            ) : "—";
+            const value = (row as unknown as Record<string, unknown>)[field];
+            return value == null || value === "" ? "—" : String(value);
+          }}
+          trailingColumn={{
+            header: "Actions",
+            render: (row) => row.status === "PENDING" && canAct ? (
+              <div className="d-flex justify-content-end gap-2">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-success"
+                  disabled={actMutation.isPending}
+                  onClick={() => actMutation.mutate({ id: row.id, action: "APPROVE", comment: commentById[row.id] })}
+                >Approve</button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-outline-danger"
+                  disabled={actMutation.isPending}
+                  onClick={() => actMutation.mutate({ id: row.id, action: "REJECT", comment: commentById[row.id] || "Rejected" })}
+                >Reject</button>
+              </div>
+            ) : null,
+          }}
+          emptyMessage="No approval requests match the current filters."
+        />
       ) : null}
     </ModuleListShell>
   );

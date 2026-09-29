@@ -7,6 +7,7 @@ import com.techearnest.crm.common.api.PaginationMeta;
 import com.techearnest.crm.common.security.TenantAccess;
 import java.time.Instant;
 import java.util.List;
+import java.util.Collection;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -37,16 +38,36 @@ public class AuditQueryService {
             Pageable pageable) {
         tenantAccess.requirePermission("AUDIT_VIEW");
         UUID orgId = tenantAccess.resolveOrganizationId(organizationId);
-        Page<AuditLog> page = auditLogRepository.searchByOrganization(
-                orgId,
-                blankToNull(action),
-                blankToNull(entityType),
-                userId,
-                regionId,
-                entityId,
-                fromTs,
-                toTs,
-                pageable);
+        Collection<UUID> visibleRegions = tenantAccess.regionFilterOrNull();
+        Page<AuditLog> page;
+        if (visibleRegions != null) {
+            if (regionId != null && !visibleRegions.contains(regionId)) {
+                page = Page.empty(pageable);
+            } else {
+                page = auditLogRepository.searchByOrganizationAndRegions(
+                        orgId,
+                        visibleRegions,
+                        blankToNull(action),
+                        blankToNull(entityType),
+                        userId,
+                        regionId,
+                        entityId,
+                        fromTs,
+                        toTs,
+                        pageable);
+            }
+        } else {
+            page = auditLogRepository.searchByOrganization(
+                    orgId,
+                    blankToNull(action),
+                    blankToNull(entityType),
+                    userId,
+                    regionId,
+                    entityId,
+                    fromTs,
+                    toTs,
+                    pageable);
+        }
         return new PageResult(page.map(AuditLogResponse::from).getContent(), PaginationMeta.from(page));
     }
 

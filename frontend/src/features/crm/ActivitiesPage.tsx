@@ -9,12 +9,14 @@ import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
-  ZohoFormKitCreateView,
-  ZohoFormSelect,
-  useZohoCreateFlow,
-} from "@/components/ZohoCreate";
+  TechEarnestFilterSelect,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
@@ -27,7 +29,15 @@ const ACTIVITY_TYPES = ["TASK", "CALL", "MEETING", "NOTE", "FOLLOW_UP"] as const
 
 const activityTypeOptions = enumPickerOptions(ACTIVITY_TYPES);
 const entityTypeOptions = enumPickerOptions(ENTITY_TYPES);
+const activityFilterStatusOptions = enumPickerOptions(["OPEN", "COMPLETED"]);
 const activityPriorityOptions = enumPickerOptions(["LOW", "MEDIUM", "HIGH"] as const);
+const ACTIVITY_LIST_COLUMNS = [
+  { field: "subject", label: "Subject" },
+  { field: "type", label: "Type" },
+  { field: "relatedEntityId", label: "Related" },
+  { field: "dueDate", label: "Due" },
+  { field: "status", label: "Status" },
+];
 const callDirectionOptions = optionsFromPairs([
   { value: "", label: "—" },
   { value: "INBOUND", label: "INBOUND" },
@@ -140,6 +150,13 @@ export function ActivitiesPage() {
     queryFn: () => listUsers(),
     enabled: canViewUsers,
   });
+  const assigneeFilterOptions = useMemo(
+    () => optionsFromPairs([
+      ...(auth.userId ? [{ value: auth.userId, label: "Current user" }] : []),
+      ...(usersQuery.data ?? []).map((user) => ({ value: user.id, label: `${user.firstName} ${user.lastName}`.trim(), subtitle: user.email })),
+    ]),
+    [auth.userId, usersQuery.data],
+  );
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -174,7 +191,7 @@ export function ActivitiesPage() {
     photo,
     cancelCreate,
     afterCreateSuccess,
-  } = useZohoCreateFlow({
+  } = useTechEarnestCreateFlow({
     defaults: activityDefaults(typeFilter),
     reset,
     setShowForm,
@@ -270,7 +287,7 @@ export function ActivitiesPage() {
   return (
     <>
       {showForm && canCreate ? (
-        <ZohoFormKitCreateView
+        <TechEarnestFormKitCreateView
           title={`Create ${createLabel}`}
           tableCode="activity"
           entityLabel={createLabel}
@@ -289,7 +306,7 @@ export function ActivitiesPage() {
           <FormSection title="Primary details">
             <div className="col-md-2">
               <label className="form-label">Type</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="type"
                 options={activityTypeOptions}
@@ -302,7 +319,7 @@ export function ActivitiesPage() {
             </div>
             <div className="col-md-2">
               <label className="form-label">Related to</label>
-              <ZohoFormSelect
+              <TechEarnestFormSelect
                 control={control}
                 name="relatedEntityType"
                 options={entityTypeOptions}
@@ -318,7 +335,7 @@ export function ActivitiesPage() {
             <FormSection title="Additional details">
               <div className="col-md-3">
                 <label className="form-label">Priority</label>
-                <ZohoFormSelect
+                <TechEarnestFormSelect
                   control={control}
                   name="priority"
                   options={activityPriorityOptions}
@@ -350,7 +367,7 @@ export function ActivitiesPage() {
               <FormSection title="Call details">
                 <div className="col-md-3">
                   <label className="form-label">Direction</label>
-                  <ZohoFormSelect
+                  <TechEarnestFormSelect
                     control={control}
                     name="callDirection"
                     options={callDirectionOptions}
@@ -371,7 +388,7 @@ export function ActivitiesPage() {
               </FormSection>
             ) : null}
           </FormMoreDetails>
-        </ZohoFormKitCreateView>
+        </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
       title={title}
@@ -417,51 +434,11 @@ export function ActivitiesPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Type</label>
-            <select className="form-select form-select-sm mb-2" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
-              <option value="">All</option>
-              {ACTIVITY_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            <label className="form-label small mb-1">Status</label>
-            <select className="form-select form-select-sm mb-2" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-              <option value="">All</option>
-              <option value="OPEN">OPEN</option>
-              <option value="COMPLETED">COMPLETED</option>
-            </select>
-            <label className="form-label small mb-1">Related type</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={relatedTypeFilter}
-              onChange={(e) => setRelatedTypeFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              {ENTITY_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
+            <div className="mb-2"><TechEarnestFilterSelect label="Type" value={typeFilter} onChange={setTypeFilter} options={activityTypeOptions} placeholder="All types" emptyLabel="All types" searchPlaceholder="Search activity types" /></div>
+            <div className="mb-2"><TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={activityFilterStatusOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search activity statuses" /></div>
+            <div className="mb-2"><TechEarnestFilterSelect label="Related type" value={relatedTypeFilter} onChange={setRelatedTypeFilter} options={entityTypeOptions} placeholder="All record types" emptyLabel="All record types" searchPlaceholder="Search record types" /></div>
             {canViewUsers ? (
-              <>
-                <label className="form-label small mb-1">Assignee</label>
-                <select
-                  className="form-select form-select-sm mb-2"
-                  value={assigneeFilter}
-                  onChange={(e) => setAssigneeFilter(e.target.value)}
-                >
-                  <option value="">All</option>
-                  {auth.userId ? <option value={auth.userId}>Current user</option> : null}
-                  {(usersQuery.data ?? []).map((user) => (
-                    <option key={user.id} value={user.id}>
-                      {user.firstName} {user.lastName}
-                    </option>
-                  ))}
-                </select>
-              </>
+              <div className="mb-2"><TechEarnestFilterSelect label="Assignee" value={assigneeFilter} onChange={setAssigneeFilter} options={assigneeFilterOptions} placeholder="All assignees" emptyLabel="All assignees" searchPlaceholder="Search users" /></div>
             ) : null}
             <label className="form-label small mb-1">Outcome</label>
             <input
@@ -470,16 +447,7 @@ export function ActivitiesPage() {
               onChange={(e) => setOutcomeFilter(e.target.value)}
               placeholder="e.g. INTERESTED"
             />
-            <label className="form-label small mb-1">Call direction</label>
-            <select
-              className="form-select form-select-sm mb-2"
-              value={directionFilter}
-              onChange={(e) => setDirectionFilter(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="INBOUND">INBOUND</option>
-              <option value="OUTBOUND">OUTBOUND</option>
-            </select>
+            <div className="mb-2"><TechEarnestFilterSelect label="Call direction" value={directionFilter} onChange={setDirectionFilter} options={callDirectionOptions.filter((option) => option.value)} placeholder="All directions" emptyLabel="All directions" searchPlaceholder="Search directions" /></div>
             <label className="form-label small mb-1">Due from</label>
             <input
               className="form-control form-control-sm mb-2"
@@ -503,58 +471,38 @@ export function ActivitiesPage() {
       {activitiesQuery.error ? <ErrorState title="Unable to load" message="Try again." /> : null}
 
       {!activitiesQuery.isLoading && !activitiesQuery.error && viewMode === "list" ? (
-        <div className="module-list-table-wrap">
-          <table className="table module-list-table align-middle">
-            <thead>
-              <tr>
-                <th>Subject</th>
-                <th>Type</th>
-                <th>Related</th>
-                <th>Due</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((activity) => (
-                <tr
-                  key={activity.id}
-                  className={selectedId === activity.id ? "table-active" : undefined}
-                  onClick={() => setSelectedId(activity.id)}
-                  style={{ cursor: "pointer" }}
-                >
-                  <td className="lead-name">{activity.subject}</td>
-                  <td>{activity.type}</td>
-                  <td>
-                    {activity.relatedEntityType} · {activity.relatedEntityId.slice(0, 8)}
-                  </td>
-                  <td>{activity.dueDate ?? "—"}</td>
-                  <td>
-                    <StatusBadge status={activity.status} />
-                  </td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    {canComplete && activity.status !== "COMPLETED" ? (
-                      <button
-                        type="button"
-                        className="btn btn-outline-primary btn-sm"
-                        onClick={() => completeMutation.mutate(activity.id)}
-                      >
-                        Complete
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-              {!rows.length ? (
-                <tr>
-                  <td colSpan={6} className="text-center text-muted py-5">
-                    No {title.toLowerCase()} found.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        <ModuleListTable
+            tableCode="activity"
+            defaultColumns={ACTIVITY_LIST_COLUMNS}
+            rows={rows}
+            rowKey={(activity) => activity.id}
+            selectedRowKey={selectedId}
+            onRowClick={(activity) => setSelectedId(activity.id)}
+            renderCell={(activity, field) => {
+              if (field === "relatedEntityId") {
+                return `${activity.relatedEntityType} · ${activity.relatedEntityId.slice(0, 8)}`;
+              }
+              if (field === "status") return <StatusBadge status={activity.status} />;
+              const value = (activity as unknown as Record<string, unknown>)[field];
+              return value == null || value === "" ? "—" : String(value);
+            }}
+            nameFields={["subject"]}
+            emptyMessage={`No ${title.toLowerCase()} found.`}
+            trailingColumn={{
+              header: "",
+              stopPropagation: true,
+              render: (activity) =>
+                canComplete && activity.status !== "COMPLETED" ? (
+                  <button
+                    type="button"
+                    className="btn btn-outline-primary btn-sm"
+                    onClick={() => completeMutation.mutate(activity.id)}
+                  >
+                    Complete
+                  </button>
+                ) : null,
+            }}
+        />
       ) : null}
 
       {selected && canUpdate ? (

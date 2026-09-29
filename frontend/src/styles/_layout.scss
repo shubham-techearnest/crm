@@ -718,7 +718,7 @@
   margin-bottom: 1rem;
 }
 
-/* —— CRM module list (Zoho-inspired workspace) —— */
+/* —— CRM module list (TechEarnest-inspired workspace) —— */
 
 .module-list-shell {
   background: $te-surface;
@@ -936,12 +936,12 @@
 .module-create-split {
   display: inline-flex;
   align-items: stretch;
+  // No overflow:hidden here — it would clip the caret's dropdown panel. Corners are rounded per child instead.
   border-radius: 0.4rem;
-  overflow: hidden;
   box-shadow: 0 1px 2px rgba($te-primary, 0.2);
 
   .btn-primary {
-    border-radius: 0;
+    border-radius: 0.4rem 0 0 0.4rem;
     border: none;
     font-weight: 650;
     padding-inline: $te-space-4;
@@ -964,6 +964,7 @@
   color: #fff;
   border: none;
   border-left: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 0 0.4rem 0.4rem 0;
   cursor: pointer;
   transition: background 0.12s ease;
 
@@ -1064,6 +1065,15 @@
   flex-shrink: 0;
 }
 
+.module-menu-item.is-danger {
+  color: $te-danger;
+}
+
+.module-menu-item.is-danger:hover,
+.module-menu-item.is-danger:focus-visible {
+  background: rgba($te-danger, 0.08);
+}
+
 .module-menu-separator {
   height: 1px;
   background: $te-border-light;
@@ -1115,14 +1125,14 @@
   width: min(920px, 100%);
 }
 
-.zoho-layout-section {
+.techearnest-layout-section {
   border: 1px solid $te-border-light;
   border-radius: 0.5rem;
   padding: $te-space-3;
   background: $te-surface-subtle;
 }
 
-.zoho-layout-field-list {
+.techearnest-layout-field-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -1131,7 +1141,7 @@
   gap: $te-space-2;
 }
 
-.zoho-layout-field-list li {
+.techearnest-layout-field-list li {
   display: flex;
   align-items: center;
   gap: $te-space-2;
@@ -1142,7 +1152,7 @@
   font-size: 0.8125rem;
 }
 
-.zoho-layout-field-actions {
+.techearnest-layout-field-actions {
   margin-left: auto;
   display: inline-flex;
   gap: 0.125rem;
@@ -1356,7 +1366,7 @@
   overflow: auto;
 }
 
-.zoho-create-page {
+.techearnest-create-page {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -1365,7 +1375,7 @@
   overflow: auto;
 }
 
-.zoho-create-topbar {
+.techearnest-create-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1378,21 +1388,21 @@
   z-index: 3;
 }
 
-.zoho-create-topbar-left {
+.techearnest-create-topbar-left {
   display: flex;
   align-items: center;
   gap: $te-space-3;
   min-width: 0;
 }
 
-.zoho-create-title {
+.techearnest-create-title {
   font-size: 1.125rem;
   font-weight: 600;
   margin: 0;
   color: #111827;
 }
 
-.zoho-create-layout-link {
+.techearnest-create-layout-link {
   border: none;
   background: transparent;
   color: #2563eb;
@@ -1406,14 +1416,14 @@
   }
 }
 
-.zoho-create-topbar-actions {
+.techearnest-create-topbar-actions {
   display: flex;
   align-items: center;
   gap: $te-space-2;
   flex-shrink: 0;
 }
 
-.zoho-create-btn {
+.techearnest-create-btn {
   min-width: 5.5rem;
   border-color: #d1d5db;
   color: #374151;
@@ -1421,42 +1431,42 @@
   font-weight: 500;
 }
 
-.zoho-create-btn--save {
+.techearnest-create-btn--save {
   min-width: 4.5rem;
 }
 
-.zoho-create-form {
+.techearnest-create-form {
   flex: 1;
   min-height: 0;
 }
 
-.zoho-create-layout {
+.techearnest-create-layout {
   padding: $te-space-4 $te-space-5 $te-space-5;
 }
 
-.zoho-create-fields {
+.techearnest-create-fields {
   min-width: 0;
   max-width: 56rem;
 }
 
-.zoho-create-section--lead-image {
+.techearnest-create-section--lead-image {
   margin-bottom: $te-space-4;
   padding-bottom: $te-space-4;
   border-bottom: 1px solid #eef2f7;
 }
 
-.zoho-lead-image-block {
+.techearnest-lead-image-block {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: $te-space-2;
 }
 
-.zoho-create-avatar-input {
+.techearnest-create-avatar-input {
   display: none;
 }
 
-.zoho-lead-image-btn {
+.techearnest-lead-image-btn {
   width: 4.75rem;
   height: 4.75rem;
   padding: 0;
@@ -1466,14 +1476,14 @@
   cursor: pointer;
   flex-shrink: 0;
 
-  &:hover .zoho-lead-image-placeholder,
-  &:focus-visible .zoho-lead-image-placeholder {
+  &:hover .techearnest-lead-image-placeholder,
+  &:focus-visible .techearnest-lead-image-placeholder {
     background: #dfe3ea;
     border-color: #c7cdd8;
   }
 }
 
-.zoho-lead-image-placeholder {
+.techearnest-lead-image-placeholder {
   width: 4.75rem;
   height: 4.75rem;
   border-radius: 999px;
@@ -1491,7 +1501,7 @@
   }
 }
 
-.zoho-lead-image-preview {
+.techearnest-lead-image-preview {
   width: 4.75rem;
   height: 4.75rem;
   border-radius: 999px;
@@ -1500,14 +1510,14 @@
   display: block;
 }
 
-.zoho-lead-image-actions {
+.techearnest-lead-image-actions {
   display: flex;
   align-items: center;
   gap: $te-space-2;
   font-size: 0.8125rem;
 }
 
-.zoho-create-section {
+.techearnest-create-section {
   margin-bottom: $te-space-5;
 
   &:last-child {
@@ -1515,28 +1525,48 @@
   }
 }
 
-.zoho-create-section-title {
+.techearnest-create-section-title {
   font-size: 0.9375rem;
   font-weight: 650;
   margin: 0 0 $te-space-3;
   color: #111827;
 }
 
-.zoho-create-grid {
+.techearnest-create-lines {
+  margin-bottom: $te-space-2;
+
+  th {
+    color: #4b5563;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border-bottom-width: 1px;
+
+    &.required::after {
+      content: " *";
+      color: #dc2626;
+    }
+  }
+
+  td {
+    vertical-align: top;
+  }
+}
+
+.techearnest-create-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: $te-space-4 $te-space-6;
 }
 
-.zoho-create-col {
+.techearnest-create-col {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   min-width: 0;
 }
 
-.zoho-create-formkit,
-.zoho-create-dynamic-form {
+.techearnest-create-formkit,
+.techearnest-create-dynamic-form {
   .form-section,
   .row {
     --bs-gutter-x: #{$te-space-4};
@@ -1562,7 +1592,7 @@
   }
 }
 
-.zoho-field {
+.techearnest-field {
   display: grid;
   grid-template-columns: 11rem minmax(0, 1fr);
   gap: $te-space-3;
@@ -1570,12 +1600,12 @@
   min-height: 2rem;
 }
 
-.zoho-field--wide {
+.techearnest-field--wide {
   grid-template-columns: 11rem minmax(0, 1fr);
   max-width: 42rem;
 }
 
-.zoho-field-label {
+.techearnest-field-label {
   font-size: 0.8125rem;
   color: #4b5563;
   text-align: right;
@@ -1583,7 +1613,7 @@
   line-height: 1.2;
 }
 
-.zoho-field-control {
+.techearnest-field-control {
   min-width: 0;
 
   .form-control,
@@ -1594,7 +1624,7 @@
     min-height: 2rem;
   }
 
-  .zoho-picker {
+  .techearnest-picker {
     position: relative;
     width: 100%;
   }
@@ -1607,17 +1637,17 @@
   }
 }
 
-.zoho-picker {
+.techearnest-picker {
   position: relative;
   width: 100%;
 }
 
-.zoho-picker-input-group {
+.techearnest-picker-input-group {
   position: relative;
   z-index: 1;
 }
 
-.zoho-picker-trigger {
+.techearnest-picker-trigger {
   display: flex !important;
   align-items: center;
   justify-content: space-between;
@@ -1631,12 +1661,12 @@
   }
 }
 
-.zoho-picker.is-open .zoho-picker-trigger {
+.techearnest-picker.is-open .techearnest-picker-trigger {
   border-color: $te-primary;
   box-shadow: 0 0 0 1px rgba($te-primary, 0.35);
 }
 
-.zoho-picker-value {
+.techearnest-picker-value {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -1645,22 +1675,22 @@
   color: #111827;
 }
 
-.zoho-picker-value.is-placeholder {
+.techearnest-picker-value.is-placeholder {
   color: #9ca3af;
 }
 
-.zoho-picker-caret {
+.techearnest-picker-caret {
   width: 0.75rem;
   height: 0.75rem;
   color: #6b7280;
   flex-shrink: 0;
 }
 
-.zoho-picker-lookup {
+.techearnest-picker-lookup {
   flex-shrink: 0;
 }
 
-.zoho-picker-menu {
+.techearnest-picker-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
@@ -1682,7 +1712,7 @@
   }
 }
 
-.zoho-picker-search-wrap {
+.techearnest-picker-search-wrap {
   display: flex;
   align-items: center;
   gap: $te-space-2;
@@ -1690,14 +1720,14 @@
   border-bottom: 1px solid #eef2f7;
 }
 
-.zoho-picker-search-icon {
+.techearnest-picker-search-icon {
   width: 0.9rem;
   height: 0.9rem;
   color: #9ca3af;
   flex-shrink: 0;
 }
 
-.zoho-picker-search {
+.techearnest-picker-search {
   border: 1px solid #d1d5db;
   border-radius: 0.25rem;
   box-shadow: none;
@@ -1708,7 +1738,7 @@
   }
 }
 
-.zoho-picker-list {
+.techearnest-picker-list {
   list-style: none;
   margin: 0;
   padding: $te-space-1 0;
@@ -1718,11 +1748,11 @@
   min-height: 0;
 }
 
-.zoho-picker-menu.is-portal .zoho-picker-list {
+.techearnest-picker-menu.is-portal .techearnest-picker-list {
   max-height: none;
 }
 
-.zoho-picker-item {
+.techearnest-picker-item {
   width: 100%;
   border: none;
   background: transparent;
@@ -1739,8 +1769,8 @@
   }
 }
 
-.zoho-picker-check,
-.zoho-picker-check-spacer {
+.techearnest-picker-check,
+.techearnest-picker-check-spacer {
   width: 0.85rem;
   flex-shrink: 0;
   color: #111827;
@@ -1748,7 +1778,7 @@
   line-height: 1;
 }
 
-.zoho-picker-avatar {
+.techearnest-picker-avatar {
   width: 2rem;
   height: 2rem;
   border-radius: 999px;
@@ -1766,21 +1796,21 @@
   }
 }
 
-.zoho-picker-item-body {
+.techearnest-picker-item-body {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
 }
 
-.zoho-picker-item-label {
+.techearnest-picker-item-label {
   font-size: 0.8125rem;
   font-weight: 600;
   color: #111827;
   line-height: 1.2;
 }
 
-.zoho-picker-item-subtitle {
+.techearnest-picker-item-subtitle {
   font-size: 0.75rem;
   color: #6b7280;
   line-height: 1.2;
@@ -1789,56 +1819,56 @@
   white-space: nowrap;
 }
 
-.zoho-picker-empty {
+.techearnest-picker-empty {
   padding: $te-space-3;
   font-size: 0.8125rem;
   color: #6b7280;
 }
 
-.zoho-picker.is-disabled {
+.techearnest-picker.is-disabled {
   opacity: 0.65;
   pointer-events: none;
 }
 
-.zoho-create-formkit,
-.zoho-create-dynamic-form {
-  .zoho-picker-menu {
+.techearnest-create-formkit,
+.techearnest-create-dynamic-form {
+  .techearnest-picker-menu {
     z-index: 40;
   }
 }
 
-.zoho-field--required .zoho-field-control .form-control,
-.zoho-field--required .zoho-field-control .form-select,
-.zoho-field--required .zoho-field-control .zoho-picker-trigger {
+.techearnest-field--required .techearnest-field-control .form-control,
+.techearnest-field--required .techearnest-field-control .form-select,
+.techearnest-field--required .techearnest-field-control .techearnest-picker-trigger {
   border-left: 3px solid #dc2626;
   padding-left: calc(#{$te-space-2} - 1px);
 }
 
-.zoho-salutation-select {
+.techearnest-salutation-select {
   max-width: 5.5rem;
   flex: 0 0 5.5rem;
 }
 
-.zoho-lookup-btn,
-.zoho-info-btn {
+.techearnest-lookup-btn,
+.techearnest-info-btn {
   border-color: #d1d5db !important;
   color: #6b7280;
   min-width: 2rem;
   padding-inline: 0.45rem;
 }
 
-.zoho-info-btn {
+.techearnest-info-btn {
   font-size: 0.75rem;
   font-weight: 700;
   font-style: italic;
 }
 
-.zoho-checkbox-field {
+.techearnest-checkbox-field {
   min-height: 1.25rem;
   padding-top: 0.125rem;
 }
 
-.zoho-address-box {
+.techearnest-address-box {
   border: 1px solid #e5e7eb;
   border-radius: 0.25rem;
   background: #fff;
@@ -1849,26 +1879,26 @@
   gap: 0.35rem;
 }
 
-.zoho-address-box-title {
+.techearnest-address-box-title {
   font-size: 0.8125rem;
   font-weight: 650;
   color: #374151;
   margin-bottom: $te-space-1;
 }
 
-.zoho-coordinates {
+.techearnest-coordinates {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: $te-space-2;
 }
 
-.zoho-address-clear {
+.techearnest-address-clear {
   display: flex;
   justify-content: flex-end;
   padding-top: $te-space-1;
 }
 
-.zoho-address-section-header {
+.techearnest-address-section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1876,32 +1906,32 @@
   margin-bottom: $te-space-3;
 }
 
-.zoho-address-dual-grid {
+.techearnest-address-dual-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: $te-space-4;
   max-width: 56rem;
 }
 
-.zoho-lead-image-btn--building,
-.zoho-lead-image-preview--building,
-.zoho-lead-image-placeholder--building {
+.techearnest-lead-image-btn--building,
+.techearnest-lead-image-preview--building,
+.techearnest-lead-image-placeholder--building {
   width: 5.5rem;
   height: 5.5rem;
   border-radius: 0.25rem;
 }
 
-.zoho-lead-image-placeholder--building svg {
+.techearnest-lead-image-placeholder--building svg {
   width: 2.5rem;
   height: 2.5rem;
 }
 
-.zoho-readonly-field {
+.techearnest-readonly-field {
   background: #f9fafb;
   color: #374151;
 }
 
-.zoho-lock-icon {
+.techearnest-lock-icon {
   background: #f9fafb;
   border-color: #d1d5db;
   color: #9ca3af;
@@ -1909,31 +1939,31 @@
 }
 
 @media (max-width: 991px) {
-  .zoho-address-dual-grid {
+  .techearnest-address-dual-grid {
     grid-template-columns: 1fr;
   }
 
-  .zoho-create-grid {
+  .techearnest-create-grid {
     grid-template-columns: 1fr;
   }
 
-  .zoho-create-topbar {
+  .techearnest-create-topbar {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .zoho-create-topbar-actions {
+  .techearnest-create-topbar-actions {
     justify-content: flex-end;
     flex-wrap: wrap;
   }
 
-  .zoho-field,
-  .zoho-field--wide {
+  .techearnest-field,
+  .techearnest-field--wide {
     grid-template-columns: 1fr;
     gap: 0.25rem;
   }
 
-  .zoho-field-label {
+  .techearnest-field-label {
     text-align: left;
   }
 }
@@ -1996,6 +2026,613 @@
 .module-list-table .record-name {
   font-weight: 600;
   color: $te-text;
+}
+
+.module-list-table-settings-cell {
+  width: 48px;
+  min-width: 48px;
+  padding: $te-space-1 $te-space-2 !important;
+  text-align: center;
+}
+
+.module-list-columns-btn {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  align-items: center;
+  padding: 0;
+  border: 1px solid $te-border;
+  border-radius: 0.5rem;
+  color: $te-text-secondary;
+  background: $te-surface;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.module-list-columns-btn:hover,
+.module-list-columns-btn:focus-visible,
+.module-list-columns-btn.is-open {
+  color: $te-primary;
+  background: $te-primary-light;
+  border-color: rgba($te-primary, 0.35);
+}
+
+.module-table-options-menu {
+  position: fixed;
+  z-index: 1200;
+  width: 248px;
+  padding: $te-space-1;
+  border: 1px solid $te-border;
+  border-radius: 0.5rem;
+  background: $te-surface;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+}
+
+.module-table-options-item {
+  display: flex;
+  align-items: center;
+  gap: $te-space-2;
+  width: 100%;
+  min-height: 2rem;
+  padding: $te-space-1 $te-space-2;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: $te-text;
+  font-size: 0.8125rem;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover:not(:disabled),
+  &:focus-visible:not(:disabled) {
+    background: $te-primary-light;
+    outline: none;
+  }
+
+  > span:nth-of-type(1) {
+    flex: 1;
+  }
+
+  strong {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  &:disabled,
+  &.is-disabled {
+    color: $te-muted;
+    cursor: not-allowed;
+  }
+}
+
+.module-table-options-chevron {
+  color: $te-text-secondary;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.module-table-options-submenu {
+  margin: 0 0 $te-space-1 $te-space-5;
+  padding-left: $te-space-1;
+  border-left: 1px solid $te-border-light;
+}
+
+.module-list-table tbody:not(.module-list-table-wrap-text) td {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.module-list-table tbody.module-list-table-wrap-text td {
+  max-width: 30rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.module-list-table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $te-space-3;
+  padding: $te-space-2 $te-space-3;
+  color: $te-text-secondary;
+  font-size: 0.75rem;
+}
+
+.module-list-table-pagination-actions {
+  display: flex;
+  align-items: center;
+  gap: $te-space-2;
+
+  .btn {
+    min-width: 2rem;
+    padding: 0.15rem $te-space-2;
+  }
+}
+
+.manage-columns-backdrop {
+  position: fixed;
+  z-index: 1080;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: $te-space-4;
+  background: rgba(15, 23, 42, 0.38);
+}
+
+.manage-columns-modal {
+  display: flex;
+  width: min(100%, 760px);
+  max-height: min(82vh, 680px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid $te-border;
+  border-radius: 0.75rem;
+  background: $te-surface;
+  box-shadow: 0 18px 55px rgba(15, 23, 42, 0.2);
+}
+
+.manage-columns-header,
+.manage-columns-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $te-space-3;
+  padding: $te-space-4 $te-space-5;
+}
+
+.manage-columns-header {
+  border-bottom: 1px solid $te-border-light;
+}
+
+.manage-columns-title {
+  margin: 0;
+  color: $te-text;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.manage-columns-hint {
+  color: $te-text-secondary;
+  font-size: 0.8125rem;
+}
+
+.manage-columns-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.manage-columns-pane {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  padding: $te-space-3 $te-space-5;
+
+  & + & {
+    border-left: 1px solid $te-border-light;
+  }
+}
+
+.manage-columns-pane-title {
+  color: $te-text;
+  font-size: 0.8125rem;
+  font-weight: 650;
+  margin-bottom: $te-space-2;
+}
+
+.manage-columns-pane-help {
+  color: $te-text-secondary;
+  font-size: 0.75rem;
+  margin: 0 0 $te-space-2;
+}
+
+.manage-columns-search {
+  padding: 0 0 $te-space-2;
+}
+
+.manage-columns-list,
+.manage-columns-order {
+  min-height: 120px;
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.manage-columns-order {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.manage-columns-order-item {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: $te-space-2;
+  padding: 0.25rem 0.375rem 0.25rem 0.5rem;
+  border: 1px solid $te-border;
+  border-radius: 0.4rem;
+  background: $te-surface;
+  color: $te-text;
+  font-size: 0.875rem;
+  cursor: grab;
+  user-select: none;
+
+  &:hover {
+    background: $te-page-bg;
+  }
+
+  &.is-dragging {
+    opacity: 0.5;
+  }
+
+  &.is-drop-target {
+    border-color: $te-primary;
+    box-shadow: 0 0 0 2px rgba($te-primary, 0.15);
+  }
+}
+
+.manage-columns-grip {
+  color: $te-text-secondary;
+  font-size: 0.75rem;
+  letter-spacing: -0.15em;
+}
+
+.manage-columns-order-position {
+  min-width: 1.25rem;
+  color: $te-text-secondary;
+  font-size: 0.75rem;
+  text-align: right;
+}
+
+.manage-columns-order-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manage-columns-order-actions {
+  display: inline-flex;
+  gap: 0.125rem;
+}
+
+.manage-columns-icon-btn {
+  appearance: none;
+  width: 1.625rem;
+  height: 1.625rem;
+  padding: 0;
+  border: none;
+  border-radius: 0.3rem;
+  background: transparent;
+  color: $te-text-secondary;
+  font-size: 0.875rem;
+  line-height: 1;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: $te-primary-light;
+    color: $te-primary-dark;
+  }
+
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+}
+
+@media (max-width: 640px) {
+  .manage-columns-body {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .manage-columns-pane + .manage-columns-pane {
+    border-left: none;
+    border-top: 1px solid $te-border-light;
+  }
+}
+
+.manage-columns-item {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: $te-space-3;
+  color: $te-text;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.manage-columns-item .form-check-input {
+  margin: 0;
+}
+
+.crm-dashboard-home {
+  display: grid;
+  gap: $te-space-5;
+  padding: $te-space-5;
+}
+
+.crm-dashboard-region-picker {
+  width: min(220px, 48vw);
+  min-width: 180px;
+}
+
+.crm-dashboard-tabs {
+  gap: 0.125rem;
+  padding: 0.1875rem;
+  border: 1px solid $te-border;
+  border-radius: 999px;
+  background: $te-surface;
+
+  .module-view-tab {
+    cursor: pointer;
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px rgba($te-primary, 0.25);
+    }
+  }
+}
+
+.route-loading {
+  display: grid;
+  min-height: 12rem;
+  place-items: center;
+  color: $te-text-secondary;
+  font-size: 0.875rem;
+}
+
+.crm-dashboard-welcome {
+  display: flex;
+  min-height: 148px;
+  align-items: center;
+  justify-content: space-between;
+  gap: $te-space-5;
+  padding: $te-space-6;
+  border: 1px solid rgba($te-primary, 0.12);
+  border-radius: 0.875rem;
+  background: linear-gradient(112deg, #fff 0%, #f4f6ff 100%);
+}
+
+.crm-dashboard-eyebrow {
+  margin-bottom: $te-space-2;
+  color: $te-primary;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+}
+
+.crm-dashboard-welcome h2 {
+  margin: 0;
+  color: $te-text;
+  font-size: clamp(1.35rem, 2vw, 1.8rem);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.crm-dashboard-welcome p {
+  margin: $te-space-2 0 0;
+  color: $te-text-secondary;
+  font-size: 0.9rem;
+}
+
+.crm-dashboard-date {
+  flex: 0 0 auto;
+  padding: $te-space-2 $te-space-3;
+  border: 1px solid $te-border-light;
+  border-radius: 999px;
+  color: $te-text-secondary;
+  background: $te-surface;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.crm-dashboard-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  gap: $te-space-3;
+}
+
+.crm-dashboard-metric,
+.crm-dashboard-panel {
+  min-width: 0;
+  border: 1px solid $te-border-light;
+  border-radius: 0.75rem;
+  background: $te-surface;
+  box-shadow: 0 2px 8px rgba(31, 41, 55, 0.035);
+}
+
+.crm-dashboard-metric {
+  position: relative;
+  display: flex;
+  min-height: 112px;
+  align-items: center;
+  padding: $te-space-4 $te-space-5;
+  overflow: hidden;
+}
+
+.crm-dashboard-metric::before {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: $te-primary;
+  content: "";
+}
+
+.crm-dashboard-metric-label {
+  color: $te-text-secondary;
+  font-size: 0.8rem;
+  font-weight: 550;
+}
+
+.crm-dashboard-metric-value {
+  margin-top: $te-space-2;
+  color: $te-text;
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.crm-dashboard-charts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $te-space-4;
+}
+
+.crm-dashboard-panel {
+  padding: $te-space-4 $te-space-5;
+}
+
+.crm-dashboard-panel-title {
+  margin: 0;
+  color: $te-text;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.crm-dashboard-chart {
+  width: 100%;
+  height: 250px;
+  margin-top: $te-space-3;
+}
+
+.crm-dashboard-empty {
+  display: grid;
+  min-height: 140px;
+  place-items: center;
+  padding: $te-space-4;
+  color: $te-muted;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.crm-dashboard-empty--large {
+  display: flex;
+  min-height: 132px;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  gap: $te-space-2;
+  border: 1px dashed $te-border;
+  border-radius: 0.75rem;
+  background: $te-surface;
+}
+
+.crm-dashboard-empty--large strong {
+  color: $te-text;
+  font-size: 1rem;
+}
+
+.crm-dashboard-empty--large span {
+  color: $te-text-secondary;
+}
+
+.crm-dashboard-quick-actions {
+  display: grid;
+  gap: $te-space-3;
+  padding: $te-space-4 $te-space-5;
+  border: 1px solid $te-border-light;
+  border-radius: 0.75rem;
+  background: $te-surface;
+}
+
+.crm-dashboard-quick-actions-heading h3 {
+  margin: 0;
+  color: $te-text;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.crm-dashboard-quick-actions-heading p {
+  margin: $te-space-1 0 0;
+  color: $te-text-secondary;
+  font-size: 0.8rem;
+}
+
+.crm-dashboard-quick-actions-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $te-space-2;
+}
+
+.crm-dashboard-quick-action {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: $te-space-2;
+  padding: $te-space-2 $te-space-3;
+  border: 1px solid $te-border-light;
+  border-radius: 0.6rem;
+  color: $te-text;
+  background: $te-surface;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.crm-dashboard-quick-action:hover,
+.crm-dashboard-quick-action:focus-visible {
+  border-color: rgba($te-primary, 0.38);
+  color: $te-primary;
+  background: $te-primary-light;
+}
+
+.crm-dashboard-quick-action-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 0.4rem;
+  color: $te-primary;
+  background: $te-primary-light;
+}
+
+.crm-dashboard-quick-action-icon .toolbar-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.crm-dashboard-quick-action-arrow {
+  margin-left: $te-space-1;
+  color: $te-muted;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+@media (max-width: 767.98px) {
+  .crm-dashboard-home {
+    gap: $te-space-3;
+    padding: $te-space-3;
+  }
+
+  .crm-dashboard-welcome {
+    min-height: 0;
+    align-items: flex-start;
+    flex-direction: column;
+    padding: $te-space-4;
+  }
+
+  .crm-dashboard-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+.manage-columns-footer {
+  justify-content: flex-end;
+  border-top: 1px solid $te-border-light;
+  background: $te-surface-muted;
 }
 
 .module-list-footer {
@@ -2085,6 +2722,39 @@
 .module-workspace-state--error .module-workspace-state-message,
 .module-workspace-state--empty .module-workspace-state-message {
   margin-bottom: $te-space-3;
+}
+
+.module-list-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+
+  .module-workspace-state {
+    flex: 1;
+  }
+
+  .module-workspace-state-message {
+    max-width: 28rem;
+  }
+}
+
+.module-list-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: $te-space-2;
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+}
+
+.module-list-empty-link {
+  font-size: 0.8125rem;
+  text-decoration: none;
 }
 
 .status-badge {
@@ -2425,16 +3095,16 @@
   }
 }
 
-// ── Zoho record detail view ────────────────────────────────────────────────
+// ── TechEarnest record detail view ────────────────────────────────────────────────
 
-.zoho-record-page {
+.techearnest-record-page {
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 3.5rem);
   background: #f3f4f6;
 }
 
-.zoho-record-topbar {
+.techearnest-record-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2445,7 +3115,7 @@
   flex-wrap: wrap;
 }
 
-.zoho-record-topbar-left {
+.techearnest-record-topbar-left {
   display: flex;
   align-items: center;
   gap: $te-space-3;
@@ -2453,7 +3123,7 @@
   flex: 1;
 }
 
-.zoho-record-back {
+.techearnest-record-back {
   padding: 0;
   color: #374151;
   line-height: 1;
@@ -2464,7 +3134,7 @@
   }
 }
 
-.zoho-record-avatar {
+.techearnest-record-avatar {
   width: 3rem;
   height: 3rem;
   border-radius: 0.35rem;
@@ -2480,18 +3150,18 @@
   overflow: hidden;
 }
 
-.zoho-record-avatar--building {
+.techearnest-record-avatar--building {
   background: #eef4ff;
   color: #4b5563;
 }
 
-.zoho-record-avatar-img {
+.techearnest-record-avatar-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-.zoho-record-title {
+.techearnest-record-title {
   margin: 0;
   font-size: 1.125rem;
   font-weight: 650;
@@ -2499,58 +3169,58 @@
   line-height: 1.25;
 }
 
-.zoho-record-meta,
-.zoho-record-status {
+.techearnest-record-meta,
+.techearnest-record-status {
   margin-top: 0.15rem;
 }
 
-.zoho-record-topbar-right {
+.techearnest-record-topbar-right {
   display: flex;
   align-items: center;
   gap: $te-space-2;
   flex-wrap: wrap;
 }
 
-.zoho-record-primary-action .btn-primary {
+.techearnest-record-primary-action .btn-primary {
   font-size: 0.8125rem;
   padding: 0.35rem 0.85rem;
 }
 
-.zoho-record-secondary-actions {
+.techearnest-record-secondary-actions {
   display: flex;
   align-items: center;
   gap: $te-space-2;
   flex-wrap: wrap;
 }
 
-.zoho-record-nav-arrows {
+.techearnest-record-nav-arrows {
   display: flex;
   gap: 0.15rem;
   margin-left: $te-space-2;
 }
 
-.zoho-record-layout {
+.techearnest-record-layout {
   display: grid;
   grid-template-columns: 11rem minmax(0, 1fr);
   flex: 1;
   min-height: 0;
 }
 
-.zoho-record-related-sidebar {
+.techearnest-record-related-sidebar {
   background: #fff;
   border-right: 1px solid #e5e7eb;
   padding: $te-space-4 $te-space-3;
   overflow-y: auto;
 }
 
-.zoho-record-related-sidebar-title {
+.techearnest-record-related-sidebar-title {
   font-size: 0.8125rem;
   font-weight: 650;
   color: #374151;
   margin-bottom: $te-space-3;
 }
 
-.zoho-record-related-links {
+.techearnest-record-related-links {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -2559,7 +3229,7 @@
   gap: 0.15rem;
 }
 
-.zoho-record-related-link {
+.techearnest-record-related-link {
   width: 100%;
   border: none;
   background: transparent;
@@ -2577,21 +3247,21 @@
   }
 }
 
-.zoho-record-main {
+.techearnest-record-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
 }
 
-.zoho-record-tabs {
+.techearnest-record-tabs {
   display: flex;
   gap: $te-space-2;
   padding: $te-space-3 $te-space-4 0;
   background: #f3f4f6;
 }
 
-.zoho-record-tab {
+.techearnest-record-tab {
   appearance: none;
   border: 1px solid transparent;
   background: transparent;
@@ -2616,7 +3286,7 @@
   }
 }
 
-.zoho-record-body {
+.techearnest-record-body {
   flex: 1;
   overflow-y: auto;
   padding: $te-space-4;
@@ -2624,7 +3294,7 @@
   border-top: 1px solid #e5e7eb;
 }
 
-.zoho-record-summary-strip {
+.techearnest-record-summary-strip {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: $te-space-3 $te-space-4;
@@ -2635,19 +3305,19 @@
   margin-bottom: $te-space-4;
 }
 
-.zoho-record-summary-item {
+.techearnest-record-summary-item {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
   min-width: 0;
 }
 
-.zoho-record-summary-label {
+.techearnest-record-summary-label {
   font-size: 0.75rem;
   color: #6b7280;
 }
 
-.zoho-record-summary-value {
+.techearnest-record-summary-value {
   font-size: 0.8125rem;
   color: #111827;
   font-weight: 550;
@@ -2656,14 +3326,14 @@
   white-space: nowrap;
 }
 
-.zoho-record-info-section {
+.techearnest-record-info-section {
   border: 1px solid #e5e7eb;
   border-radius: 0.35rem;
   margin-bottom: $te-space-4;
   overflow: hidden;
 }
 
-.zoho-record-info-section-header {
+.techearnest-record-info-section-header {
   display: flex;
   align-items: center;
   gap: $te-space-3;
@@ -2672,48 +3342,48 @@
   background: #fafbfc;
 }
 
-.zoho-record-hide-details {
+.techearnest-record-hide-details {
   padding: 0;
   font-size: 0.8125rem;
   text-decoration: none;
 }
 
-.zoho-record-info-section-title {
+.techearnest-record-info-section-title {
   margin: 0;
   font-size: 0.875rem;
   font-weight: 650;
   color: #111827;
 }
 
-.zoho-record-info-grid {
+.techearnest-record-info-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: $te-space-4;
   padding: $te-space-4;
 }
 
-.zoho-record-field-grid {
+.techearnest-record-field-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: $te-space-3;
   margin: 0;
 }
 
-.zoho-record-field {
+.techearnest-record-field {
   display: grid;
   grid-template-columns: 9rem minmax(0, 1fr);
   gap: $te-space-2;
   align-items: baseline;
 }
 
-.zoho-record-field-label {
+.techearnest-record-field-label {
   margin: 0;
   font-size: 0.8125rem;
   color: #6b7280;
   text-align: right;
 }
 
-.zoho-record-field-value {
+.techearnest-record-field-value {
   margin: 0;
   font-size: 0.8125rem;
   color: #111827;
@@ -2721,14 +3391,14 @@
   word-break: break-word;
 }
 
-.zoho-record-related-card {
+.techearnest-record-related-card {
   border: 1px solid #e5e7eb;
   border-radius: 0.35rem;
   margin-bottom: $te-space-3;
   overflow: hidden;
 }
 
-.zoho-record-related-card-header {
+.techearnest-record-related-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2738,35 +3408,35 @@
   background: #fafbfc;
 }
 
-.zoho-record-related-card-title {
+.techearnest-record-related-card-title {
   margin: 0;
   font-size: 0.875rem;
   font-weight: 650;
   color: #111827;
 }
 
-.zoho-record-related-card-actions {
+.techearnest-record-related-card-actions {
   display: flex;
   align-items: center;
   gap: $te-space-2;
   flex-wrap: wrap;
 }
 
-.zoho-record-related-card-body {
+.techearnest-record-related-card-body {
   padding: $te-space-4;
 }
 
-.zoho-record-empty {
+.techearnest-record-empty {
   margin: 0;
   font-size: 0.8125rem;
   color: #9ca3af;
 }
 
-.zoho-record-timeline {
+.techearnest-record-timeline {
   padding: $te-space-2 0;
 }
 
-.zoho-record-timeline-item {
+.techearnest-record-timeline-item {
   display: grid;
   grid-template-columns: 5rem minmax(0, 1fr);
   gap: $te-space-3;
@@ -2778,39 +3448,39 @@
   }
 }
 
-.zoho-record-timeline-time {
+.techearnest-record-timeline-time {
   font-size: 0.75rem;
   color: #6b7280;
   text-align: right;
 }
 
-.zoho-record-timeline-body {
+.techearnest-record-timeline-body {
   font-size: 0.8125rem;
   color: #111827;
 }
 
 @media (max-width: 991.98px) {
-  .zoho-record-layout {
+  .techearnest-record-layout {
     grid-template-columns: 1fr;
   }
 
-  .zoho-record-related-sidebar {
+  .techearnest-record-related-sidebar {
     border-right: none;
     border-bottom: 1px solid #e5e7eb;
     padding-bottom: $te-space-2;
   }
 
-  .zoho-record-related-links {
+  .techearnest-record-related-links {
     flex-direction: row;
     flex-wrap: wrap;
   }
 
-  .zoho-record-info-grid {
+  .techearnest-record-info-grid {
     grid-template-columns: 1fr;
   }
 }
 
-.zoho-deal-pipeline {
+.techearnest-deal-pipeline {
   margin-bottom: $te-space-4;
   padding: $te-space-3;
   background: #fff;
@@ -2818,7 +3488,7 @@
   border-radius: 0.35rem;
 }
 
-.zoho-deal-pipeline-meta {
+.techearnest-deal-pipeline-meta {
   display: flex;
   justify-content: space-between;
   font-size: 0.75rem;
@@ -2826,13 +3496,13 @@
   margin-bottom: $te-space-2;
 }
 
-.zoho-deal-pipeline-track {
+.techearnest-deal-pipeline-track {
   display: flex;
   flex-wrap: wrap;
   gap: 0.15rem;
 }
 
-.zoho-deal-pipeline-stage {
+.techearnest-deal-pipeline-stage {
   border: 1px solid #d1d5db;
   background: #f9fafb;
   color: #4b5563;
@@ -2858,7 +3528,7 @@
   }
 }
 
-.zoho-deal-contact-card {
+.techearnest-deal-contact-card {
   display: flex;
   align-items: center;
   gap: $te-space-3;
@@ -2869,7 +3539,7 @@
   border-radius: 0.35rem;
 }
 
-.zoho-deal-contact-avatar {
+.techearnest-deal-contact-avatar {
   width: 2.5rem;
   height: 2.5rem;
   border-radius: 999px;
@@ -2881,22 +3551,22 @@
   color: #6b7280;
 }
 
-.zoho-deal-contact-name {
+.techearnest-deal-contact-name {
   font-size: 0.875rem;
   font-weight: 650;
 }
 
-.zoho-deal-contact-account {
+.techearnest-deal-contact-account {
   font-size: 0.75rem;
   color: #6b7280;
 }
 
-.zoho-record-link {
+.techearnest-record-link {
   color: #2563eb;
   text-decoration: none;
 }
 
-.zoho-record-table {
+.techearnest-record-table {
   font-size: 0.8125rem;
 
   th {
@@ -2906,21 +3576,21 @@
   }
 }
 
-.zoho-record-timeline-header {
+.techearnest-record-timeline-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: $te-space-3;
 }
 
-.zoho-record-timeline-subnav {
+.techearnest-record-timeline-subnav {
   display: flex;
   gap: $te-space-3;
   margin-bottom: $te-space-3;
   border-bottom: 1px solid #e5e7eb;
 }
 
-.zoho-record-timeline-subnav-item {
+.techearnest-record-timeline-subnav-item {
   font-size: 0.8125rem;
   color: #6b7280;
   padding-bottom: 0.45rem;
@@ -2933,13 +3603,13 @@
   }
 }
 
-.zoho-record-timeline-title {
+.techearnest-record-timeline-title {
   margin: 0;
   font-size: 0.875rem;
   font-weight: 650;
 }
 
-.zoho-record-timeline-filter-btn {
+.techearnest-record-timeline-filter-btn {
   border: none;
   background: transparent;
   color: #6b7280;
@@ -2952,11 +3622,19 @@
   }
 }
 
-.zoho-record-timeline-day {
+.techearnest-record-timeline-filter {
+  width: auto;
+  min-width: 132px;
+  border-color: $te-border;
+  color: $te-text-secondary;
+  font-size: 0.78rem;
+}
+
+.techearnest-record-timeline-day {
   margin-bottom: $te-space-4;
 }
 
-.zoho-record-timeline-date {
+.techearnest-record-timeline-date {
   display: inline-block;
   font-size: 0.75rem;
   padding: 0.15rem 0.45rem;
@@ -2966,20 +3644,20 @@
   background: #fff;
 }
 
-.zoho-record-timeline-day-items {
+.techearnest-record-timeline-day-items {
   border-left: 2px solid #e5e7eb;
   margin-left: 0.65rem;
   padding-left: $te-space-4;
 }
 
-.zoho-record-timeline-item {
+.techearnest-record-timeline-item {
   display: grid;
   grid-template-columns: 4.75rem 0.75rem minmax(0, 1fr);
   gap: $te-space-2;
   padding: $te-space-2 0;
 }
 
-.zoho-record-timeline-time {
+.techearnest-record-timeline-time {
   font-size: 0.75rem;
   color: #6b7280;
   display: flex;
@@ -2988,12 +3666,12 @@
   padding-top: 0.1rem;
 }
 
-.zoho-record-timeline-edit-icon {
+.techearnest-record-timeline-edit-icon {
   color: #9ca3af;
   display: inline-flex;
 }
 
-.zoho-record-timeline-marker {
+.techearnest-record-timeline-marker {
   width: 0.55rem;
   height: 0.55rem;
   border-radius: 999px;
@@ -3001,12 +3679,12 @@
   margin-top: 0.35rem;
 }
 
-.zoho-record-timeline-body {
+.techearnest-record-timeline-body {
   font-size: 0.8125rem;
   color: #111827;
 }
 
-.zoho-record-timeline-change {
+.techearnest-record-timeline-change {
   margin-bottom: 0.15rem;
   line-height: 1.45;
 
@@ -3016,13 +3694,13 @@
   }
 }
 
-.zoho-record-timeline-meta {
+.techearnest-record-timeline-meta {
   font-size: 0.75rem;
   color: #6b7280;
   margin-top: 0.25rem;
 }
 
-.zoho-filter-field {
+.techearnest-filter-field {
   margin-bottom: $te-space-3;
   position: relative;
   z-index: 1;
@@ -3035,19 +3713,19 @@
   }
 }
 
-.zoho-filter-field:has(.zoho-picker.is-open) {
+.techearnest-filter-field:has(.techearnest-picker.is-open) {
   z-index: 3;
 }
 
 .module-filter-panel {
-  .zoho-filter-field .form-label {
+  .techearnest-filter-field .form-label {
     font-size: 0.8125rem;
     font-weight: 600;
     color: #374151;
   }
 }
 
-.zoho-lookup-backdrop {
+.techearnest-lookup-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(15, 23, 42, 0.35);
@@ -3058,7 +3736,7 @@
   padding: $te-space-4;
 }
 
-.zoho-lookup-modal {
+.techearnest-lookup-modal {
   width: min(32rem, 100%);
   max-height: min(70vh, 640px);
   background: #fff;
@@ -3069,7 +3747,7 @@
   overflow: hidden;
 }
 
-.zoho-lookup-modal-header {
+.techearnest-lookup-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3077,31 +3755,31 @@
   border-bottom: 1px solid #e5e7eb;
 }
 
-.zoho-lookup-modal-title {
+.techearnest-lookup-modal-title {
   margin: 0;
   font-size: 1rem;
   font-weight: 650;
 }
 
-.zoho-lookup-modal-toolbar {
+.techearnest-lookup-modal-toolbar {
   display: flex;
   gap: $te-space-2;
   padding: $te-space-3 $te-space-4;
   border-bottom: 1px solid #eef2f7;
 }
 
-.zoho-lookup-modal-search {
+.techearnest-lookup-modal-search {
   flex: 1;
 }
 
-.zoho-lookup-modal-list {
+.techearnest-lookup-modal-list {
   list-style: none;
   margin: 0;
   padding: $te-space-2;
   overflow-y: auto;
 }
 
-.zoho-lookup-modal-item {
+.techearnest-lookup-modal-item {
   width: 100%;
   border: none;
   background: transparent;
@@ -3118,47 +3796,74 @@
   }
 }
 
-.zoho-lookup-modal-item-label {
+.techearnest-lookup-modal-item-label {
   font-size: 0.8125rem;
   font-weight: 600;
   color: #111827;
 }
 
-.zoho-lookup-modal-item-subtitle {
+.techearnest-lookup-modal-item-subtitle {
   font-size: 0.75rem;
   color: #6b7280;
 }
 
-.zoho-lookup-modal-empty {
+.techearnest-lookup-modal-empty {
   padding: $te-space-4;
   text-align: center;
   color: #9ca3af;
   font-size: 0.8125rem;
 }
 
-.zoho-lookup-create-form {
+.techearnest-lookup-create-form {
   display: flex;
   flex-direction: column;
   min-height: 0;
 }
 
-.zoho-lookup-create-fields {
+.techearnest-lookup-create-fields {
   padding: $te-space-3 $te-space-4;
   display: flex;
   flex-direction: column;
   gap: $te-space-3;
 }
 
-.zoho-lookup-create-field {
+.techearnest-lookup-create-field {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
 }
 
-.zoho-lookup-create-actions {
+.techearnest-lookup-create-actions {
   display: flex;
   justify-content: flex-end;
   gap: $te-space-2;
   padding: $te-space-3 $te-space-4;
   border-top: 1px solid #eef2f7;
+}
+.role-create-permissions {
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid $te-border-light;
+  border-radius: 0.5rem;
+  background: $te-surface;
+  padding: $te-space-3;
+}
+
+.role-create-permission-group + .role-create-permission-group {
+  border-top: 1px solid $te-border-light;
+  margin-top: $te-space-3;
+  padding-top: $te-space-3;
+}
+
+.role-create-permission-group h3 {
+  color: $te-text-secondary;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin: 0 0 $te-space-2;
+  text-transform: uppercase;
+}
+
+.role-create-permission-group .form-check-inline {
+  margin: 0 $te-space-3 $te-space-2 0;
 }

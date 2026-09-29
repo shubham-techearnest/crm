@@ -235,13 +235,20 @@ public class DealService {
         if (!Deal.DEFAULT_PROBABILITY.containsKey(toStage)) {
             throw new BusinessException("INVALID_STAGE", "Invalid deal stage: " + toStage);
         }
+        LocalDate requestedCloseDate = request.expectedCloseDate();
+        if ("WON".equals(toStage)
+                && requestedCloseDate == null
+                && deal.getExpectedCloseDate() == null
+                && !isClosingDateLocked(deal)) {
+            requestedCloseDate = LocalDate.now();
+        }
         Map<String, Object> values = new HashMap<>();
         values.put("stage", toStage);
         values.put("lostReason", blankToNull(request.lostReason()));
         values.put(
                 "expectedCloseDate",
-                request.expectedCloseDate() != null
-                        ? request.expectedCloseDate().toString()
+                requestedCloseDate != null
+                        ? requestedCloseDate.toString()
                         : (deal.getExpectedCloseDate() != null ? deal.getExpectedCloseDate().toString() : null));
         formPolicyEvaluator.assertMandatory(
                 metadataExtensionService.publishedPolicyNodes("deal", "EDIT"), values);
@@ -255,7 +262,7 @@ public class DealService {
         LocalDate oldCloseDate = deal.getExpectedCloseDate();
         String oldExpectedRevenue = AuditFieldChanges.expectedRevenue(oldValue, oldProbability);
 
-        LocalDate closeDate = resolveCloseDateForStageChange(deal, toStage, request.expectedCloseDate());
+        LocalDate closeDate = resolveCloseDateForStageChange(deal, toStage, requestedCloseDate);
         deal.changeStage(toStage, blankToNull(request.lostReason()), closeDate);
         dealStageHistoryRepository.save(
                 DealStageHistory.of(deal.getOrganizationId(), deal.getId(), fromStage, toStage, user.userId()));

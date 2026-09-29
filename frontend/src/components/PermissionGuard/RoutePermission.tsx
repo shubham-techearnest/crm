@@ -1,5 +1,5 @@
-import { Navigate } from "react-router-dom";
 import type { ReactNode } from "react";
+import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
 
 interface RoutePermissionProps {
@@ -12,7 +12,12 @@ interface RoutePermissionProps {
 export function RoutePermission({ permission, anyOf, children }: RoutePermissionProps) {
   const allowed = useHasPermission(anyOf && anyOf.length > 0 ? anyOf : permission);
   if (!allowed) {
-    return <Navigate to="/" replace />;
+    return (
+      <ErrorState
+        title="Access restricted"
+        message="Your role does not have permission to view this page. Contact your organization administrator if you need access."
+      />
+    );
   }
   return <>{children}</>;
 }

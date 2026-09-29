@@ -2,32 +2,35 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AccountCreateView } from "./AccountCreateView";
-import { buildOwnerOptions, enumPickerOptions, optionsFromPairs, ZohoFilterSelect } from "@/components/ZohoCreate";
+import { buildOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilterSelect } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, ZohoRecordTimeline } from "@/components/ZohoRecord";
+import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
 import { getPublishedRelatedLists } from "@/features/admin/studio/metadataApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   listAccountContacts,
   listAccountDeals,
+  listAccountProjects,
   listAccounts,
   listActivities,
   type Account,
 } from "./crmApi";
 import { listDocuments, listNotes } from "./foundationApi";
-import { listProjects } from "@/features/projects/projectApi";
 
 export function AccountsPage() {
   const queryClient = useQueryClient();
   const auth = useAuth();
   const [params] = useSearchParams();
   const canCreate = useHasPermission("ACCOUNT_CREATE");
+  const canUpdate = useHasPermission("ACCOUNT_UPDATE");
   const canViewNotes = useHasPermission("NOTE_VIEW");
   const canViewDocs = useHasPermission("DOCUMENT_VIEW");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
@@ -40,6 +43,7 @@ export function AccountsPage() {
   const [industryFilter, setIndustryFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [selected, setSelected] = useState<Account | null>(null);
+  const [showEdit, setShowEdit] = useState(false);
 
   useEffect(() => {
     if (params.get("create") === "1") setShowForm(true);
@@ -64,7 +68,7 @@ export function AccountsPage() {
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => listUsers(),
-    enabled: showForm && canCreate,
+    enabled: (showForm && canCreate) || (showEdit && canUpdate),
   });
   const relatedListsQuery = useQuery({
     queryKey: ["metadata", "runtime", "account", "related-lists"],
@@ -73,37 +77,37 @@ export function AccountsPage() {
     staleTime: 60_000,
   });
   const contactsQuery = useQuery({
-    queryKey: ["crm", "accounts", selected?.id, "contacts"],
+    queryKey: ["crm", "accounts", (selected as Account | null)?.id, "contacts"],
     queryFn: () => listAccountContacts(selected!.id),
     enabled: !!selected,
   });
   const dealsQuery = useQuery({
-    queryKey: ["crm", "accounts", selected?.id, "deals"],
+    queryKey: ["crm", "accounts", (selected as Account | null)?.id, "deals"],
     queryFn: () => listAccountDeals(selected!.id),
     enabled: !!selected,
   });
   const activitiesQuery = useQuery({
-    queryKey: ["crm", "activities", "ACCOUNT", selected?.id],
+    queryKey: ["crm", "activities", "ACCOUNT", (selected as Account | null)?.id],
     queryFn: () => listActivities({ relatedEntityType: "ACCOUNT", relatedEntityId: selected!.id }),
     enabled: !!selected && canViewActivities,
   });
   const notesQuery = useQuery({
-    queryKey: ["crm", "notes", "ACCOUNT", selected?.id],
+    queryKey: ["crm", "notes", "ACCOUNT", (selected as Account | null)?.id],
     queryFn: () => listNotes("ACCOUNT", selected!.id),
     enabled: !!selected && canViewNotes,
   });
   const docsQuery = useQuery({
-    queryKey: ["crm", "documents", "ACCOUNT", selected?.id],
+    queryKey: ["crm", "documents", "ACCOUNT", (selected as Account | null)?.id],
     queryFn: () => listDocuments("ACCOUNT", selected!.id),
     enabled: !!selected && canViewDocs,
   });
   const projectsQuery = useQuery({
-    queryKey: ["projects", "account", selected?.id],
-    queryFn: () => listProjects({ accountId: selected!.id }),
+    queryKey: ["projects", "account", (selected as Account | null)?.id],
+    queryFn: () => listAccountProjects(selected!.id),
     enabled: !!selected && canViewProjects,
   });
   const auditQuery = useQuery({
-    queryKey: ["admin", "audit-logs", "ACCOUNT", selected?.id],
+    queryKey: ["admin", "audit-logs", "ACCOUNT", (selected as Account | null)?.id],
     queryFn: () => listAuditLogs({ entityType: "ACCOUNT", entityId: selected!.id, size: 30 }),
     enabled: !!selected && canViewAudit,
   });
@@ -136,11 +140,15 @@ export function AccountsPage() {
   );
   const activeFilterCount = [search, statusFilter, typeFilter, industryFilter, regionFilter].filter(Boolean)
     .length;
+  const bulkImport = useBulkImport("accounts", () =>
+    queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] }),
+  );
 
   async function handleAccountCreated(account: Account, mode: "save" | "saveAndNew") {
     await queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] });
     if (mode === "save") {
       setShowForm(false);
+      setShowEdit(false);
       setSelected(account);
     }
   }
@@ -161,14 +169,18 @@ export function AccountsPage() {
 
   return (
     <>
-      {showForm && canCreate ? (
+      {(showForm && canCreate) || (showEdit && selected && canUpdate) ? (
         <AccountCreateView
           regions={(regionsQuery.data ?? []).map((region) => ({ id: region.id, name: region.name }))}
           users={ownerOptions}
           accounts={(accountsQuery.data ?? []).map((account) => ({ id: account.id, name: account.name }))}
           defaultOwnerId={auth.userId}
           defaultRegionId={auth.regionIds[0]}
-          onCancel={() => setShowForm(false)}
+          account={showEdit ? selected ?? undefined : undefined}
+          onCancel={() => {
+            setShowForm(false);
+            setShowEdit(false);
+          }}
           onCreated={(account, mode) => void handleAccountCreated(account, mode)}
         />
       ) : selected ? (
@@ -186,6 +198,11 @@ export function AccountsPage() {
           hasPrev={recordNav.hasPrev}
           hasNext={recordNav.hasNext}
           relatedLinks={[...DEFAULT_RELATED_LINKS]}
+          primaryAction={canUpdate ? (
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowEdit(true)}>
+              Edit account
+            </button>
+          ) : null}
           tabs={[
             {
               id: "overview",
@@ -327,7 +344,7 @@ export function AccountsPage() {
               id: "timeline",
               label: "Timeline",
               visible: canViewActivities || canViewAudit,
-              content: <ZohoRecordTimeline entries={timelineEntries} />,
+              content: <TechEarnestRecordTimeline entries={timelineEntries} />,
             },
             {
               id: "notes",
@@ -395,6 +412,8 @@ export function AccountsPage() {
           </button>
         ) : null
       }
+      createMenuItems={bulkImport.menuItems}
+      moreMenuItems={bulkImport.menuItems}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Accounts by</p>
@@ -409,14 +428,14 @@ export function AccountsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <ZohoFilterSelect
+            <TechEarnestFilterSelect
               label="Status"
               value={statusFilter}
               onChange={setStatusFilter}
               options={statusFilterOptions}
               searchPlaceholder="Search Status"
             />
-            <ZohoFilterSelect
+            <TechEarnestFilterSelect
               label="Type"
               value={typeFilter}
               onChange={setTypeFilter}
@@ -430,7 +449,7 @@ export function AccountsPage() {
               onChange={(e) => setIndustryFilter(e.target.value)}
               placeholder="e.g. Technology"
             />
-            <ZohoFilterSelect
+            <TechEarnestFilterSelect
               label="Region"
               value={regionFilter}
               onChange={setRegionFilter}
@@ -445,53 +464,44 @@ export function AccountsPage() {
       {accountsQuery.isLoading ? <LoadingState label="Loading accounts..." /> : null}
       {accountsQuery.error ? <ErrorState title="Unable to load accounts" message="Try again." /> : null}
 
-      {!accountsQuery.isLoading && !accountsQuery.error ? (
+      {!accountsQuery.isLoading && !accountsQuery.error && !rows.length && !activeFilterCount
+        ? bulkImport.renderEmptyState({ canCreate, createLabel: "Create Account", onCreate: () => openCreate() })
+        : null}
+
+      {!accountsQuery.isLoading && !accountsQuery.error && (rows.length || activeFilterCount) ? (
         <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
           {viewMode === "list" ? (
-            <div className="module-list-table-wrap">
-              <table className="table module-list-table align-middle">
-                <thead>
-                  <tr>
-                    <th>Account Name</th>
-                    <th>Type</th>
-                    <th>Email</th>
-                    <th>Phone</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((account) => (
-                    <tr
-                      key={account.id}
-                      className={selected?.id === account.id ? "is-selected" : undefined}
-                      onClick={() => setSelected(account)}
-                    >
-                      <td className="lead-name">{account.name}</td>
-                      <td>{account.accountType}</td>
-                      <td>{account.email ?? "—"}</td>
-                      <td>{account.phone ?? "—"}</td>
-                      <td>
-                        <StatusBadge status={account.status} />
-                      </td>
-                    </tr>
-                  ))}
-                  {!rows.length ? (
-                    <tr>
-                      <td colSpan={5} className="text-center text-muted py-5">
-                        No accounts match the current filters.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
+            <ModuleListTable
+                tableCode="account"
+                defaultColumns={[
+                  { field: "name", label: "Account Name" },
+                  { field: "accountType", label: "Type" },
+                  { field: "email", label: "Email" },
+                  { field: "phone", label: "Phone" },
+                  { field: "status", label: "Status" },
+                ]}
+                rows={rows}
+                rowKey={(account) => account.id}
+                selectedRowKey={(selected as Account | null)?.id}
+                onRowClick={setSelected}
+                renderCell={(account, field) =>
+                  field === "status" ? (
+                    <StatusBadge status={account.status} />
+                  ) : (() => {
+                      const value = (account as unknown as Record<string, unknown>)[field];
+                      return value == null || value === "" ? "—" : String(value);
+                    })()
+                }
+                nameFields={["name"]}
+                emptyMessage="No accounts match the current filters."
+            />
           ) : (
             <div className="module-tile-grid">
               {rows.map((account) => (
                 <button
                   key={account.id}
                   type="button"
-                  className={`module-tile text-start${selected?.id === account.id ? " is-selected" : ""}`}
+                  className={`module-tile text-start${(selected as Account | null)?.id === account.id ? " is-selected" : ""}`}
                   onClick={() => setSelected(account)}
                 >
                   <div className="tile-title">{account.name}</div>
@@ -506,6 +516,7 @@ export function AccountsPage() {
       ) : null}
     </ModuleListShell>
       )}
+      {bulkImport.dialog}
     </>
   );
 }

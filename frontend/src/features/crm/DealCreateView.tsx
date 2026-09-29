@@ -7,15 +7,15 @@ import { UnsavedGuard } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
-  ZohoFormSelect,
-  ZohoFormUserSelect,
-  type ZohoPickerOption,
-  type ZohoPickerUser,
-} from "@/components/ZohoCreate";
+  TechEarnestFormSelect,
+  TechEarnestFormUserSelect,
+  type TechEarnestPickerOption,
+  type TechEarnestPickerUser,
+} from "@/components/TechEarnestCreate";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
-import { FormLayoutEditorModal } from "@/components/ZohoCreate/FormLayoutEditorModal";
-import { ZohoCreateField as ZohoField } from "@/components/ZohoCreate/ZohoCreateField";
-import { ZohoCreateSection } from "@/components/ZohoCreate/ZohoCreateSection";
+import { FormLayoutEditorModal } from "@/components/TechEarnestCreate/FormLayoutEditorModal";
+import { TechEarnestCreateField as TechEarnestField } from "@/components/TechEarnestCreate/TechEarnestCreateField";
+import { TechEarnestCreateSection } from "@/components/TechEarnestCreate/TechEarnestCreateSection";
 import { createAccount, createContact, createDeal, listContacts, type Deal } from "./crmApi";
 import { LEAD_SOURCES, noneLabel } from "./leadFormConstants";
 
@@ -68,7 +68,8 @@ type DealFormValues = z.infer<typeof dealSchema>;
 
 export interface DealCreateViewProps {
   accounts: { id: string; name: string }[];
-  users: ZohoPickerUser[];
+  regions: { id: string; name: string }[];
+  users: TechEarnestPickerUser[];
   defaultOwnerId: string;
   defaultAccountId?: string;
   onCancel: () => void;
@@ -101,6 +102,7 @@ function buildCreateBody(values: DealFormValues): Parameters<typeof createDeal>[
 
 export function DealCreateView({
   accounts,
+  regions,
   users,
   defaultOwnerId,
   defaultAccountId,
@@ -111,8 +113,8 @@ export function DealCreateView({
   const [layoutEditorOpen, setLayoutEditorOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [saveMode, setSaveMode] = useState<"save" | "saveAndNew">("save");
-  const [extraAccountOptions, setExtraAccountOptions] = useState<ZohoPickerOption[]>([]);
-  const [extraContactOptions, setExtraContactOptions] = useState<ZohoPickerOption[]>([]);
+  const [extraAccountOptions, setExtraAccountOptions] = useState<TechEarnestPickerOption[]>([]);
+  const [extraContactOptions, setExtraContactOptions] = useState<TechEarnestPickerOption[]>([]);
 
   const defaults: DealFormValues = useMemo(
     () => ({
@@ -217,21 +219,21 @@ export function DealCreateView({
   const pending = isSubmitting || createMutation.isPending;
 
   return (
-    <div className="zoho-create-page">
-      <div className="zoho-create-topbar">
-        <div className="zoho-create-topbar-left">
-          <h1 className="zoho-create-title">Create Deal</h1>
-          <button type="button" className="zoho-create-layout-link" onClick={() => setLayoutEditorOpen(true)}>
+    <div className="techearnest-create-page">
+      <div className="techearnest-create-topbar">
+        <div className="techearnest-create-topbar-left">
+          <h1 className="techearnest-create-title">Create Deal</h1>
+          <button type="button" className="techearnest-create-layout-link" onClick={() => setLayoutEditorOpen(true)}>
             Edit Page Layout
           </button>
         </div>
-        <div className="zoho-create-topbar-actions">
-          <button type="button" className="btn btn-light btn-sm zoho-create-btn" onClick={requestCancel}>
+        <div className="techearnest-create-topbar-actions">
+          <button type="button" className="btn btn-light btn-sm techearnest-create-btn" onClick={requestCancel}>
             Cancel
           </button>
           <button
             type="button"
-            className="btn btn-light btn-sm zoho-create-btn"
+            className="btn btn-light btn-sm techearnest-create-btn"
             disabled={pending}
             onClick={() => {
               setSaveMode("saveAndNew");
@@ -242,7 +244,7 @@ export function DealCreateView({
           </button>
           <button
             type="button"
-            className="btn btn-primary btn-sm zoho-create-btn zoho-create-btn--save"
+            className="btn btn-primary btn-sm techearnest-create-btn techearnest-create-btn--save"
             disabled={pending}
             onClick={() => {
               setSaveMode("save");
@@ -255,7 +257,7 @@ export function DealCreateView({
       </div>
 
       <form
-        className="zoho-create-form"
+        className="techearnest-create-form"
         onSubmit={(event) => {
           event.preventDefault();
           setSaveMode("save");
@@ -265,45 +267,45 @@ export function DealCreateView({
         <UnsavedGuard when={isDirty} />
         {formError ? <div className="alert alert-danger py-2 mx-4 mt-3 mb-0">{formError}</div> : null}
 
-        <div className="zoho-create-layout">
-          <div className="zoho-create-fields">
-            <ZohoCreateSection title="Deal Information">
-              <div className="zoho-create-grid">
-                <div className="zoho-create-col">
-                  <ZohoField label="Deal Owner">
-                    <ZohoFormUserSelect
+        <div className="techearnest-create-layout">
+          <div className="techearnest-create-fields">
+            <TechEarnestCreateSection title="Deal Information">
+              <div className="techearnest-create-grid">
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Deal Owner">
+                    <TechEarnestFormUserSelect
                       control={control}
                       name="ownerId"
                       users={users}
                       allowEmpty={false}
                       searchPlaceholder="Search Users"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Amount">
+                  <TechEarnestField label="Amount">
                     <div className="input-group input-group-sm">
                       <span className="input-group-text">Rs.</span>
                       <input type="number" min={0} step="0.01" className="form-control" {...register("value")} />
-                      <button type="button" className="btn btn-light zoho-info-btn" tabIndex={-1} title="Deal amount">
+                      <button type="button" className="btn btn-light techearnest-info-btn" tabIndex={-1} title="Deal amount">
                         i
                       </button>
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Deal Name" required error={errors.name?.message}>
+                  <TechEarnestField label="Deal Name" required error={errors.name?.message}>
                     <input
                       type="text"
                       className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
                       {...register("name")}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Closing Date">
+                  <TechEarnestField label="Closing Date">
                     <input type="date" className="form-control form-control-sm" {...register("expectedCloseDate")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Account Name" required error={errors.accountId?.message}>
-                    <ZohoFormSelect
+                  <TechEarnestField label="Account Name" required error={errors.accountId?.message}>
+                    <TechEarnestFormSelect
                       control={control}
                       name="accountId"
                       options={accountOptions}
@@ -315,10 +317,18 @@ export function DealCreateView({
                       invalid={!!errors.accountId}
                       quickCreate={{
                         title: "Create Account",
-                        fields: [{ name: "name", label: "Account Name", required: true }],
+                        fields: [
+                          { name: "name", label: "Account Name", required: true },
+                          { name: "regionId", label: "Region", type: "select", required: true,
+                            options: regions.map((region) => ({ value: region.id, label: region.name })) },
+                          { name: "accountType", label: "Account Type", type: "select", required: true,
+                            options: ["PROSPECT", "CUSTOMER", "PARTNER", "VENDOR"].map((type) => ({ value: type, label: type })) },
+                        ],
                         submitLabel: "Save and Select",
                         onSubmit: async (values) => {
-                          const account = await createAccount({ name: values.name.trim() });
+                          const account = await createAccount({
+                            name: values.name.trim(), regionId: values.regionId, accountType: values.accountType,
+                          });
                           const option = { value: account.id, label: account.name };
                           setExtraAccountOptions((current) => [...current, option]);
                           await queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] });
@@ -326,10 +336,10 @@ export function DealCreateView({
                         },
                       }}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Stage">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Stage">
+                    <TechEarnestFormSelect
                       control={control}
                       name="stage"
                       options={stageOptions}
@@ -342,39 +352,39 @@ export function DealCreateView({
                         }
                       }}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Type">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Type">
+                    <TechEarnestFormSelect
                       control={control}
                       name="dealType"
                       options={dealTypeOptions}
                       searchPlaceholder="Search Types"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Probability (%)">
+                  <TechEarnestField label="Probability (%)">
                     <input type="number" min={0} max={100} className="form-control form-control-sm" {...register("probability")} />
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
 
-                <div className="zoho-create-col">
-                  <ZohoField label="Next Step">
+                <div className="techearnest-create-col">
+                  <TechEarnestField label="Next Step">
                     <input type="text" className="form-control form-control-sm" {...register("nextStep")} />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Expected Revenue">
+                  <TechEarnestField label="Expected Revenue">
                     <div className="input-group input-group-sm">
                       <span className="input-group-text">Rs.</span>
                       <input
                         type="text"
-                        className="form-control zoho-readonly-field"
+                        className="form-control techearnest-readonly-field"
                         readOnly
                         value={expectedRevenue}
                         tabIndex={-1}
                         aria-readonly="true"
                       />
-                      <span className="input-group-text zoho-lock-icon" aria-hidden="true">
+                      <span className="input-group-text techearnest-lock-icon" aria-hidden="true">
                         <svg viewBox="0 0 16 16" width="12" height="12" focusable="false">
                           <path
                             d="M4.5 7V5a3.5 3.5 0 1 1 7 0v2"
@@ -386,28 +396,28 @@ export function DealCreateView({
                         </svg>
                       </span>
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Lead Source">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Lead Source">
+                    <TechEarnestFormSelect
                       control={control}
                       name="source"
                       options={sourceOptions}
                       searchPlaceholder="Search Lead Sources"
                     />
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Campaign Source">
+                  <TechEarnestField label="Campaign Source">
                     <div className="input-group input-group-sm">
                       <input type="text" className="form-control" {...register("campaignSource")} />
-                      <button type="button" className="btn btn-light zoho-lookup-btn" tabIndex={-1} aria-hidden="true">
+                      <button type="button" className="btn btn-light techearnest-lookup-btn" tabIndex={-1} aria-hidden="true">
                         <ToolbarIcon name="apps" />
                       </button>
                     </div>
-                  </ZohoField>
+                  </TechEarnestField>
 
-                  <ZohoField label="Contact Name">
-                    <ZohoFormSelect
+                  <TechEarnestField label="Contact Name">
+                    <TechEarnestFormSelect
                       control={control}
                       name="contactId"
                       options={contactOptions}
@@ -444,16 +454,16 @@ export function DealCreateView({
                         },
                       }}
                     />
-                  </ZohoField>
+                  </TechEarnestField>
                 </div>
               </div>
-            </ZohoCreateSection>
+            </TechEarnestCreateSection>
 
-            <ZohoCreateSection title="Description Information">
-              <ZohoField label="Description" wide>
+            <TechEarnestCreateSection title="Description Information">
+              <TechEarnestField label="Description" wide>
                 <textarea className="form-control form-control-sm" rows={5} {...register("description")} />
-              </ZohoField>
-            </ZohoCreateSection>
+              </TechEarnestField>
+            </TechEarnestCreateSection>
           </div>
         </div>
       </form>

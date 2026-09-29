@@ -44,20 +44,16 @@ export type CreatePurchaseOrderBody = {
   regionId: string;
   vendorId: string;
   projectId?: string;
+  requesterId?: string;
+  poNumber?: string;
   currencyCode?: string;
   neededBy?: string;
   notes?: string;
-  items?: Array<{
-    description: string;
-    quantity: number;
-    unitPrice: number;
-    taxRateId?: string;
-  }>;
 };
 
 export type UpdatePurchaseOrderBody = {
-  vendorId?: string;
   projectId?: string | null;
+  poNumber?: string;
   currencyCode?: string;
   neededBy?: string | null;
   notes?: string | null;

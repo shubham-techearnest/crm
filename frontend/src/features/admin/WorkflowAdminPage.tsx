@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
@@ -45,52 +46,57 @@ export function WorkflowAdminPage() {
       {query.isLoading ? <LoadingState label="Loading workflows…" /> : null}
       {query.error ? <ErrorState title="Unable to load workflows" message="Try again." /> : null}
       {!query.isLoading && !query.error ? (
-        <div className="module-list-table-wrap">
-          <table className="table module-list-table align-middle">
-            <thead>
-              <tr>
-                <th>Code</th>
-                <th>Name</th>
-                <th>Event</th>
-                <th>Version</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {(query.data ?? []).map((row) => (
-                <tr key={row.id}>
-                  <td>{row.code}</td>
-                  <td>{row.name}</td>
-                  <td>{row.eventType}</td>
-                  <td>{row.version}</td>
-                  <td>
-                    <StatusBadge status={row.active ? "ACTIVE" : "INACTIVE"} />
-                  </td>
-                  <td>
-                    {canManage ? (
-                      <button
-                        type="button"
-                        className="btn btn-outline-primary btn-sm"
-                        disabled={toggleMutation.isPending}
-                        onClick={() => toggleMutation.mutate({ id: row.id, active: !row.active })}
-                      >
-                        {row.active ? "Deactivate" : "Activate"}
-                      </button>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-              {!query.data?.length ? (
-                <tr>
-                  <td colSpan={6} className="text-center text-muted py-5">
-                    No workflow definitions seeded for this organization.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+        viewMode === "list" ? (
+          <ModuleListTable
+            tableCode="workflow_definition"
+            enabled={false}
+            defaultColumns={[
+              { field: "code", label: "Code" },
+              { field: "name", label: "Name" },
+              { field: "eventType", label: "Event" },
+              { field: "version", label: "Version" },
+              { field: "active", label: "Status" },
+            ]}
+            rows={query.data ?? []}
+            rowKey={(row) => row.id}
+            renderCell={(row, field) => {
+              if (field === "active") return <StatusBadge status={row.active ? "ACTIVE" : "INACTIVE"} />;
+              const value = (row as unknown as Record<string, unknown>)[field];
+              return value == null || value === "" ? "—" : String(value);
+            }}
+            trailingColumn={canManage ? {
+              header: "Actions",
+              stopPropagation: true,
+              render: (row) => (
+                <button
+                  type="button"
+                  className="btn btn-outline-primary btn-sm"
+                  disabled={toggleMutation.isPending}
+                  onClick={() => toggleMutation.mutate({ id: row.id, active: !row.active })}
+                >
+                  {row.active ? "Deactivate" : "Activate"}
+                </button>
+              ),
+            } : undefined}
+            emptyMessage="No workflow definitions seeded for this organization."
+          />
+        ) : (
+          <div className="module-tile-grid">
+            {(query.data ?? []).map((row) => (
+              <article key={row.id} className="module-tile">
+                <div className="tile-title">{row.name}</div>
+                <div className="small text-muted">{row.code} · {row.eventType} · v{row.version}</div>
+                <div className="mt-2"><StatusBadge status={row.active ? "ACTIVE" : "INACTIVE"} /></div>
+                {canManage ? (
+                  <button type="button" className="btn btn-outline-primary btn-sm mt-3" disabled={toggleMutation.isPending} onClick={() => toggleMutation.mutate({ id: row.id, active: !row.active })}>
+                    {row.active ? "Deactivate" : "Activate"}
+                  </button>
+                ) : null}
+              </article>
+            ))}
+            {!query.data?.length ? <p className="text-muted">No workflow definitions seeded for this organization.</p> : null}
+          </div>
+        )
       ) : null}
     </ModuleListShell>
   );

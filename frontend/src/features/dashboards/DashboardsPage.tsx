@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -9,9 +10,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useHasPermission } from "@/features/auth/AuthContext";
+import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listRegions } from "@/features/admin/adminApi";
 import { CrmPage } from "@/features/crm/CrmPage";
+import { QUICK_CREATE_ITEMS } from "@/constants/nav";
+import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
+import { TechEarnestPicker, optionsFromPairs } from "@/components/TechEarnestCreate";
 import { getDashboard, type DashboardKind, type DashboardResponse } from "./dashboardApi";
 
 interface TabDef {
@@ -35,31 +39,31 @@ function formatCardValue(name: string, value: number): string {
     || name.toLowerCase().includes("budget")
     || name.toLowerCase().includes("forecast")
   ) {
-    return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    return value.toLocaleString("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 });
   }
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  return value.toLocaleString(undefined, { maximumFractionDigits: Number.isInteger(value) ? 0 : 1 });
 }
 
 function SeriesChart({ title, data }: { title: string; data: { name: string; count: number }[] }) {
   if (!data.length) {
     return (
-      <div className="border rounded p-3 h-100">
-        <h3 className="h6">{title}</h3>
-        <p className="text-muted small mb-0">No series data yet.</p>
+      <div className="crm-dashboard-panel h-100">
+        <h3 className="crm-dashboard-panel-title">{title}</h3>
+        <div className="crm-dashboard-empty">No records are available for this chart yet.</div>
       </div>
     );
   }
   return (
-    <div className="border rounded p-3 h-100">
-      <h3 className="h6 mb-3">{title}</h3>
-      <div style={{ width: "100%", height: 220 }}>
+    <div className="crm-dashboard-panel h-100">
+      <h3 className="crm-dashboard-panel-title">{title}</h3>
+      <div className="crm-dashboard-chart">
         <ResponsiveContainer>
-          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <BarChart data={data} margin={{ top: 8, right: 8, left: -18, bottom: 8 }}>
+            <CartesianGrid stroke="#E8EBF2" strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={50} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Bar dataKey="count" fill="#1f7a6b" radius={[4, 4, 0, 0]} />
+            <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748B" }} />
+            <Tooltip cursor={{ fill: "#EEF1FF" }} />
+            <Bar dataKey="count" fill="#3F5FF5" radius={[5, 5, 0, 0]} maxBarSize={48} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -67,25 +71,32 @@ function SeriesChart({ title, data }: { title: string; data: { name: string; cou
   );
 }
 
-function DashboardBody({ data }: { data: DashboardResponse }) {
+function DashboardBody({ data, kind }: { data: DashboardResponse; kind: DashboardKind }) {
+  const chartTitles = kind === "sales"
+    ? ["Leads by status", "Deals by stage"]
+    : kind === "project"
+      ? ["Projects by status", "Estimated and actual hours"]
+      : kind === "employee"
+        ? ["Timesheets by status", "Tasks by status"]
+        : ["Deals by stage", "Projects by status"];
   return (
     <>
-      <div className="row g-3 mb-3">
+      <div className="crm-dashboard-metrics">
         {data.cards.map((card) => (
-          <div key={card.name} className="col-6 col-md-4 col-xl-3">
-            <div className="border rounded p-3 h-100 bg-light">
-              <div className="text-muted small">{card.name}</div>
-              <div className="fs-4 fw-semibold">{formatCardValue(card.name, Number(card.value))}</div>
+          <div key={card.name} className="crm-dashboard-metric">
+            <div className="crm-dashboard-metric-copy">
+              <div className="crm-dashboard-metric-label">{card.name}</div>
+              <div className="crm-dashboard-metric-value">{formatCardValue(card.name, Number(card.value))}</div>
             </div>
           </div>
         ))}
       </div>
-      <div className="row g-3">
-        <div className="col-lg-6">
-          <SeriesChart title="Primary breakdown" data={data.seriesPrimary ?? []} />
+      <div className="crm-dashboard-charts">
+        <div>
+          <SeriesChart title={chartTitles[0]} data={data.seriesPrimary ?? []} />
         </div>
-        <div className="col-lg-6">
-          <SeriesChart title="Secondary breakdown" data={data.seriesSecondary ?? []} />
+        <div>
+          <SeriesChart title={chartTitles[1]} data={data.seriesSecondary ?? []} />
         </div>
       </div>
     </>
@@ -93,6 +104,10 @@ function DashboardBody({ data }: { data: DashboardResponse }) {
 }
 
 export function DashboardsPage() {
+  const user = useAuth();
+  const quickActions = QUICK_CREATE_ITEMS.filter((item) =>
+    item.permissions.some((permission) => user.permissions.includes(permission)),
+  );
   const canOrg = useHasPermission("DASHBOARD_ORG");
   const canRegion = useHasPermission("DASHBOARD_REGION");
   const canSales = useHasPermission("DASHBOARD_SALES");
@@ -133,6 +148,10 @@ export function DashboardsPage() {
   });
 
   const effectiveRegionId = regionId || regionsQuery.data?.[0]?.id || "";
+  const regionOptions = useMemo(
+    () => optionsFromPairs((regionsQuery.data ?? []).map((region) => ({ value: region.id, label: region.name }))),
+    [regionsQuery.data],
+  );
 
   const dashboardQuery = useQuery({
     queryKey: ["dashboards", selectedKind, effectiveRegionId],
@@ -154,32 +173,34 @@ export function DashboardsPage() {
   return (
     <CrmPage
       title={`${selectedTab?.label ?? "Dashboard"} overview`}
-      description="Live aggregations from PostgreSQL, scoped to your access."
+      description="A live view of the work and results available to your account."
       loading={dashboardQuery.isLoading || (selectedTab?.needsRegion && regionsQuery.isLoading)}
       error={dashboardQuery.error}
       empty={false}
       actions={
         <div className="d-flex flex-wrap gap-2 align-items-center">
           {selectedTab?.needsRegion ? (
-            <select
-              className="form-select form-select-sm"
-              style={{ width: "auto" }}
-              value={effectiveRegionId}
-              onChange={(e) => setRegionId(e.target.value)}
-            >
-              {(regionsQuery.data ?? []).map((region) => (
-                <option key={region.id} value={region.id}>
-                  {region.name}
-                </option>
-              ))}
-            </select>
+            <div className="crm-dashboard-region-picker">
+              <TechEarnestPicker
+                value={effectiveRegionId}
+                onChange={setRegionId}
+                options={regionOptions}
+                placeholder={regionsQuery.isLoading ? "Loading regions…" : "Select region"}
+                searchPlaceholder="Search regions"
+                lookupIcon="building"
+                allowEmpty={false}
+                disabled={regionsQuery.isLoading || regionOptions.length === 0}
+              />
+            </div>
           ) : null}
-          <div className="btn-group btn-group-sm" role="group" aria-label="Dashboard type">
+          <div className="module-view-tabs crm-dashboard-tabs" role="tablist" aria-label="Dashboard type">
             {tabs.map((tab) => (
               <button
                 key={tab.kind}
                 type="button"
-                className={`btn ${selectedKind === tab.kind ? "btn-primary" : "btn-outline-primary"}`}
+                role="tab"
+                aria-selected={selectedKind === tab.kind}
+                className={`module-view-tab${selectedKind === tab.kind ? " is-active" : ""}`}
                 onClick={() => setActiveKind(tab.kind)}
               >
                 {tab.label}
@@ -189,7 +210,44 @@ export function DashboardsPage() {
         </div>
       }
     >
-      {dashboardQuery.data ? <DashboardBody data={dashboardQuery.data} /> : null}
+      <div className="crm-dashboard-home">
+        <section className="crm-dashboard-welcome">
+          <div>
+            <div className="crm-dashboard-eyebrow">TECH EARNEST CRM</div>
+            <h2>Welcome back, {user.displayName.split(" ")[0]}</h2>
+            <p>Your latest business activity and key numbers are gathered here.</p>
+          </div>
+          <div className="crm-dashboard-date">
+            {new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date())}
+          </div>
+        </section>
+        {quickActions.length > 0 ? (
+          <section className="crm-dashboard-quick-actions" aria-labelledby="crm-dashboard-quick-actions-title">
+            <div className="crm-dashboard-quick-actions-heading">
+              <div>
+                <h3 id="crm-dashboard-quick-actions-title">Quick actions</h3>
+                <p>Start a common task in your workspace.</p>
+              </div>
+            </div>
+            <div className="crm-dashboard-quick-actions-list">
+              {quickActions.map((action) => (
+                <Link key={action.label} className="crm-dashboard-quick-action" to={action.to}>
+                  <span className="crm-dashboard-quick-action-icon"><ToolbarIcon name="plus" /></span>
+                  <span>Create {action.label}</span>
+                  <span className="crm-dashboard-quick-action-arrow" aria-hidden="true">›</span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
+        {dashboardQuery.data && selectedKind ? <DashboardBody data={dashboardQuery.data} kind={selectedKind} /> : null}
+        {!dashboardQuery.isLoading && !dashboardQuery.error && dashboardQuery.data?.cards.length === 0 ? (
+          <div className="crm-dashboard-empty crm-dashboard-empty--large">
+            <strong>Nothing to summarize yet</strong>
+            <span>Once your workspace has records, live metrics and charts will appear here.</span>
+          </div>
+        ) : null}
+      </div>
     </CrmPage>
   );
 }

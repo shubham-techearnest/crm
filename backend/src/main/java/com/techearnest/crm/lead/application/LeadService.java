@@ -584,18 +584,9 @@ public class LeadService {
         };
     }
 
-    @Transactional
-    public int importLeads(List<CreateLeadRequest> requests) {
-        CurrentUser user = tenantAccess.requirePermission("LEAD_IMPORT");
-        if (requests == null || requests.isEmpty()) {
-            return 0;
-        }
-        int count = 0;
-        for (CreateLeadRequest request : requests) {
-            createLead(user, request);
-            count++;
-        }
-        return count;
+    /** Caller owns the transaction and has already checked LEAD_IMPORT; see {@link LeadImportService}. */
+    LeadResponse createImportedLead(CurrentUser user, CreateLeadRequest request) {
+        return createLead(user, request);
     }
 
     private LeadResponse createLead(CurrentUser user, CreateLeadRequest request) {

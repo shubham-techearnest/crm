@@ -5,13 +5,15 @@ import com.techearnest.crm.lead.api.dto.LeadDtos.AssignLeadRequest;
 import com.techearnest.crm.lead.api.dto.LeadDtos.ConvertLeadRequest;
 import com.techearnest.crm.lead.api.dto.LeadDtos.ConvertLeadResponse;
 import com.techearnest.crm.lead.api.dto.LeadDtos.CreateLeadRequest;
+import com.techearnest.crm.lead.api.dto.LeadDtos.ImportLeadsRequest;
+import com.techearnest.crm.lead.api.dto.LeadDtos.LeadImportResult;
 import com.techearnest.crm.lead.api.dto.LeadDtos.LeadResponse;
 import com.techearnest.crm.lead.api.dto.LeadDtos.QueryLeadRequest;
 import com.techearnest.crm.lead.api.dto.LeadDtos.UpdateLeadRequest;
+import com.techearnest.crm.lead.application.LeadImportService;
 import com.techearnest.crm.lead.application.LeadService;
 import jakarta.validation.Valid;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -33,9 +35,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class LeadController {
 
     private final LeadService leadService;
+    private final LeadImportService leadImportService;
 
-    public LeadController(LeadService leadService) {
+    public LeadController(LeadService leadService, LeadImportService leadImportService) {
         this.leadService = leadService;
+        this.leadImportService = leadImportService;
     }
 
     @GetMapping
@@ -98,9 +102,10 @@ public class LeadController {
     }
 
     @PostMapping("/import")
-    public ApiResponse<Map<String, Integer>> importLeads(@Valid @RequestBody List<CreateLeadRequest> requests) {
-        int count = leadService.importLeads(requests);
-        return ApiResponse.ok(Map.of("imported", count), "Leads imported successfully");
+    public ApiResponse<LeadImportResult> importLeads(@RequestBody ImportLeadsRequest request) {
+        LeadImportResult result = leadImportService.importLeads(request);
+        String message = result.imported() + " of " + result.total() + " leads imported";
+        return ApiResponse.ok(result, message);
     }
 
     @PutMapping("/{id}")

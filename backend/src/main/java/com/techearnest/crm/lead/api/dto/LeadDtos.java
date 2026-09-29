@@ -190,6 +190,15 @@ public final class LeadDtos {
 
     public record BulkLeadResult(int succeeded, int failed, java.util.List<BulkLeadItemFailure> failures) {}
 
+    /** Rows are validated one by one in the service so a bad row is reported instead of failing the batch. */
+    public record ImportLeadsRequest(java.util.List<CreateLeadRequest> rows, Boolean skipDuplicates) {}
+
+    /** {@code index} is the 0-based position in {@link ImportLeadsRequest#rows()}. */
+    public record LeadImportIssue(int index, String outcome, String reason) {}
+
+    public record LeadImportResult(
+            int total, int imported, int skipped, int failed, java.util.List<LeadImportIssue> issues) {}
+
     public record DuplicateCheckRequest(
             UUID organizationId, @Size(max = 255) String email, @Size(max = 255) String companyName) {}
 

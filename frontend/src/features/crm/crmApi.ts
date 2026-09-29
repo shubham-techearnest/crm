@@ -483,8 +483,23 @@ export async function exportLeads(columns?: string[]): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-export async function importLeads(rows: CreateLeadBody[]): Promise<{ imported: number }> {
-  const { data } = await api.post<ApiResponse<{ imported: number }>>("/leads/import", rows);
+export interface LeadImportIssue {
+  /** 0-based index into the submitted rows. */
+  index: number;
+  outcome: "SKIPPED" | "FAILED";
+  reason: string;
+}
+
+export interface LeadImportResult {
+  total: number;
+  imported: number;
+  skipped: number;
+  failed: number;
+  issues: LeadImportIssue[];
+}
+
+export async function importLeads(rows: CreateLeadBody[], skipDuplicates = true): Promise<LeadImportResult> {
+  const { data } = await api.post<ApiResponse<LeadImportResult>>("/leads/import", { rows, skipDuplicates });
   return unwrap(data);
 }
 

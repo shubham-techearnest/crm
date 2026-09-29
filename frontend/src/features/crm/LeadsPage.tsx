@@ -1327,9 +1327,13 @@ export function LeadsPage() {
         open={showImportDialog}
         regions={(regionsQuery.data ?? []).map((region) => ({ id: region.id, name: region.name }))}
         onClose={() => setShowImportDialog(false)}
-        onImported={async (count) => {
-          setBulkMessage(`Imported ${count} leads.`);
-          await refresh();
+        onImported={async (result) => {
+          const extras = [
+            result.skipped ? `${result.skipped} skipped` : "",
+            result.failed ? `${result.failed} failed` : "",
+          ].filter(Boolean);
+          setBulkMessage(`Imported ${result.imported} leads${extras.length ? ` (${extras.join(", ")})` : ""}.`);
+          if (result.imported) await refresh();
         }}
       />
 

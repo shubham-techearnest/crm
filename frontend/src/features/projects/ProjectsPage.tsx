@@ -20,33 +20,34 @@ import {
 } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import {
+  ModuleFilterCheckbox,
+  ModuleFilterField,
   ModuleListShell,
   countActiveFilters,
 } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
+import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import {
-  RecordShell,
-  DEFAULT_RELATED_LINKS,
-  RecordOverviewField,
-  RecordOverviewGrid,
-  RecordSection,
-  recordAuditTab,
-  recordCustomTab,
-  recordDocumentsTab,
-  recordNotesTab,
-  recordOverviewTab,
-  recordRelatedTab,
-  recordTimelineTab,
-} from "@/components/RecordShell";
-import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
+  buildTimelineEntries,
+  recordLifecycleInfo,
+  TechEarnestRecordInfoSection,
+  TechEarnestRecordRelatedCard,
+  TechEarnestRecordSummaryStrip,
+  TechEarnestRecordTimeline,
+  useRecordNavigation,
+} from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
-import { getAccount, listAccounts, listActivities } from "@/features/crm/crmApi";
+import { getAccount, getDeal, listAccounts, listActivities } from "@/features/crm/crmApi";
+import { listContracts } from "@/features/contracts/contractApi";
+import { RecordLink, RelatedRecordList } from "@/components/RecordLink";
+import { useUrlSelection } from "@/hooks/useUrlRecord";
 import {
   createNote,
+  deleteDocument,
   deleteNote,
   documentDownloadUrl,
   listDocuments,
@@ -59,6 +60,7 @@ import { listPurchaseOrders } from "@/features/procurement/purchaseOrdersApi";
 import { listAllocations, listResources } from "@/features/resources/resourceApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import { useBulkImport } from "@/features/import/useBulkImport";
+import { ProjectTimeTrackingCard } from "@/features/timesheets/TimeTrackingCards";
 import {
   createMilestone,
   createProject,
@@ -69,32 +71,56 @@ import {
   listProjects,
   listTasks,
   updateProject,
+  BILLING_TYPE_META,
+  billingTypeLabel,
   type Project,
 } from "./projectApi";
+import { ProjectBillingCard } from "./ProjectBillingCard";
 
-const BILLING_TYPES = ["FIXED_PRICE", "HOURLY", "MILESTONE", "RETAINER"] as const;
 const PROJECT_STATUSES = ["PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"] as const;
-const PROJECT_PRIORITIES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"] as const;
+const PROJECT_PRIORITIES = ["LOW", "MEDIUM", "HIGH"] as const;
 
-const billingTypeOptions = enumPickerOptions(BILLING_TYPES);
 const projectStatusOptions = enumPickerOptions(PROJECT_STATUSES);
 const projectPriorityOptions = enumPickerOptions(PROJECT_PRIORITIES);
 
-const projectSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-  projectCode: z.string().min(1, "Code is required").max(64),
-  accountId: z.string().min(1, "Account is required"),
-  regionId: z.string().min(1, "Region is required"),
-  billingType: z.string().min(1, "Billing type is required"),
-  status: z.string().min(1),
-  projectManagerId: z.string().optional(),
-  description: z.string().optional(),
-  priority: z.string().optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  budget: z.string().optional(),
-  estimatedHours: z.string().optional(),
-});
+const positiveAmount = (value: string | undefined) => {
+  const n = Number(value);
+  return !!value?.trim() && Number.isFinite(n) && n > 0;
+};
+
+const projectSchema = z
+  .object({
+    name: z.string().min(1, "Name is required"),
+    projectCode: z.string().min(1, "Code is required").max(64),
+    accountId: z.string().min(1, "Account is required"),
+    regionId: z.string().min(1, "Region is required"),
+    billingType: z.string().min(1, "Billing type is required"),
+    status: z.string().min(1),
+    projectManagerId: z.string().optional(),
+    description: z.string().optional(),
+    priority: z.string().optional(),
+    startDate: z.string().optional(),
+    endDate: z.string().optional(),
+    budget: z.string().optional(),
+    estimatedHours: z.string().optional(),
+    hourlyRate: z.string().optional(),
+    monthlyFee: z.string().optional(),
+    contractValue: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.billingType === "TIME_AND_MATERIAL" && !positiveAmount(values.hourlyRate)) {
+      ctx.addIssue({ code: "custom", path: ["hourlyRate"], message: "Hourly rate is required" });
+    }
+    if (values.billingType === "FIXED_MONTHLY" && !positiveAmount(values.monthlyFee)) {
+      ctx.addIssue({ code: "custom", path: ["monthlyFee"], message: "Monthly fee is required" });
+    }
+    if (values.billingType === "FIXED_BID" && !positiveAmount(values.contractValue)) {
+      ctx.addIssue({ code: "custom", path: ["contractValue"], message: "Contract value is required" });
+    }
+    if (values.startDate && values.endDate && values.endDate < values.startDate) {
+      ctx.addIssue({ code: "custom", path: ["endDate"], message: "End date cannot be before start date" });
+    }
+  });
 
 type ProjectFormValues = z.infer<typeof projectSchema>;
 
@@ -104,7 +130,7 @@ const PROJECT_DEFAULTS: ProjectFormValues = {
   accountId: "",
   regionId: "",
   projectManagerId: "",
-  billingType: "FIXED_PRICE",
+  billingType: "FIXED_BID",
   status: "PLANNED",
   description: "",
   priority: "MEDIUM",
@@ -112,7 +138,23 @@ const PROJECT_DEFAULTS: ProjectFormValues = {
   endDate: "",
   budget: "",
   estimatedHours: "",
+  hourlyRate: "",
+  monthlyFee: "",
+  contractValue: "",
 };
+
+function billingInvoiceHint(type: string): string {
+  switch (type) {
+    case "STAFF_AUGMENTATION":
+      return "Invoices list every approved, billable hour at the rate of the resource who logged it.";
+    case "TIME_AND_MATERIAL":
+      return "Invoices list every approved, billable hour at the project hourly rate.";
+    case "FIXED_MONTHLY":
+      return "One invoice line per month for the monthly fee. A month can only be invoiced once.";
+    default:
+      return "Invoice any part of the contract value (for example an advance or a milestone) until it is fully billed.";
+  }
+}
 
 function parseOptionalNumber(value?: string): number | undefined {
   if (!value?.trim()) return undefined;
@@ -158,16 +200,21 @@ export function ProjectsPage() {
   const canCreateTask = useHasPermission("TASK_CREATE");
   const canViewUsers = useHasPermission("USER_VIEW");
   const canViewAllocations = useHasPermission("ALLOCATION_VIEW");
+  const canViewTimesheets = useHasPermission("TIMESHEET_VIEW");
   const canViewResources = useHasPermission("RESOURCE_VIEW");
   const canViewInvoices = useHasPermission("INVOICE_VIEW");
+  const canCreateInvoice = useHasPermission("INVOICE_CREATE");
   const canViewPurchaseOrders = useHasPermission("PO_VIEW");
   const canViewExpenses = useHasPermission("EXPENSE_VIEW");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
+  const canViewContracts = useHasPermission("CONTRACT_VIEW");
+  const canViewDeals = useHasPermission("DEAL_VIEW");
   const canViewNotes = useHasPermission("NOTE_VIEW");
   const canCreateNotes = useHasPermission("NOTE_CREATE");
   const canDeleteNotes = useHasPermission("NOTE_DELETE");
   const canViewDocs = useHasPermission("DOCUMENT_VIEW");
   const canUploadDocs = useHasPermission("DOCUMENT_UPLOAD");
+  const canDeleteDocs = useHasPermission("DOCUMENT_DELETE");
   const canViewAudit = useHasPermission("AUDIT_VIEW");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
@@ -177,7 +224,6 @@ export function ProjectsPage() {
   const [startFrom, setStartFrom] = useState("");
   const [endTo, setEndTo] = useState("");
   const [delayedOnly, setDelayedOnly] = useState(false);
-  const [selected, setSelected] = useState<Project | null>(null);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [confirmProjectDelete, setConfirmProjectDelete] = useState(false);
   const [showMilestoneForm, setShowMilestoneForm] = useState(false);
@@ -203,6 +249,7 @@ export function ProjectsPage() {
     queryKey: ["projects", listParams],
     queryFn: () => listProjects(listParams),
   });
+  const [selected, setSelected] = useUrlSelection(projectsQuery.data, { fetchById: getProject });
   const projectRecordQuery = useQuery({
     queryKey: ["projects", "record", selected?.id],
     queryFn: () => getProject(selected!.id),
@@ -267,6 +314,20 @@ export function ProjectsPage() {
     queryFn: () => listExpenses({ projectId: selected!.id }),
     enabled: !!selected && canViewExpenses,
   });
+  const contractsQuery = useQuery({
+    queryKey: ["contracts", "account", selected?.accountId],
+    queryFn: () => listContracts({ accountId: selected!.accountId }),
+    enabled: !!selected && canViewContracts,
+  });
+  const projectContracts = useMemo(
+    () => (contractsQuery.data ?? []).filter((contract) => contract.projectId === selected?.id),
+    [contractsQuery.data, selected?.id],
+  );
+  const dealQuery = useQuery({
+    queryKey: ["crm", "deals", "record", selected?.dealId],
+    queryFn: () => getDeal(selected!.dealId!),
+    enabled: !!selected?.dealId && canViewDeals,
+  });
   const activitiesQuery = useQuery({
     queryKey: ["crm", "activities", "PROJECT", (selected as Project | null)?.id],
     queryFn: () => listActivities({ relatedEntityType: "PROJECT", relatedEntityId: selected!.id }),
@@ -312,11 +373,14 @@ export function ProjectsPage() {
     handleSubmit,
     reset,
     control,
+    setValue,
+    watch,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<ProjectFormValues>({
     resolver: zodResolver(projectSchema),
     defaultValues: PROJECT_DEFAULTS,
   });
+  const formBillingType = watch("billingType");
 
   const {
     setSaveAndNew,
@@ -371,6 +435,9 @@ export function ProjectsPage() {
     endDate: values.endDate || undefined,
     budget: parseOptionalNumber(values.budget) ?? null,
     estimatedHours: parseOptionalNumber(values.estimatedHours) ?? null,
+    hourlyRate: parseOptionalNumber(values.hourlyRate) ?? null,
+    monthlyFee: parseOptionalNumber(values.monthlyFee) ?? null,
+    contractValue: parseOptionalNumber(values.contractValue) ?? null,
   });
 
   const milestoneForm = useForm<MilestoneFormValues>({
@@ -433,6 +500,9 @@ export function ProjectsPage() {
         budget: body.budget,
         estimatedHours: body.estimatedHours,
         billingType: body.billingType,
+        hourlyRate: body.hourlyRate,
+        monthlyFee: body.monthlyFee,
+        contractValue: body.contractValue,
       });
     },
     onSuccess: async (project) => {
@@ -482,6 +552,9 @@ export function ProjectsPage() {
       endDate: project.endDate ?? "",
       budget: project.budget == null ? "" : String(project.budget),
       estimatedHours: project.estimatedHours == null ? "" : String(project.estimatedHours),
+      hourlyRate: project.hourlyRate == null ? "" : String(project.hourlyRate),
+      monthlyFee: project.monthlyFee == null ? "" : String(project.monthlyFee),
+      contractValue: project.contractValue == null ? "" : String(project.contractValue),
     });
     setShowForm(true);
   }
@@ -566,6 +639,45 @@ export function ProjectsPage() {
     [unbilledTimeQuery.data],
   );
 
+  const regionName = (id: string) => regionsQuery.data?.find((region) => region.id === id)?.name ?? "—";
+
+  const openActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status !== "COMPLETED"),
+    [activitiesQuery.data],
+  );
+  const closedActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status === "COMPLETED"),
+    [activitiesQuery.data],
+  );
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadDocument("PROJECT", selected!.id, file),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "PROJECT", selected?.id] });
+    },
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: deleteDocument,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "PROJECT", selected?.id] });
+    },
+  });
+
+  const openDownload = async (id: string, fileName: string) => {
+    const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+    const response = await fetch(documentDownloadUrl(id), {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!response.ok) return;
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <>
       {showForm && (editingProject ? canUpdateProject : canCreate) ? (
@@ -640,15 +752,6 @@ export function ProjectsPage() {
                 </TechEarnestCreateField>
               </TechEarnestCreateColumn>
               <TechEarnestCreateColumn>
-                <TechEarnestCreateField label="Billing Type" required error={errors.billingType?.message}>
-                  <TechEarnestFormSelect
-                    control={control}
-                    name="billingType"
-                    options={billingTypeOptions}
-                    searchPlaceholder="Search Billing Types"
-                    allowEmpty={false}
-                  />
-                </TechEarnestCreateField>
                 <TechEarnestCreateField label="Status">
                   <TechEarnestFormSelect
                     control={control}
@@ -672,6 +775,96 @@ export function ProjectsPage() {
                 <TechEarnestCreateField label="End Date">
                   <input type="date" className="form-control form-control-sm" {...register("endDate")} />
                 </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Billing">
+            <div className="resource-type-picker" role="radiogroup" aria-label="Billing type">
+              {Object.entries(BILLING_TYPE_META).map(([type, meta]) => {
+                const active = formBillingType === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={`resource-type-option${active ? " is-active" : ""}`}
+                    onClick={() => setValue("billingType", type, { shouldDirty: true, shouldValidate: true })}
+                  >
+                    <span className="resource-type-option__title">{meta.label}</span>
+                    <span className="resource-type-option__hint">{meta.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                {formBillingType === "TIME_AND_MATERIAL" || formBillingType === "STAFF_AUGMENTATION" ? (
+                  <TechEarnestCreateField
+                    label={formBillingType === "TIME_AND_MATERIAL" ? "Hourly Rate" : "Fallback Hourly Rate"}
+                    required={formBillingType === "TIME_AND_MATERIAL"}
+                    error={errors.hourlyRate?.message}
+                    hint={
+                      formBillingType === "STAFF_AUGMENTATION"
+                        ? "Used only for resources without their own billing rate."
+                        : "Charged for every approved billable hour."
+                    }
+                  >
+                    <div className="input-group input-group-sm">
+                      <span className="input-group-text">Rs.</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className={`form-control${errors.hourlyRate ? " is-invalid" : ""}`}
+                        {...register("hourlyRate")}
+                      />
+                      <span className="input-group-text">/ hour</span>
+                    </div>
+                  </TechEarnestCreateField>
+                ) : null}
+                {formBillingType === "FIXED_MONTHLY" ? (
+                  <TechEarnestCreateField
+                    label="Monthly Fee"
+                    required
+                    error={errors.monthlyFee?.message}
+                    hint="Invoiced once per calendar month."
+                  >
+                    <div className="input-group input-group-sm">
+                      <span className="input-group-text">Rs.</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className={`form-control${errors.monthlyFee ? " is-invalid" : ""}`}
+                        {...register("monthlyFee")}
+                      />
+                      <span className="input-group-text">/ month</span>
+                    </div>
+                  </TechEarnestCreateField>
+                ) : null}
+                {formBillingType === "FIXED_BID" ? (
+                  <TechEarnestCreateField
+                    label="Contract Value"
+                    required
+                    error={errors.contractValue?.message}
+                    hint="Total agreed price; invoiced in instalments until fully billed."
+                  >
+                    <div className="input-group input-group-sm">
+                      <span className="input-group-text">Rs.</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className={`form-control${errors.contractValue ? " is-invalid" : ""}`}
+                        {...register("contractValue")}
+                      />
+                    </div>
+                  </TechEarnestCreateField>
+                ) : null}
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <p className="small text-muted mb-0 pt-1">{billingInvoiceHint(formBillingType)}</p>
               </TechEarnestCreateColumn>
             </TechEarnestCreateGrid>
           </TechEarnestCreateSection>
@@ -704,7 +897,10 @@ export function ProjectsPage() {
               subtitle={selected.projectCode}
               meta={
                 <span className="text-muted small">
-                  {accountName(selected.accountId)} · {selected.billingType}
+                  <RecordLink module="account" id={selected.accountId}>
+                    {accountName(selected.accountId)}
+                  </RecordLink>{" "}
+                  · {billingTypeLabel(selected.billingType)}
                 </span>
               }
               status={
@@ -721,21 +917,35 @@ export function ProjectsPage() {
               layout="page"
               avatarLabel={selected.name}
               onBack={() => {
-                setSelected(null);
                 setShowMilestoneForm(false);
                 setShowTaskForm(false);
                 setInlineError(null);
+                recordNav.goBack();
               }}
               onPrev={recordNav.goPrev}
               onNext={recordNav.goNext}
               hasPrev={recordNav.hasPrev}
               hasNext={recordNav.hasNext}
-              relatedLinks={[...DEFAULT_RELATED_LINKS]}
-              primaryAction={canUpdateProject ? (
-                <button type="button" className="btn btn-primary btn-sm" onClick={() => openProjectEdit(selected)}>
-                  Edit project
+              relatedLinks={[
+                { id: "tasks", label: "Tasks" },
+                { id: "milestones", label: "Milestones" },
+                ...(canViewAllocations ? [{ id: "allocations", label: "Allocations" }] : []),
+                ...(canViewInvoices ? [{ id: "invoices", label: "Invoices" }] : []),
+                ...(canViewContracts ? [{ id: "contracts", label: "Contracts" }] : []),
+                ...(canViewPurchaseOrders ? [{ id: "purchase-orders", label: "Purchase Orders" }] : []),
+                ...(canViewExpenses ? [{ id: "expenses", label: "Expenses" }] : []),
+                ...DEFAULT_RELATED_LINKS,
+              ]}
+              primaryAction={
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  disabled={!canUpdateProject}
+                  onClick={() => openProjectEdit(selected)}
+                >
+                  Edit
                 </button>
-              ) : null}
+              }
               secondaryActions={
                 <>
                   {canDeleteProject ? (
@@ -747,31 +957,7 @@ export function ProjectsPage() {
                         setConfirmProjectDelete(true);
                       }}
                     >
-                      Delete project
-                    </button>
-                  ) : null}
-                  {canManageMilestone ? (
-                    <button
-                      type="button"
-                      className="btn btn-outline-primary btn-sm"
-                      onClick={() => {
-                        setShowMilestoneForm((value) => !value);
-                        setShowTaskForm(false);
-                      }}
-                    >
-                      {showMilestoneForm ? "Cancel milestone" : "Add milestone"}
-                    </button>
-                  ) : null}
-                  {canCreateTask ? (
-                    <button
-                      type="button"
-                      className="btn btn-outline-primary btn-sm"
-                      onClick={() => {
-                        setShowTaskForm((value) => !value);
-                        setShowMilestoneForm(false);
-                      }}
-                    >
-                      {showTaskForm ? "Cancel task" : "Add task"}
+                      Delete
                     </button>
                   ) : null}
                   {confirmProjectDelete ? (
@@ -797,415 +983,539 @@ export function ProjectsPage() {
                 </>
               }
               tabs={[
-                recordOverviewTab(
-                  <>
-                    <RecordOverviewGrid>
-                      <RecordOverviewField label="Status" value={<StatusBadge status={selected.status} />} />
-                      <RecordOverviewField
-                        label="Health"
-                        value={<StatusBadge status={selected.health ?? "ON_TRACK"} />}
+                {
+                  id: "overview",
+                  label: "Overview",
+                  content: (
+                    <>
+                      <TechEarnestRecordSummaryStrip
+                        fields={[
+                          { label: "Project Manager", value: userLabel(selected.projectManagerId) },
+                          { label: "Status", value: <StatusBadge status={selected.status} /> },
+                          { label: "Health", value: <StatusBadge status={selected.health ?? "ON_TRACK"} /> },
+                          {
+                            label: "Progress",
+                            value: selected.progressPercent != null ? `${selected.progressPercent}%` : "—",
+                          },
+                          { label: "End Date", value: selected.endDate ?? "—" },
+                        ]}
                       />
-                      <RecordOverviewField
-                        label="Progress"
-                        value={
-                          selected.progressPercent != null ? `${selected.progressPercent}%` : "—"
-                        }
-                      />
-                      <RecordOverviewField label="Priority" value={selected.priority ?? "—"} />
-                      <RecordOverviewField label="Billing type" value={selected.billingType} />
-                      <RecordOverviewField label="Budget" value={formatMoney(selected.budget)} />
-                      <RecordOverviewField
-                        label="Estimated hours"
-                        value={formatHours(selected.estimatedHours)}
-                      />
-                      <RecordOverviewField
-                        label="Actual hours"
-                        value={formatHours(selected.actualHours)}
-                      />
-                      <RecordOverviewField label="Start date" value={selected.startDate ?? "—"} />
-                      <RecordOverviewField label="End date" value={selected.endDate ?? "—"} />
-                      <RecordOverviewField
-                        label="Project manager"
-                        value={userLabel(selected.projectManagerId)}
-                      />
-                      <RecordOverviewField
-                        label="Account"
-                        value={
-                          accountQuery.isLoading ? (
-                            "Loading…"
-                          ) : accountQuery.data ? (
-                            <>
-                              {accountQuery.data.name}{" "}
-                              <Link className="small" to="/accounts">
-                                Open
-                              </Link>
-                            </>
-                          ) : (
-                            accountName(selected.accountId)
-                          )
-                        }
-                      />
-                    </RecordOverviewGrid>
-                    {selected.description ? (
-                      <RecordSection title="Description">
-                        <p className="small text-muted mb-0">{selected.description}</p>
-                      </RecordSection>
-                    ) : null}
-                    {canViewInvoices ? (
-                      <RecordSection title="Unbilled time summary">
-                        {unbilledTimeQuery.isLoading ? (
-                          <LoadingState label="Loading time…" workspace />
-                        ) : (
-                          <p className="small mb-0">
-                            {(unbilledTimeQuery.data ?? []).length} entries ·{" "}
-                            {formatHours(unbilledHoursTotal)} hours unbilled
-                          </p>
-                        )}
-                      </RecordSection>
-                    ) : null}
-                  </>,
-                ),
-                recordRelatedTab(
-                  <>
-                    {inlineError ? <div className="alert alert-danger py-2">{inlineError}</div> : null}
 
-                    {showMilestoneForm ? (
-                      <form
-                        className="border-bottom pb-3 mb-3"
-                        onSubmit={milestoneForm.handleSubmit((values) =>
-                          milestoneMutation.mutate({
-                            name: values.name,
-                            dueDate: values.dueDate || undefined,
-                            status: values.status || "PLANNED",
-                          }),
-                        )}
-                      >
-                        <FormField
-                          label="Milestone name"
-                          required
-                          error={milestoneForm.formState.errors.name}
-                          {...milestoneForm.register("name")}
+                      <TechEarnestRecordInfoSection
+                        title="Project Information"
+                        fields={[
+                          { label: "Project Name", value: selected.name },
+                          { label: "Project Code", value: selected.projectCode },
+                          {
+                            label: "Account Name",
+                            value: (
+                              <RecordLink module="account" id={selected.accountId}>
+                                {accountQuery.data?.name ?? accountName(selected.accountId)}
+                              </RecordLink>
+                            ),
+                          },
+                          ...(selected.dealId
+                            ? [
+                                {
+                                  label: "Source Deal",
+                                  value: (
+                                    <RecordLink module="deal" id={selected.dealId}>
+                                      {dealQuery.data?.name ?? "Open deal"}
+                                    </RecordLink>
+                                  ),
+                                },
+                              ]
+                            : []),
+                          { label: "Project Manager", value: userLabel(selected.projectManagerId) },
+                          { label: "Region", value: regionName(selected.regionId) },
+                          { label: "Billing Type", value: billingTypeLabel(selected.billingType) },
+                          { label: "Status", value: selected.status },
+                          { label: "Priority", value: selected.priority ?? "—" },
+                          { label: "Start Date", value: selected.startDate ?? "—" },
+                          { label: "End Date", value: selected.endDate ?? "—" },
+                        ]}
+                      />
+
+                      <TechEarnestRecordInfoSection
+                        title="Budget & Effort"
+                        fields={[
+                          { label: "Budget", value: formatMoney(selected.budget) },
+                          { label: "Estimated Hours", value: formatHours(selected.estimatedHours) },
+                          { label: "Actual Hours", value: formatHours(selected.actualHours) },
+                          ...(canViewInvoices
+                            ? [
+                                {
+                                  label: "Unbilled Hours",
+                                  value: unbilledTimeQuery.isLoading
+                                    ? "Loading…"
+                                    : `${formatHours(unbilledHoursTotal)} (${(unbilledTimeQuery.data ?? []).length} entries)`,
+                                },
+                              ]
+                            : []),
+                        ]}
+                      />
+
+                      <TechEarnestRecordInfoSection
+                        title="Billing"
+                        fields={[
+                          { label: "Billing Type", value: billingTypeLabel(selected.billingType) },
+                          ...(selected.billingType === "TIME_AND_MATERIAL"
+                            ? [{ label: "Hourly Rate", value: `${formatMoney(selected.hourlyRate)} / hour` }]
+                            : []),
+                          ...(selected.billingType === "STAFF_AUGMENTATION"
+                            ? [
+                                {
+                                  label: "Rate",
+                                  value: selected.hourlyRate
+                                    ? `Resource billing rate (fallback ${formatMoney(selected.hourlyRate)} / hour)`
+                                    : "Resource billing rate",
+                                },
+                              ]
+                            : []),
+                          ...(selected.billingType === "FIXED_MONTHLY"
+                            ? [{ label: "Monthly Fee", value: `${formatMoney(selected.monthlyFee)} / month` }]
+                            : []),
+                          ...(selected.billingType === "FIXED_BID"
+                            ? [{ label: "Contract Value", value: formatMoney(selected.contractValue) }]
+                            : []),
+                        ]}
+                      />
+
+                      {canCreateInvoice ? <ProjectBillingCard project={selected} /> : null}
+
+                      {selected.description ? (
+                        <TechEarnestRecordInfoSection
+                          title="Description Information"
+                          collapsible={false}
+                          fields={[{ label: "Description", value: selected.description }]}
                         />
-                        <FormField label="Due date" type="date" {...milestoneForm.register("dueDate")} />
-                        <button
-                          type="submit"
-                          className="btn btn-primary btn-sm"
-                          disabled={milestoneMutation.isPending}
-                        >
-                          Create milestone
-                        </button>
-                      </form>
-                    ) : null}
-
-                    {showTaskForm ? (
-                      <form
-                        className="border-bottom pb-3 mb-3"
-                        onSubmit={taskForm.handleSubmit((values) =>
-                          taskMutation.mutate({
-                            name: values.name,
-                            status: values.status || "TODO",
-                            priority: values.priority || undefined,
-                            dueDate: values.dueDate || undefined,
-                          }),
-                        )}
-                      >
-                        <FormField
-                          label="Task name"
-                          required
-                          error={taskForm.formState.errors.name}
-                          {...taskForm.register("name")}
-                        />
-                        <label className="form-label">Status</label>
-                        <select className="form-select mb-2" {...taskForm.register("status")}>
-                          <option value="TODO">TODO</option>
-                          <option value="IN_PROGRESS">IN_PROGRESS</option>
-                          <option value="BLOCKED">BLOCKED</option>
-                          <option value="COMPLETED">COMPLETED</option>
-                        </select>
-                        <button
-                          type="submit"
-                          className="btn btn-primary btn-sm"
-                          disabled={taskMutation.isPending}
-                        >
-                          Create task
-                        </button>
-                      </form>
-                    ) : null}
-
-                    <RecordSection title={`Tasks (${tasksQuery.data?.length ?? 0})`}>
-                      {tasksQuery.isLoading ? <LoadingState label="Loading tasks…" workspace /> : null}
-                      <ul className="list-unstyled small mb-0">
-                        {(tasksQuery.data ?? []).map((task) => (
-                          <li key={task.id} className="mb-1">
-                            {task.name} — <StatusBadge status={task.status} />
-                            {task.dueDate ? ` · due ${task.dueDate}` : ""}
-                          </li>
-                        ))}
-                        {!tasksQuery.data?.length ? <li className="text-muted">No tasks</li> : null}
-                      </ul>
-                    </RecordSection>
-
-                    <RecordSection title={`Milestones (${milestonesQuery.data?.length ?? 0})`}>
-                      {milestonesQuery.isLoading ? (
-                        <LoadingState label="Loading milestones…" workspace />
                       ) : null}
-                      <ul className="list-unstyled small mb-0">
-                        {(milestonesQuery.data ?? []).map((milestone) => (
-                          <li key={milestone.id} className="mb-1">
-                            {milestone.name} — <StatusBadge status={milestone.status} />
-                            {milestone.dueDate ? ` · ${milestone.dueDate}` : ""}
-                          </li>
-                        ))}
-                        {!milestonesQuery.data?.length ? (
-                          <li className="text-muted">No milestones</li>
-                        ) : null}
-                      </ul>
-                    </RecordSection>
 
-                    {canViewAllocations ? (
-                      <RecordSection title={`Allocations (${allocationsQuery.data?.length ?? 0})`}>
-                        {allocationsQuery.isLoading ? (
-                          <LoadingState label="Loading allocations…" workspace />
+                      {inlineError && !confirmProjectDelete ? (
+                        <div className="alert alert-danger py-2">{inlineError}</div>
+                      ) : null}
+
+                      <TechEarnestRecordRelatedCard
+                        id="techearnest-record-section-tasks"
+                        title={`Tasks (${tasksQuery.data?.length ?? 0})`}
+                        isEmpty={!tasksQuery.isLoading && !(tasksQuery.data ?? []).length && !showTaskForm}
+                        emptyLabel="No records found"
+                        actions={
+                          canCreateTask ? (
+                            <button
+                              type="button"
+                              className="btn btn-outline-secondary btn-sm"
+                              onClick={() => {
+                                setShowTaskForm((value) => !value);
+                                setShowMilestoneForm(false);
+                              }}
+                            >
+                              {showTaskForm ? "Cancel" : "New Task"}
+                            </button>
+                          ) : null
+                        }
+                      >
+                        {showTaskForm ? (
+                          <form
+                            className="border-bottom pb-3 mb-3"
+                            onSubmit={taskForm.handleSubmit((values) =>
+                              taskMutation.mutate({
+                                name: values.name,
+                                status: values.status || "TODO",
+                                priority: values.priority || undefined,
+                                dueDate: values.dueDate || undefined,
+                              }),
+                            )}
+                          >
+                            <FormField
+                              label="Task name"
+                              required
+                              error={taskForm.formState.errors.name}
+                              {...taskForm.register("name")}
+                            />
+                            <label className="form-label">Status</label>
+                            <select className="form-select form-select-sm mb-2" {...taskForm.register("status")}>
+                              <option value="TODO">TODO</option>
+                              <option value="IN_PROGRESS">IN_PROGRESS</option>
+                              <option value="BLOCKED">BLOCKED</option>
+                              <option value="COMPLETED">COMPLETED</option>
+                            </select>
+                            <FormField label="Due date" type="date" {...taskForm.register("dueDate")} />
+                            <button type="submit" className="btn btn-primary btn-sm" disabled={taskMutation.isPending}>
+                              Create task
+                            </button>
+                          </form>
                         ) : null}
-                        <ul className="list-unstyled small mb-0">
-                          {(allocationsQuery.data ?? []).map((allocation) => (
-                            <li key={allocation.id} className="mb-1">
-                              {resourceLabel(allocation.resourceId)}
-                              {allocation.role ? ` · ${allocation.role}` : ""} —{" "}
-                              <StatusBadge status={allocation.status} />
-                              <span className="text-muted">
-                                {" "}
-                                · {allocation.startDate} – {allocation.endDate}
-                              </span>
-                            </li>
-                          ))}
-                          {!allocationsQuery.data?.length ? (
-                            <li className="text-muted">No allocations</li>
-                          ) : null}
-                        </ul>
-                        <Link className="small" to="/allocations">
-                          Open Allocations
-                        </Link>
-                      </RecordSection>
-                    ) : null}
-                  </>,
-                ),
-                recordCustomTab(
-                  "time",
-                  "Time",
-                  <>
-                    {unbilledTimeQuery.isLoading ? (
-                      <LoadingState label="Loading unbilled time…" workspace />
-                    ) : null}
-                    {unbilledTimeQuery.error ? (
-                      <p className="small text-muted mb-0">Unable to load unbilled time.</p>
-                    ) : (
-                      <>
-                        <p className="small mb-2">
-                          Total unbilled: {formatHours(unbilledHoursTotal)} hours across{" "}
-                          {(unbilledTimeQuery.data ?? []).length} entries
-                        </p>
-                        <ul className="list-unstyled small mb-0">
-                          {(unbilledTimeQuery.data ?? []).map((entry) => (
-                            <li key={entry.id} className="mb-1">
-                              {entry.workDate} · {formatHours(entry.hours)}h
-                              {entry.billingRate != null ? ` @ ${formatMoney(entry.billingRate)}` : ""}
-                              {entry.description ? ` — ${entry.description}` : ""}
-                            </li>
-                          ))}
-                          {!unbilledTimeQuery.data?.length ? (
-                            <li className="text-muted">No unbilled time entries</li>
-                          ) : null}
-                        </ul>
-                      </>
-                    )}
-                  </>,
-                  { visible: canViewInvoices },
-                ),
-                recordCustomTab(
-                  "finance",
-                  "Finance",
-                  <>
-                    {canViewInvoices ? (
-                      <RecordSection title={`Invoices (${invoicesQuery.data?.length ?? 0})`}>
-                        {invoicesQuery.isLoading ? (
-                          <LoadingState label="Loading invoices…" workspace />
-                        ) : null}
-                        <ul className="list-unstyled small mb-0">
-                          {(invoicesQuery.data ?? []).map((invoice) => (
-                            <li key={invoice.id} className="mb-1">
-                              {invoice.invoiceNumber ?? invoice.id.slice(0, 8)} —{" "}
-                              <StatusBadge status={invoice.status} /> · {formatMoney(invoice.total)}
-                            </li>
-                          ))}
-                          {!invoicesQuery.data?.length ? (
-                            <li className="text-muted">No invoices</li>
-                          ) : null}
-                        </ul>
-                        <Link className="small" to="/invoices">
-                          Open Invoices
-                        </Link>
-                      </RecordSection>
-                    ) : null}
-                    {canViewPurchaseOrders ? (
-                      <RecordSection title={`Purchase orders (${purchaseOrdersQuery.data?.length ?? 0})`}>
-                        {purchaseOrdersQuery.isLoading ? (
-                          <LoadingState label="Loading purchase orders…" workspace />
-                        ) : null}
-                        <ul className="list-unstyled small mb-0">
-                          {(purchaseOrdersQuery.data ?? []).map((order) => (
-                            <li key={order.id} className="mb-1">
-                              {order.poNumber ?? order.id.slice(0, 8)} —{" "}
-                              <StatusBadge status={order.status} /> · {formatMoney(order.total)}
-                            </li>
-                          ))}
-                          {!purchaseOrdersQuery.data?.length ? (
-                            <li className="text-muted">No purchase orders</li>
-                          ) : null}
-                        </ul>
-                        <Link className="small" to="/purchase-orders">
-                          Open Purchase Orders
-                        </Link>
-                      </RecordSection>
-                    ) : null}
-                    {canViewExpenses ? (
-                      <RecordSection title={`Expenses (${expensesQuery.data?.length ?? 0})`}>
-                        {expensesQuery.isLoading ? (
-                          <LoadingState label="Loading expenses…" workspace />
-                        ) : null}
-                        <ul className="list-unstyled small mb-0">
-                          {(expensesQuery.data ?? []).map((expense) => (
-                            <li key={expense.id} className="mb-1">
-                              {expense.category} — <StatusBadge status={expense.status} /> ·{" "}
-                              {formatMoney(expense.amount)} {expense.currencyCode}
-                            </li>
-                          ))}
-                          {!expensesQuery.data?.length ? (
-                            <li className="text-muted">No expenses</li>
-                          ) : null}
-                        </ul>
-                        <Link className="small" to="/expenses">
-                          Open Expenses
-                        </Link>
-                      </RecordSection>
-                    ) : null}
-                  </>,
-                  {
-                    visible: canViewInvoices || canViewPurchaseOrders || canViewExpenses,
-                  },
-                ),
-                recordTimelineTab(<TechEarnestRecordTimeline entries={timelineEntries} />, {
-                  visible: canViewActivities || canViewAudit,
-                  id: "timeline",
-                }),
-                recordNotesTab(
-                  <>
-                    {canCreateNotes ? (
-                      <div className="mb-3">
-                        <textarea
-                          className="form-control form-control-sm mb-2"
-                          rows={2}
-                          value={noteBody}
-                          onChange={(event) => setNoteBody(event.target.value)}
-                          placeholder="Add a note…"
+                        <RelatedRecordList
+                          module="task"
+                          loading={tasksQuery.isLoading}
+                          loadingLabel="Loading tasks…"
+                          items={(tasksQuery.data ?? []).map((task) => ({
+                            id: task.id,
+                            label: task.name,
+                            secondary: task.dueDate ? `due ${task.dueDate}` : undefined,
+                            trailing: <StatusBadge status={task.status} />,
+                          }))}
                         />
-                        <button
-                          type="button"
-                          className="btn btn-outline-primary btn-sm"
-                          disabled={!noteBody.trim() || noteMutation.isPending}
-                          onClick={() => noteMutation.mutate()}
+                      </TechEarnestRecordRelatedCard>
+
+                      <TechEarnestRecordRelatedCard
+                        id="techearnest-record-section-milestones"
+                        title={`Milestones (${milestonesQuery.data?.length ?? 0})`}
+                        isEmpty={!milestonesQuery.isLoading && !(milestonesQuery.data ?? []).length && !showMilestoneForm}
+                        emptyLabel="No records found"
+                        actions={
+                          canManageMilestone ? (
+                            <button
+                              type="button"
+                              className="btn btn-outline-secondary btn-sm"
+                              onClick={() => {
+                                setShowMilestoneForm((value) => !value);
+                                setShowTaskForm(false);
+                              }}
+                            >
+                              {showMilestoneForm ? "Cancel" : "New Milestone"}
+                            </button>
+                          ) : null
+                        }
+                      >
+                        {showMilestoneForm ? (
+                          <form
+                            className="border-bottom pb-3 mb-3"
+                            onSubmit={milestoneForm.handleSubmit((values) =>
+                              milestoneMutation.mutate({
+                                name: values.name,
+                                dueDate: values.dueDate || undefined,
+                                status: values.status || "PLANNED",
+                              }),
+                            )}
+                          >
+                            <FormField
+                              label="Milestone name"
+                              required
+                              error={milestoneForm.formState.errors.name}
+                              {...milestoneForm.register("name")}
+                            />
+                            <FormField label="Due date" type="date" {...milestoneForm.register("dueDate")} />
+                            <button type="submit" className="btn btn-primary btn-sm" disabled={milestoneMutation.isPending}>
+                              Create milestone
+                            </button>
+                          </form>
+                        ) : null}
+                        <RelatedRecordList
+                          module="milestone"
+                          loading={milestonesQuery.isLoading}
+                          loadingLabel="Loading milestones…"
+                          items={(milestonesQuery.data ?? []).map((milestone) => ({
+                            id: milestone.id,
+                            label: milestone.name,
+                            secondary: milestone.dueDate ?? undefined,
+                            trailing: <StatusBadge status={milestone.status} />,
+                          }))}
+                        />
+                      </TechEarnestRecordRelatedCard>
+
+                      {canViewAllocations ? (
+                        <TechEarnestRecordRelatedCard
+                          id="techearnest-record-section-allocations"
+                          title={`Allocations (${allocationsQuery.data?.length ?? 0})`}
+                          isEmpty={!allocationsQuery.isLoading && !(allocationsQuery.data ?? []).length}
+                          emptyLabel="No records found"
+                          actions={
+                            <Link className="btn btn-outline-secondary btn-sm" to="/allocations">
+                              Open Allocations
+                            </Link>
+                          }
                         >
-                          Add note
-                        </button>
-                      </div>
-                    ) : null}
-                    <ul className="small mb-0">
-                      {(notesQuery.data ?? []).map((note) => (
-                        <li key={note.id} className="mb-2">
-                          <div>{note.body}</div>
-                          <div className="text-muted d-flex justify-content-between">
-                            <span>{new Date(note.createdAt).toLocaleString()}</span>
-                            {canDeleteNotes ? (
+                          <ul className="related-record-list">
+                            {(allocationsQuery.data ?? []).map((allocation) => (
+                              <li key={allocation.id}>
+                                <span className="related-record-primary">
+                                  <RecordLink module="resource" id={allocation.resourceId}>
+                                    {resourceLabel(allocation.resourceId)}
+                                  </RecordLink>
+                                  <span className="related-record-secondary">
+                                    {allocation.role ? `${allocation.role} · ` : ""}
+                                    <RecordLink module="allocation" id={allocation.id}>
+                                      {allocation.startDate} – {allocation.endDate}
+                                    </RecordLink>
+                                  </span>
+                                </span>
+                                <span className="related-record-trailing">
+                                  <StatusBadge status={allocation.status} />
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </TechEarnestRecordRelatedCard>
+                      ) : null}
+
+                      <ProjectTimeTrackingCard projectId={selected.id} canViewTimesheets={canViewTimesheets} />
+
+                      {canViewInvoices ? (
+                        <TechEarnestRecordRelatedCard
+                          id="techearnest-record-section-unbilled-time"
+                          title={`Unbilled Time (${formatHours(unbilledHoursTotal)} h)`}
+                          isEmpty={!unbilledTimeQuery.isLoading && !(unbilledTimeQuery.data ?? []).length}
+                          emptyLabel={unbilledTimeQuery.error ? "Unable to load unbilled time" : "No records found"}
+                        >
+                          <ul className="list-unstyled small mb-0">
+                            {(unbilledTimeQuery.data ?? []).map((entry) => (
+                              <li key={entry.id} className="mb-2 d-flex justify-content-between gap-2">
+                                <span>
+                                  {entry.workDate}
+                                  {entry.description ? <span className="text-muted"> · {entry.description}</span> : null}
+                                </span>
+                                <span>
+                                  {formatHours(entry.hours)}h
+                                  {entry.billingRate != null ? ` @ ${formatMoney(entry.billingRate)}` : ""}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </TechEarnestRecordRelatedCard>
+                      ) : null}
+
+                      {canViewInvoices ? (
+                        <TechEarnestRecordRelatedCard
+                          id="techearnest-record-section-invoices"
+                          title={`Invoices (${invoicesQuery.data?.length ?? 0})`}
+                          isEmpty={!invoicesQuery.isLoading && !(invoicesQuery.data ?? []).length}
+                          emptyLabel="No records found"
+                          actions={
+                            <Link className="btn btn-outline-secondary btn-sm" to="/invoices">
+                              Open Invoices
+                            </Link>
+                          }
+                        >
+                          <RelatedRecordList
+                            module="invoice"
+                            items={(invoicesQuery.data ?? []).map((invoice) => ({
+                              id: invoice.id,
+                              label: invoice.invoiceNumber ?? invoice.id.slice(0, 8),
+                              secondary: formatMoney(invoice.total),
+                              trailing: <StatusBadge status={invoice.status} />,
+                            }))}
+                          />
+                        </TechEarnestRecordRelatedCard>
+                      ) : null}
+
+                      {canViewPurchaseOrders ? (
+                        <TechEarnestRecordRelatedCard
+                          id="techearnest-record-section-purchase-orders"
+                          title={`Purchase Orders (${purchaseOrdersQuery.data?.length ?? 0})`}
+                          isEmpty={!purchaseOrdersQuery.isLoading && !(purchaseOrdersQuery.data ?? []).length}
+                          emptyLabel="No records found"
+                          actions={
+                            <Link className="btn btn-outline-secondary btn-sm" to="/purchase-orders">
+                              Open Purchase Orders
+                            </Link>
+                          }
+                        >
+                          <RelatedRecordList
+                            module="purchaseOrder"
+                            items={(purchaseOrdersQuery.data ?? []).map((order) => ({
+                              id: order.id,
+                              label: order.poNumber ?? order.id.slice(0, 8),
+                              secondary: formatMoney(order.total),
+                              trailing: <StatusBadge status={order.status} />,
+                            }))}
+                          />
+                        </TechEarnestRecordRelatedCard>
+                      ) : null}
+
+                      {canViewExpenses ? (
+                        <TechEarnestRecordRelatedCard
+                          id="techearnest-record-section-expenses"
+                          title={`Expenses (${expensesQuery.data?.length ?? 0})`}
+                          isEmpty={!expensesQuery.isLoading && !(expensesQuery.data ?? []).length}
+                          emptyLabel="No records found"
+                          actions={
+                            <Link className="btn btn-outline-secondary btn-sm" to="/expenses">
+                              Open Expenses
+                            </Link>
+                          }
+                        >
+                          <RelatedRecordList
+                            module="expense"
+                            items={(expensesQuery.data ?? []).map((expense) => ({
+                              id: expense.id,
+                              label: expense.category,
+                              secondary: `${formatMoney(expense.amount)} ${expense.currencyCode}`,
+                              trailing: <StatusBadge status={expense.status} />,
+                            }))}
+                          />
+                        </TechEarnestRecordRelatedCard>
+                      ) : null}
+
+                      {canViewContracts ? (
+                        <TechEarnestRecordRelatedCard
+                          id="techearnest-record-section-contracts"
+                          title={`Contracts (${projectContracts.length})`}
+                          isEmpty={!contractsQuery.isLoading && !projectContracts.length}
+                          emptyLabel="No records found"
+                        >
+                          <RelatedRecordList
+                            module="contract"
+                            loading={contractsQuery.isLoading}
+                            items={projectContracts.map((contract) => ({
+                              id: contract.id,
+                              label: contract.contractNumber ? `${contract.contractNumber} · ${contract.name}` : contract.name,
+                              secondary: contract.endDate ? `ends ${contract.endDate}` : undefined,
+                              trailing: <StatusBadge status={contract.status} />,
+                            }))}
+                          />
+                        </TechEarnestRecordRelatedCard>
+                      ) : null}
+
+                      {canViewNotes ? (
+                        <TechEarnestRecordRelatedCard
+                          id="techearnest-record-section-notes"
+                          title="Notes"
+                          isEmpty={!(notesQuery.data ?? []).length && !canCreateNotes}
+                          emptyLabel="No notes yet"
+                          actions={
+                            canCreateNotes ? (
                               <button
                                 type="button"
-                                className="btn btn-link btn-sm p-0"
-                                onClick={() => deleteNoteMutation.mutate(note.id)}
+                                className="btn btn-outline-secondary btn-sm"
+                                disabled={!noteBody.trim() || noteMutation.isPending}
+                                onClick={() => noteMutation.mutate()}
                               >
-                                Delete
+                                Save
                               </button>
-                            ) : null}
-                          </div>
-                        </li>
-                      ))}
-                      {!notesQuery.data?.length ? <li className="text-muted">No notes</li> : null}
-                    </ul>
-                  </>,
-                  { visible: canViewNotes },
-                ),
-                recordDocumentsTab(
-                  <>
-                    {canUploadDocs ? (
-                      <input
-                        className="form-control form-control-sm mb-2"
-                        type="file"
-                        onChange={async (event) => {
-                          const file = event.target.files?.[0];
-                          if (!file || !selected) return;
-                          try {
-                            await uploadDocument("PROJECT", selected.id, file);
-                            await queryClient.invalidateQueries({
-                              queryKey: ["crm", "documents", "PROJECT", selected.id],
-                            });
-                          } catch {
-                            /* ignore */
+                            ) : null
                           }
-                          event.target.value = "";
-                        }}
-                      />
-                    ) : null}
-                    <ul className="small mb-0">
-                      {(docsQuery.data ?? []).map((doc) => (
-                        <li key={doc.id}>
-                          <button
-                            type="button"
-                            className="btn btn-link btn-sm px-0"
-                            onClick={async () => {
-                              const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
-                              const response = await fetch(documentDownloadUrl(doc.id), {
-                                headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-                              });
-                              if (!response.ok) return;
-                              const blob = await response.blob();
-                              const url = URL.createObjectURL(blob);
-                              const anchor = document.createElement("a");
-                              anchor.href = url;
-                              anchor.download = doc.fileName;
-                              anchor.click();
-                              URL.revokeObjectURL(url);
-                            }}
+                        >
+                          {canCreateNotes ? (
+                            <textarea
+                              className="form-control form-control-sm mb-2"
+                              rows={2}
+                              value={noteBody}
+                              onChange={(event) => setNoteBody(event.target.value)}
+                              placeholder="Add a note"
+                            />
+                          ) : null}
+                          <ul className="list-unstyled small mb-0">
+                            {(notesQuery.data ?? []).map((note) => (
+                              <li key={note.id} className="mb-2 border-bottom pb-2">
+                                <div>{note.body}</div>
+                                <div className="text-muted d-flex justify-content-between">
+                                  <span>{new Date(note.createdAt).toLocaleString()}</span>
+                                  {canDeleteNotes ? (
+                                    <button
+                                      type="button"
+                                      className="btn btn-link btn-sm p-0"
+                                      onClick={() => deleteNoteMutation.mutate(note.id)}
+                                    >
+                                      Delete
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        </TechEarnestRecordRelatedCard>
+                      ) : null}
+
+                      {canViewDocs ? (
+                        <TechEarnestRecordRelatedCard
+                          id="techearnest-record-section-attachments"
+                          title="Attachments"
+                          isEmpty={!(docsQuery.data ?? []).length}
+                          emptyLabel="No Attachment"
+                          actions={
+                            canUploadDocs ? (
+                              <label className="btn btn-outline-secondary btn-sm mb-0">
+                                Attach
+                                <input
+                                  type="file"
+                                  className="d-none"
+                                  onChange={(event) => {
+                                    const file = event.target.files?.[0];
+                                    if (file) {
+                                      uploadMutation.mutate(file);
+                                      event.target.value = "";
+                                    }
+                                  }}
+                                />
+                              </label>
+                            ) : null
+                          }
+                        >
+                          <ul className="list-unstyled small mb-0">
+                            {(docsQuery.data ?? []).map((doc) => (
+                              <li key={doc.id} className="mb-2 d-flex justify-content-between gap-2">
+                                <button
+                                  type="button"
+                                  className="btn btn-link btn-sm p-0 text-start"
+                                  onClick={() => void openDownload(doc.id, doc.fileName)}
+                                >
+                                  {doc.fileName}
+                                </button>
+                                {canDeleteDocs ? (
+                                  <button
+                                    type="button"
+                                    className="btn btn-link btn-sm p-0 text-danger"
+                                    onClick={() => deleteDocMutation.mutate(doc.id)}
+                                  >
+                                    Delete
+                                  </button>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        </TechEarnestRecordRelatedCard>
+                      ) : null}
+
+                      {canViewActivities ? (
+                        <>
+                          <TechEarnestRecordRelatedCard
+                            id="techearnest-record-section-open-activities"
+                            title="Open Activities"
+                            isEmpty={!openActivities.length}
+                            emptyLabel="No records found"
                           >
-                            {doc.fileName}
-                          </button>
-                        </li>
-                      ))}
-                      {!docsQuery.data?.length ? <li className="text-muted">No documents</li> : null}
-                    </ul>
-                  </>,
-                  { visible: canViewDocs },
-                ),
-                recordAuditTab(
-                  <ul className="small mb-0">
-                    {(auditQuery.data ?? []).map((log) => (
-                      <li key={log.id}>
-                        {log.action} · {new Date(log.createdAt).toLocaleString()}
-                      </li>
-                    ))}
-                    {!auditQuery.data?.length ? (
-                      <li className="text-muted">No audit events</li>
-                    ) : null}
-                  </ul>,
-                  { visible: canViewAudit },
-                ),
+                            <RelatedRecordList
+                              module="activity"
+                              items={openActivities.map((activity) => ({
+                                id: activity.id,
+                                label: activity.subject,
+                                trailing: <StatusBadge status={activity.status} />,
+                              }))}
+                            />
+                          </TechEarnestRecordRelatedCard>
+                          <TechEarnestRecordRelatedCard
+                            id="techearnest-record-section-closed-activities"
+                            title="Closed Activities"
+                            isEmpty={!closedActivities.length}
+                            emptyLabel="No records found"
+                          >
+                            <RelatedRecordList
+                              module="activity"
+                              items={closedActivities.map((activity) => ({
+                                id: activity.id,
+                                label: activity.subject,
+                                trailing: <StatusBadge status={activity.status} />,
+                              }))}
+                            />
+                          </TechEarnestRecordRelatedCard>
+                        </>
+                      ) : null}
+                    </>
+                  ),
+                },
+                {
+                  id: "timeline",
+                  label: "Timeline",
+                  visible: true,
+                  content: (
+                    <TechEarnestRecordTimeline
+                      entries={timelineEntries}
+                      loading={auditQuery.isLoading || activitiesQuery.isLoading || notesQuery.isLoading}
+                    />
+                  ),
+                },
               ]}
             />
 
@@ -1246,35 +1556,42 @@ export function ProjectsPage() {
             {canViewUsers ? (
               <TechEarnestFilterSelect label="Manager" value={managerFilter} onChange={setManagerFilter} options={managerFilterOptions} placeholder="All managers" emptyLabel="All managers" searchPlaceholder="Search managers" />
             ) : null}
-            <label className="form-label small mb-1">Start from</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              type="date"
-              value={startFrom}
-              onChange={(e) => setStartFrom(e.target.value)}
-            />
-            <label className="form-label small mb-1">End to</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              type="date"
-              value={endTo}
-              onChange={(e) => setEndTo(e.target.value)}
-            />
-            <div className="form-check">
+            <ModuleFilterField label="Start from" htmlFor="projectStartFromFilter">
               <input
-                id="delayedOnly"
-                className="form-check-input"
-                type="checkbox"
-                checked={delayedOnly}
-                onChange={(e) => setDelayedOnly(e.target.checked)}
+                id="projectStartFromFilter"
+                className="form-control form-control-sm"
+                type="date"
+                value={startFrom}
+                onChange={(e) => setStartFrom(e.target.value)}
               />
-              <label className="form-check-label small" htmlFor="delayedOnly">
-                Delayed only
-              </label>
-            </div>
+            </ModuleFilterField>
+            <ModuleFilterField label="End to" htmlFor="projectEndToFilter">
+              <input
+                id="projectEndToFilter"
+                className="form-control form-control-sm"
+                type="date"
+                value={endTo}
+                onChange={(e) => setEndTo(e.target.value)}
+              />
+            </ModuleFilterField>
+            <ModuleFilterCheckbox
+              id="delayedOnly"
+              label="Delayed only"
+              checked={delayedOnly}
+              onChange={setDelayedOnly}
+            />
           </div>
         </>
       }
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+        setAccountFilter("");
+        setManagerFilter("");
+        setStartFrom("");
+        setEndTo("");
+        setDelayedOnly(false);
+      }}
       recordCount={rows.length}
     >
       {projectsQuery.isLoading ? <LoadingState label="Loading projects..." /> : null}
@@ -1310,7 +1627,13 @@ export function ProjectsPage() {
                 setInlineError(null);
               }}
               renderCell={(project, field) => {
-                if (field === "accountId") return accountName(project.accountId);
+                if (field === "billingType") return billingTypeLabel(project.billingType);
+                if (field === "accountId")
+                  return (
+                    <RecordLink module="account" id={project.accountId}>
+                      {accountName(project.accountId)}
+                    </RecordLink>
+                  );
                 if (field === "status") return <StatusBadge status={project.status} />;
                 if (field === "health") return <StatusBadge status={project.health ?? "ON_TRACK"} />;
                 if (field === "progressPercent") return project.progressPercent != null ? `${project.progressPercent}%` : "—";

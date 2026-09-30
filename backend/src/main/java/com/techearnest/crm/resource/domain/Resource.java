@@ -21,6 +21,14 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @EntityListeners(AuditingEntityListener.class)
 public class Resource implements SecuredRecord {
 
+    /** Own employee; always backed by a user account. */
+    public static final String TYPE_EMPLOYEE = "EMPLOYEE";
+    public static final String TYPE_CONTRACTOR = "CONTRACTOR";
+    public static final String TYPE_FREELANCER = "FREELANCER";
+    public static final String TYPE_CONSULTANT = "CONSULTANT";
+    public static final java.util.Set<String> TYPES =
+            java.util.Set.of(TYPE_EMPLOYEE, TYPE_CONTRACTOR, TYPE_FREELANCER, TYPE_CONSULTANT);
+
     @Id
     private UUID id;
 
@@ -61,6 +69,16 @@ public class Resource implements SecuredRecord {
 
     @Column(nullable = false)
     private String status;
+
+    @Column(name = "full_name")
+    private String fullName;
+
+    private String email;
+
+    private String phone;
+
+    @Column(name = "engagement_end_date")
+    private LocalDate engagementEndDate;
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
@@ -165,6 +183,30 @@ public class Resource implements SecuredRecord {
         }
     }
 
+    /** Blank strings clear a value; null leaves it unchanged. */
+    public void updateContact(String fullName, String email, String phone, LocalDate engagementEndDate) {
+        if (fullName != null) {
+            this.fullName = fullName.isBlank() ? null : fullName.trim();
+        }
+        if (email != null) {
+            this.email = email.isBlank() ? null : email.trim().toLowerCase(java.util.Locale.ROOT);
+        }
+        if (phone != null) {
+            this.phone = phone.isBlank() ? null : phone.trim();
+        }
+        if (engagementEndDate != null) {
+            this.engagementEndDate = engagementEndDate;
+        }
+    }
+
+    public void clearEngagementEndDate() {
+        this.engagementEndDate = null;
+    }
+
+    public void linkUser(UUID userId) {
+        this.userId = userId;
+    }
+
     public void setDerivedStatus(String status) {
         this.status = status;
     }
@@ -222,6 +264,11 @@ public class Resource implements SecuredRecord {
         return resourceType;
     }
 
+    /** Contractors, freelancers and consultants: people outside the company's payroll. */
+    public boolean isExternal() {
+        return !TYPE_EMPLOYEE.equals(resourceType);
+    }
+
     public LocalDate getJoiningDate() {
         return joiningDate;
     }
@@ -240,6 +287,22 @@ public class Resource implements SecuredRecord {
 
     public String getStatus() {
         return status;
+    }
+
+    public String getFullName() {
+        return fullName;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public LocalDate getEngagementEndDate() {
+        return engagementEndDate;
     }
 
     public Instant getDeletedAt() {

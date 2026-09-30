@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { RecordLinkSource } from "@/components/RecordLink/RecordLinkSource";
 import { TechEarnestRecordView, type TechEarnestRecordRelatedLink, type TechEarnestRecordTab } from "@/components/TechEarnestRecord";
 import { RecordHeader } from "./RecordHeader";
 
@@ -138,34 +139,36 @@ export function RecordShell({
   }
 
   return (
-    <aside className={`module-detail-drawer record-shell ${className}`.trim()}>
-      <header className="record-shell-header">
-        <RecordHeader
-          title={title}
-          subtitle={subtitle}
-          meta={meta}
-          status={resolvedStatus}
-          primaryAction={primaryAction}
-          secondaryActions={resolvedSecondary}
-          onClose={onClose}
-        />
-        {visibleTabs.length > 1 ? (
-          <nav className="record-shell-tabs" aria-label="Record sections">
-            {visibleTabs.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                className={`record-shell-tab${active?.id === tab.id ? " is-active" : ""}`}
-                onClick={() => setActiveTab(tab.id)}
-                aria-current={active?.id === tab.id ? "page" : undefined}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </nav>
-        ) : null}
-      </header>
-      <div className="record-shell-body">{active?.content ?? null}</div>
-    </aside>
+    <RecordLinkSource label={title}>
+      <aside className={`module-detail-drawer record-shell ${className}`.trim()}>
+        <header className="record-shell-header">
+          <RecordHeader
+            title={title}
+            subtitle={subtitle}
+            meta={meta}
+            status={resolvedStatus}
+            primaryAction={primaryAction}
+            secondaryActions={resolvedSecondary}
+            onClose={onClose}
+          />
+          {visibleTabs.length > 1 ? (
+            <nav className="record-shell-tabs" aria-label="Record sections">
+              {visibleTabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  className={`record-shell-tab${active?.id === tab.id ? " is-active" : ""}`}
+                  onClick={() => setActiveTab(tab.id)}
+                  aria-current={active?.id === tab.id ? "page" : undefined}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          ) : null}
+        </header>
+        <div className="record-shell-body">{active?.content ?? null}</div>
+      </aside>
+    </RecordLinkSource>
   );
 }

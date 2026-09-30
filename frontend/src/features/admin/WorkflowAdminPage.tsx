@@ -42,6 +42,8 @@ export function WorkflowAdminPage() {
           skipped by the workflow engine.
         </p>
       }
+      onCloseFilters={() => setFilterOpen(false)}
+      filterPanelTitle="About"
     >
       {query.isLoading ? <LoadingState label="Loading workflows…" /> : null}
       {query.error ? <ErrorState title="Unable to load workflows" message="Try again." /> : null}

@@ -1,21 +1,34 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { ACCESS_TOKEN_KEY } from "@/api/client";
 import { AccountCreateView } from "./AccountCreateView";
 import { buildOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilterSelect } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterField, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
+import {
+  buildTimelineEntries,
+  recordLifecycleInfo,
+  TechEarnestRecordInfoSection,
+  TechEarnestRecordRelatedCard,
+  TechEarnestRecordSummaryStrip,
+  TechEarnestRecordTimeline,
+  useRecordNavigation,
+} from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
-import { getPublishedRelatedLists } from "@/features/admin/studio/metadataApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import { useBulkImport } from "@/features/import/useBulkImport";
+import { RelatedRecordList } from "@/components/RecordLink";
+import { useUrlSelection } from "@/hooks/useUrlRecord";
+import { listContracts } from "@/features/contracts/contractApi";
+import { listInvoices } from "@/features/finance/invoiceApi";
 import {
+  getAccount,
   listAccountContacts,
   listAccountDeals,
   listAccountProjects,
@@ -23,7 +36,15 @@ import {
   listActivities,
   type Account,
 } from "./crmApi";
-import { listDocuments, listNotes } from "./foundationApi";
+import {
+  createNote,
+  deleteDocument,
+  deleteNote,
+  documentDownloadUrl,
+  listDocuments,
+  listNotes,
+  uploadDocument,
+} from "./foundationApi";
 
 export function AccountsPage() {
   const queryClient = useQueryClient();
@@ -31,8 +52,13 @@ export function AccountsPage() {
   const [params] = useSearchParams();
   const canCreate = useHasPermission("ACCOUNT_CREATE");
   const canUpdate = useHasPermission("ACCOUNT_UPDATE");
+  const canViewUsers = useHasPermission("USER_VIEW");
   const canViewNotes = useHasPermission("NOTE_VIEW");
+  const canCreateNotes = useHasPermission("NOTE_CREATE");
+  const canDeleteNotes = useHasPermission("NOTE_DELETE");
   const canViewDocs = useHasPermission("DOCUMENT_VIEW");
+  const canUploadDocs = useHasPermission("DOCUMENT_UPLOAD");
+  const canDeleteDocs = useHasPermission("DOCUMENT_DELETE");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
   const canViewProjects = useHasPermission("PROJECT_VIEW");
   const canViewAudit = useHasPermission("AUDIT_VIEW");
@@ -42,8 +68,10 @@ export function AccountsPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [industryFilter, setIndustryFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
-  const [selected, setSelected] = useState<Account | null>(null);
   const [showEdit, setShowEdit] = useState(false);
+  const [noteBody, setNoteBody] = useState("");
+  const canViewInvoices = useHasPermission("INVOICE_VIEW");
+  const canViewContracts = useHasPermission("CONTRACT_VIEW");
 
   useEffect(() => {
     if (params.get("create") === "1") setShowForm(true);
@@ -64,17 +92,12 @@ export function AccountsPage() {
     queryKey: ["crm", "accounts", listParams],
     queryFn: () => listAccounts(listParams),
   });
+  const [selected, setSelected] = useUrlSelection(accountsQuery.data, { fetchById: getAccount });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => listUsers(),
-    enabled: (showForm && canCreate) || (showEdit && canUpdate),
-  });
-  const relatedListsQuery = useQuery({
-    queryKey: ["metadata", "runtime", "account", "related-lists"],
-    queryFn: () => getPublishedRelatedLists("account"),
-    enabled: !!selected,
-    staleTime: 60_000,
+    enabled: (!!selected && canViewUsers) || (showForm && canCreate) || (showEdit && canUpdate),
   });
   const contactsQuery = useQuery({
     queryKey: ["crm", "accounts", (selected as Account | null)?.id, "contacts"],
@@ -110,6 +133,16 @@ export function AccountsPage() {
     queryKey: ["admin", "audit-logs", "ACCOUNT", (selected as Account | null)?.id],
     queryFn: () => listAuditLogs({ entityType: "ACCOUNT", entityId: selected!.id, size: 30 }),
     enabled: !!selected && canViewAudit,
+  });
+  const invoicesQuery = useQuery({
+    queryKey: ["finance", "invoices", "account", selected?.id],
+    queryFn: () => listInvoices({ accountId: selected!.id }),
+    enabled: !!selected && canViewInvoices,
+  });
+  const contractsQuery = useQuery({
+    queryKey: ["contracts", "account", selected?.id],
+    queryFn: () => listContracts({ accountId: selected!.id }),
+    enabled: !!selected && canViewContracts,
   });
 
   const userLabel = useMemo(() => {
@@ -158,6 +191,63 @@ export function AccountsPage() {
     setShowForm(true);
   }
 
+  const regionName = useMemo(() => {
+    const map = new Map((regionsQuery.data ?? []).map((region) => [region.id, region.name]));
+    return (id: string) => map.get(id) ?? "—";
+  }, [regionsQuery.data]);
+
+  const openActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status !== "COMPLETED"),
+    [activitiesQuery.data],
+  );
+  const closedActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status === "COMPLETED"),
+    [activitiesQuery.data],
+  );
+
+  const noteMutation = useMutation({
+    mutationFn: () => createNote("ACCOUNT", selected!.id, noteBody),
+    onSuccess: async () => {
+      setNoteBody("");
+      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "ACCOUNT", selected?.id] });
+    },
+  });
+
+  const deleteNoteMutation = useMutation({
+    mutationFn: deleteNote,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "ACCOUNT", selected?.id] });
+    },
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadDocument("ACCOUNT", selected!.id, file),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "ACCOUNT", selected?.id] });
+    },
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: deleteDocument,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "ACCOUNT", selected?.id] });
+    },
+  });
+
+  const openDownload = async (id: string, fileName: string) => {
+    const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+    const response = await fetch(documentDownloadUrl(id), {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!response.ok) return;
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
   const ownerOptions = useMemo(
     () =>
       buildOwnerOptions(usersQuery.data, {
@@ -197,194 +287,352 @@ export function AccountsPage() {
           onNext={recordNav.goNext}
           hasPrev={recordNav.hasPrev}
           hasNext={recordNav.hasNext}
-          relatedLinks={[...DEFAULT_RELATED_LINKS]}
-          primaryAction={canUpdate ? (
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setShowEdit(true)}>
-              Edit account
+          relatedLinks={[
+            { id: "contacts", label: "Contacts" },
+            { id: "deals", label: "Deals" },
+            ...(canViewProjects ? [{ id: "projects", label: "Projects" }] : []),
+            ...(canViewInvoices ? [{ id: "invoices", label: "Invoices" }] : []),
+            ...(canViewContracts ? [{ id: "contracts", label: "Contracts" }] : []),
+            ...DEFAULT_RELATED_LINKS,
+          ]}
+          primaryAction={
+            selected.email ? (
+              <a className="btn btn-primary btn-sm" href={`mailto:${selected.email}`}>
+                Send Email
+              </a>
+            ) : (
+              <button type="button" className="btn btn-primary btn-sm" disabled>
+                Send Email
+              </button>
+            )
+          }
+          secondaryActions={
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              disabled={!canUpdate}
+              onClick={() => setShowEdit(true)}
+            >
+              Edit
             </button>
-          ) : null}
+          }
           tabs={[
             {
               id: "overview",
               label: "Overview",
               content: (
                 <>
-                  <p className="small mb-3">Email: {selected.email ?? "—"}</p>
-                  <p className="small mb-0">Phone: {selected.phone ?? "—"}</p>
-                </>
-              ),
-            },
-            {
-              id: "related",
-              label: "Related",
-              content: (
-                <>
-                  {(relatedListsQuery.data ?? []).map((rl) => {
-                    if (rl.childTableCode === "contact") {
-                      return (
-                        <div key={rl.id} className="mb-3">
-                          <h2 className="h6">{rl.label}</h2>
-                          <ul className="small mb-0">
-                            {(contactsQuery.data ?? []).map((c) => (
-                              <li key={c.id}>
-                                {rl.columns?.length
-                                  ? rl.columns
-                                      .map((col) => String((c as unknown as Record<string, unknown>)[col.field] ?? ""))
-                                      .filter(Boolean)
-                                      .join(" · ")
-                                  : `${c.firstName} ${c.lastName}`}
-                              </li>
-                            ))}
-                            {!contactsQuery.data?.length ? (
-                              <li className="text-muted">No linked contacts</li>
-                            ) : null}
-                          </ul>
-                        </div>
-                      );
-                    }
-                    if (rl.childTableCode === "deal") {
-                      return (
-                        <div key={rl.id} className="mb-3">
-                          <h2 className="h6">{rl.label}</h2>
-                          <ul className="small mb-0">
-                            {(dealsQuery.data ?? []).map((d) => (
-                              <li key={d.id}>
-                                {d.name} — <StatusBadge status={d.stage} />
-                              </li>
-                            ))}
-                            {!dealsQuery.data?.length ? (
-                              <li className="text-muted">No linked deals</li>
-                            ) : null}
-                          </ul>
-                        </div>
-                      );
-                    }
-                    if (rl.childTableCode === "activity" && canViewActivities) {
-                      return (
-                        <div key={rl.id} className="mb-3">
-                          <h2 className="h6">{rl.label}</h2>
-                          <ul className="small mb-0">
-                            {(activitiesQuery.data ?? []).map((a) => (
-                              <li key={a.id}>
-                                {a.subject} — <StatusBadge status={a.status} />
-                              </li>
-                            ))}
-                            {!activitiesQuery.data?.length ? (
-                              <li className="text-muted">No activities</li>
-                            ) : null}
-                          </ul>
-                        </div>
-                      );
-                    }
-                    if (rl.childTableCode === "project" && canViewProjects) {
-                      return (
-                        <div key={rl.id} className="mb-3">
-                          <h2 className="h6">{rl.label}</h2>
-                          <ul className="small mb-0">
-                            {(projectsQuery.data ?? []).map((p) => (
-                              <li key={p.id}>
-                                {p.name} — <StatusBadge status={p.status} />
-                                {p.health ? (
-                                  <>
-                                    {" "}
-                                    · <StatusBadge status={p.health} />
-                                  </>
-                                ) : null}
-                              </li>
-                            ))}
-                            {!projectsQuery.data?.length ? (
-                              <li className="text-muted">No linked projects</li>
-                            ) : null}
-                          </ul>
-                        </div>
-                      );
-                    }
-                    if (rl.childTableCode === "document" && canViewDocs) {
-                      return (
-                        <div key={rl.id} className="mb-3">
-                          <h2 className="h6">{rl.label}</h2>
-                          <ul className="small mb-0">
-                            {(docsQuery.data ?? []).map((d) => (
-                              <li key={d.id}>
-                                {d.fileName}
-                                {d.visibility ? ` — ${d.visibility}` : ""}
-                              </li>
-                            ))}
-                            {!docsQuery.data?.length ? (
-                              <li className="text-muted">No documents</li>
-                            ) : null}
-                          </ul>
-                        </div>
-                      );
-                    }
-                    if (rl.childTableCode === "note" && canViewNotes) {
-                      return (
-                        <div key={rl.id} className="mb-3">
-                          <h2 className="h6">{rl.label}</h2>
-                          <ul className="small mb-0">
-                            {(notesQuery.data ?? []).map((n) => (
-                              <li key={n.id}>{n.body}</li>
-                            ))}
-                            {!notesQuery.data?.length ? (
-                              <li className="text-muted">No notes</li>
-                            ) : null}
-                          </ul>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })}
-                  {!relatedListsQuery.data?.length ? (
-                    <p className="text-muted small mb-0">No related lists configured.</p>
+                  <TechEarnestRecordSummaryStrip
+                    fields={[
+                      { label: "Account Owner", value: userLabel(selected.ownerId) },
+                      { label: "Email", value: selected.email ?? "—" },
+                      { label: "Phone", value: selected.phone ?? "—" },
+                      { label: "Account Type", value: selected.accountType },
+                      { label: "Status", value: <StatusBadge status={selected.status} /> },
+                    ]}
+                  />
+
+                  <TechEarnestRecordInfoSection
+                    title="Account Information"
+                    fields={[
+                      { label: "Account Owner", value: userLabel(selected.ownerId) },
+                      { label: "Account Name", value: selected.name },
+                      { label: "Account Type", value: selected.accountType },
+                      { label: "Industry", value: selected.industry ?? "—" },
+                      {
+                        label: "Website",
+                        value: selected.website ? (
+                          <a
+                            href={/^https?:\/\//i.test(selected.website) ? selected.website : `https://${selected.website}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {selected.website}
+                          </a>
+                        ) : (
+                          "—"
+                        ),
+                      },
+                      { label: "Email", value: selected.email ?? "—" },
+                      { label: "Phone", value: selected.phone ?? "—" },
+                      { label: "Tax Number", value: selected.taxNumber ?? "—" },
+                      { label: "Region", value: regionName(selected.regionId) },
+                      { label: "Status", value: selected.status },
+                      { label: "Created", value: new Date(selected.createdAt).toLocaleString() },
+                      { label: "Modified", value: new Date(selected.updatedAt).toLocaleString() },
+                    ]}
+                  />
+
+                  {selected.billingAddress || selected.shippingAddress ? (
+                    <TechEarnestRecordInfoSection
+                      title="Address Information"
+                      collapsible={false}
+                      fields={[
+                        { label: "Billing Address", value: selected.billingAddress ?? "—" },
+                        { label: "Shipping Address", value: selected.shippingAddress ?? "—" },
+                      ]}
+                    />
                   ) : null}
+
+                  {selected.description ? (
+                    <TechEarnestRecordInfoSection
+                      title="Description Information"
+                      collapsible={false}
+                      fields={[{ label: "Description", value: selected.description }]}
+                    />
+                  ) : null}
+
+                  <TechEarnestRecordRelatedCard
+                    id="techearnest-record-section-contacts"
+                    title="Contacts"
+                    isEmpty={!contactsQuery.isLoading && !(contactsQuery.data ?? []).length}
+                    emptyLabel="No records found"
+                  >
+                    <RelatedRecordList
+                      module="contact"
+                      loading={contactsQuery.isLoading}
+                      loadingLabel="Loading contacts…"
+                      items={(contactsQuery.data ?? []).map((contact) => ({
+                        id: contact.id,
+                        label: `${contact.firstName} ${contact.lastName}`.trim(),
+                        secondary: contact.designation,
+                        trailing: contact.email ?? contact.phone ?? undefined,
+                      }))}
+                    />
+                  </TechEarnestRecordRelatedCard>
+
+                  <TechEarnestRecordRelatedCard
+                    id="techearnest-record-section-deals"
+                    title="Deals"
+                    isEmpty={!dealsQuery.isLoading && !(dealsQuery.data ?? []).length}
+                    emptyLabel="No records found"
+                  >
+                    <RelatedRecordList
+                      module="deal"
+                      loading={dealsQuery.isLoading}
+                      items={(dealsQuery.data ?? []).map((deal) => ({
+                        id: deal.id,
+                        label: deal.name,
+                        secondary: deal.value != null ? deal.value.toLocaleString() : undefined,
+                        trailing: <StatusBadge status={deal.stage} />,
+                      }))}
+                    />
+                  </TechEarnestRecordRelatedCard>
+
+                  {canViewProjects ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-projects"
+                      title="Projects"
+                      isEmpty={!projectsQuery.isLoading && !(projectsQuery.data ?? []).length}
+                      emptyLabel="No records found"
+                    >
+                      <RelatedRecordList
+                        module="project"
+                        loading={projectsQuery.isLoading}
+                        items={(projectsQuery.data ?? []).map((project) => ({
+                          id: project.id,
+                          label: project.name,
+                          secondary: project.projectCode,
+                          trailing: (
+                            <>
+                              <StatusBadge status={project.status} />
+                              {project.health ? <StatusBadge status={project.health} /> : null}
+                            </>
+                          ),
+                        }))}
+                      />
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  {canViewInvoices ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-invoices"
+                      title="Invoices"
+                      isEmpty={!invoicesQuery.isLoading && !(invoicesQuery.data ?? []).length}
+                      emptyLabel="No records found"
+                    >
+                      <RelatedRecordList
+                        module="invoice"
+                        loading={invoicesQuery.isLoading}
+                        items={(invoicesQuery.data ?? []).map((invoice) => ({
+                          id: invoice.id,
+                          label: invoice.invoiceNumber ?? "Draft invoice",
+                          secondary: `${invoice.currencyCode} ${invoice.total.toLocaleString()}`,
+                          trailing: <StatusBadge status={invoice.status} />,
+                        }))}
+                      />
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  {canViewContracts ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-contracts"
+                      title="Contracts"
+                      isEmpty={!contractsQuery.isLoading && !(contractsQuery.data ?? []).length}
+                      emptyLabel="No records found"
+                    >
+                      <RelatedRecordList
+                        module="contract"
+                        loading={contractsQuery.isLoading}
+                        items={(contractsQuery.data ?? []).map((contract) => ({
+                          id: contract.id,
+                          label: contract.name,
+                          secondary: contract.contractNumber,
+                          trailing: <StatusBadge status={contract.status} />,
+                        }))}
+                      />
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  {canViewNotes ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-notes"
+                      title="Notes"
+                      isEmpty={!(notesQuery.data ?? []).length && !canCreateNotes}
+                      emptyLabel="No notes yet"
+                      actions={
+                        canCreateNotes ? (
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary btn-sm"
+                            disabled={!noteBody.trim() || noteMutation.isPending}
+                            onClick={() => noteMutation.mutate()}
+                          >
+                            Save
+                          </button>
+                        ) : null
+                      }
+                    >
+                      {canCreateNotes ? (
+                        <textarea
+                          className="form-control form-control-sm mb-2"
+                          rows={2}
+                          value={noteBody}
+                          onChange={(e) => setNoteBody(e.target.value)}
+                          placeholder="Add a note"
+                        />
+                      ) : null}
+                      <ul className="list-unstyled small mb-0">
+                        {(notesQuery.data ?? []).map((note) => (
+                          <li key={note.id} className="mb-2 border-bottom pb-2">
+                            <div>{note.body}</div>
+                            <div className="text-muted d-flex justify-content-between">
+                              <span>{new Date(note.createdAt).toLocaleString()}</span>
+                              {canDeleteNotes ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-link btn-sm p-0"
+                                  onClick={() => deleteNoteMutation.mutate(note.id)}
+                                >
+                                  Delete
+                                </button>
+                              ) : null}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  {canViewDocs ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-attachments"
+                      title="Attachments"
+                      isEmpty={!(docsQuery.data ?? []).length}
+                      emptyLabel="No Attachment"
+                      actions={
+                        canUploadDocs ? (
+                          <label className="btn btn-outline-secondary btn-sm mb-0">
+                            Attach
+                            <input
+                              type="file"
+                              className="d-none"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  uploadMutation.mutate(file);
+                                  e.target.value = "";
+                                }
+                              }}
+                            />
+                          </label>
+                        ) : null
+                      }
+                    >
+                      <ul className="list-unstyled small mb-0">
+                        {(docsQuery.data ?? []).map((doc) => (
+                          <li key={doc.id} className="mb-2 d-flex justify-content-between gap-2">
+                            <button
+                              type="button"
+                              className="btn btn-link btn-sm p-0 text-start"
+                              onClick={() => void openDownload(doc.id, doc.fileName)}
+                            >
+                              {doc.fileName}
+                            </button>
+                            {canDeleteDocs ? (
+                              <button
+                                type="button"
+                                className="btn btn-link btn-sm p-0 text-danger"
+                                onClick={() => deleteDocMutation.mutate(doc.id)}
+                              >
+                                Delete
+                              </button>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-emails" title="Emails" isEmpty emptyLabel="No records found" />
+                  {canViewActivities ? (
+                    <>
+                      <TechEarnestRecordRelatedCard
+                        id="techearnest-record-section-open-activities"
+                        title="Open Activities"
+                        isEmpty={!openActivities.length}
+                        emptyLabel="No records found"
+                      >
+                        <RelatedRecordList
+                          module="activity"
+                          items={openActivities.map((activity) => ({
+                            id: activity.id,
+                            label: activity.subject,
+                            trailing: <StatusBadge status={activity.status} />,
+                          }))}
+                        />
+                      </TechEarnestRecordRelatedCard>
+                      <TechEarnestRecordRelatedCard
+                        id="techearnest-record-section-closed-activities"
+                        title="Closed Activities"
+                        isEmpty={!closedActivities.length}
+                        emptyLabel="No records found"
+                      >
+                        <RelatedRecordList
+                          module="activity"
+                          items={closedActivities.map((activity) => ({
+                            id: activity.id,
+                            label: activity.subject,
+                            trailing: <StatusBadge status={activity.status} />,
+                          }))}
+                        />
+                      </TechEarnestRecordRelatedCard>
+                    </>
+                  ) : null}
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-meetings" title="Invited Meetings" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-social" title="Social" isEmpty emptyLabel="No records found" />
                 </>
               ),
             },
             {
               id: "timeline",
               label: "Timeline",
-              visible: canViewActivities || canViewAudit,
-              content: <TechEarnestRecordTimeline entries={timelineEntries} />,
-            },
-            {
-              id: "notes",
-              label: "Notes",
-              visible: canViewNotes,
+              visible: true,
               content: (
-                <ul className="small mb-0">
-                  {(notesQuery.data ?? []).map((n) => (
-                    <li key={n.id}>{n.body}</li>
-                  ))}
-                  {!notesQuery.data?.length ? <li className="text-muted">No notes</li> : null}
-                </ul>
-              ),
-            },
-            {
-              id: "documents",
-              label: "Documents",
-              visible: canViewDocs,
-              content: (
-                <ul className="small mb-0">
-                  {(docsQuery.data ?? []).map((d) => (
-                    <li key={d.id}>{d.fileName}</li>
-                  ))}
-                  {!docsQuery.data?.length ? <li className="text-muted">No documents</li> : null}
-                </ul>
-              ),
-            },
-            {
-              id: "audit",
-              label: "Audit",
-              visible: canViewAudit,
-              content: (
-                <ul className="small mb-0">
-                  {(auditQuery.data ?? []).map((log) => (
-                    <li key={log.id}>
-                      {log.action} · {new Date(log.createdAt).toLocaleString()}
-                    </li>
-                  ))}
-                  {!auditQuery.data?.length ? <li className="text-muted">No audit events</li> : null}
-                </ul>
+                <TechEarnestRecordTimeline
+                  entries={timelineEntries}
+                  loading={auditQuery.isLoading || activitiesQuery.isLoading || notesQuery.isLoading}
+                />
               ),
             },
           ]}
@@ -442,13 +690,15 @@ export function AccountsPage() {
               options={typeFilterOptions}
               searchPlaceholder="Search Types"
             />
-            <label className="form-label small mb-1">Industry</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              value={industryFilter}
-              onChange={(e) => setIndustryFilter(e.target.value)}
-              placeholder="e.g. Technology"
-            />
+            <ModuleFilterField label="Industry" htmlFor="accountIndustryFilter">
+              <input
+                id="accountIndustryFilter"
+                className="form-control form-control-sm"
+                value={industryFilter}
+                onChange={(e) => setIndustryFilter(e.target.value)}
+                placeholder="e.g. Technology"
+              />
+            </ModuleFilterField>
             <TechEarnestFilterSelect
               label="Region"
               value={regionFilter}
@@ -459,6 +709,15 @@ export function AccountsPage() {
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+        setTypeFilter("");
+        setIndustryFilter("");
+        setRegionFilter("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {accountsQuery.isLoading ? <LoadingState label="Loading accounts..." /> : null}

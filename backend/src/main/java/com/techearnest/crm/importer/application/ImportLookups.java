@@ -59,6 +59,39 @@ public class ImportLookups {
                 "select u.id from User u where u.organizationId = :org and u.deletedAt is null and lower(u.email) = :v");
     }
 
+    /** Matches a resource by employee code, its own email, or the email of its linked login. */
+    public UUID resource(String codeOrEmail) {
+        return resolve("Resource", codeOrEmail,
+                "select r.id from Resource r where r.organizationId = :org and r.deletedAt is null"
+                        + " and (lower(r.employeeCode) = :v or lower(r.email) = :v or r.userId in"
+                        + " (select u.id from User u where u.organizationId = :org and lower(u.email) = :v))");
+    }
+
+    public UUID task(UUID projectId, String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        String key = "Task|" + projectId + "|" + name.trim().toLowerCase(Locale.ROOT);
+        if (cache.containsKey(key)) {
+            return cache.get(key);
+        }
+        List<UUID> ids = entityManager.createQuery(
+                        "select t.id from ProjectTask t where t.organizationId = :org and t.projectId = :project"
+                                + " and t.deletedAt is null and lower(t.name) = :v", UUID.class)
+                .setParameter("org", organizationId)
+                .setParameter("project", projectId)
+                .setParameter("v", name.trim().toLowerCase(Locale.ROOT))
+                .setMaxResults(2)
+                .getResultList();
+        if (ids.size() != 1) {
+            throw new RowRejected(ids.isEmpty()
+                    ? "Task '" + name.trim() + "' was not found in this project"
+                    : "More than one task in this project is named '" + name.trim() + "'");
+        }
+        cache.put(key, ids.get(0));
+        return ids.get(0);
+    }
+
     public UUID taxRate(String codeOrName) {
         return resolve("Tax rate", codeOrName,
                 "select t.id from TaxRate t where t.organizationId = :org and t.deletedAt is null"

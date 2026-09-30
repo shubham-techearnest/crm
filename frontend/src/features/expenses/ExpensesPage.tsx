@@ -3,18 +3,20 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFilterSelect,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   useTechEarnestCreateFlow,
 } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterDateRange, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import { useRecordNavigation } from "@/components/TechEarnestRecord";
@@ -25,6 +27,8 @@ import { listRegions } from "@/features/admin/adminApi";
 import { listProjects } from "@/features/projects/projectApi";
 import { listResources } from "@/features/resources/resourceApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useUrlRecordId } from "@/hooks/useUrlRecord";
+import { RecordLink } from "@/components/RecordLink";
 import {
   approveExpense,
   createExpense,
@@ -86,7 +90,7 @@ export function ExpensesPage() {
   const [billableFilter, setBillableFilter] = useState<"" | "true" | "false">("");
   const [expenseFrom, setExpenseFrom] = useState("");
   const [expenseTo, setExpenseTo] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useUrlRecordId();
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -165,7 +169,7 @@ export function ExpensesPage() {
     defaultValues: DEFAULTS,
   });
 
-  const { photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
+  const { setSaveAndNew, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: DEFAULTS,
     reset,
     setShowForm,
@@ -307,6 +311,17 @@ export function ExpensesPage() {
     expenseFrom,
     expenseTo,
   ].filter(Boolean).length;
+  const clearFilters = () => {
+    setSearch("");
+    setStatusFilter("");
+    setProjectFilter("");
+    setResourceFilter("");
+    setRegionFilter("");
+    setCategoryFilter("");
+    setBillableFilter("");
+    setExpenseFrom("");
+    setExpenseTo("");
+  };
 
   return (
     <>
@@ -326,82 +341,90 @@ export function ExpensesPage() {
             } else cancelCreate(isDirty);
           }}
           onSave={() => void handleSubmit(editingExpenseId ? onUpdateSubmit : onCreateSubmit)()}
+          onSaveAndNew={!editingExpenseId ? () => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          } : undefined}
           onSubmit={() => void handleSubmit(editingExpenseId ? onUpdateSubmit : onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
-          <FormSection title="Expense" description="Employee or project cost with category and billable flag">
-            <div className="col-md-3">
-              <label className={`form-label${editingExpenseId ? "" : " required"}`}>Region</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="regionId"
-                options={regionOptions}
-                searchPlaceholder="Search Regions"
-                allowEmpty={false}
-                placeholder="Select"
-                invalid={!!errors.regionId}
-                disabled={!!editingExpenseId}
-              />
-              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-            </div>
-            <div className="col-md-2">
-              <label className="form-label required">Category</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="category"
-                options={categoryOptions}
-                searchPlaceholder="Search Categories"
-                allowEmpty={false}
-                invalid={!!errors.category}
-              />
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="Expense date"
-                type="date"
-                required
-                error={errors.expenseDate}
-                {...register("expenseDate")}
-              />
-            </div>
-            <div className="col-md-2">
-              <FormField label="Amount" type="number" required error={errors.amount} {...register("amount")} />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Employee</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="resourceId"
-                options={resourceOptions}
-                searchPlaceholder="Search Employees"
-                lookupIcon="users"
-                placeholder="Self / default"
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Project</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="projectId"
-                options={projectOptions}
-                searchPlaceholder="Search Projects"
-                lookupIcon="apps"
-                placeholder="Optional"
-              />
-            </div>
-            <div className="col-md-4">
-              <FormField label="Description" {...register("description")} />
-            </div>
-            <div className="col-md-4">
-              <FormField label="Notes" {...register("notes")} />
-            </div>
-            <div className="col-md-2 form-check mt-4">
-              <input className="form-check-input" type="checkbox" id="expBillable" {...register("billable")} />
-              <label className="form-check-label" htmlFor="expBillable">
-                Billable
-              </label>
-            </div>
-          </FormSection>
+          <TechEarnestCreateSection title="Expense Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Region" required={!editingExpenseId} error={errors.regionId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="regionId"
+                    options={regionOptions}
+                    searchPlaceholder="Search Regions"
+                    allowEmpty={false}
+                    placeholder="Select region"
+                    invalid={!!errors.regionId}
+                    disabled={!!editingExpenseId}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Employee" error={errors.resourceId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="resourceId"
+                    options={resourceOptions}
+                    searchPlaceholder="Search Employees"
+                    lookupIcon="users"
+                    placeholder="Self / default"
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Project" error={errors.projectId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="projectId"
+                    options={projectOptions}
+                    searchPlaceholder="Search Projects"
+                    lookupIcon="apps"
+                    placeholder="Optional"
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Category" required error={errors.category?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="category"
+                    options={categoryOptions}
+                    searchPlaceholder="Search Categories"
+                    allowEmpty={false}
+                    invalid={!!errors.category}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Expense Date" required error={errors.expenseDate?.message}>
+                  <input
+                    type="date"
+                    className={`form-control form-control-sm${errors.expenseDate ? " is-invalid" : ""}`}
+                    {...register("expenseDate")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Amount" required error={errors.amount?.message}>
+                  <input
+                    type="number"
+                    className={`form-control form-control-sm${errors.amount ? " is-invalid" : ""}`}
+                    {...register("amount")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Billable">
+                  <div className="form-check techearnest-checkbox-field">
+                    <input type="checkbox" className="form-check-input" id="expBillable" {...register("billable")} />
+                  </div>
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Description Information">
+            <TechEarnestCreateField label="Description" wide error={errors.description?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...register("description")} />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Notes" wide error={errors.notes?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...register("notes")} />
+            </TechEarnestCreateField>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : selectedId ? (
         detailQuery.isLoading ? (
@@ -464,8 +487,26 @@ export function ExpensesPage() {
                 content: (
                   <>
                     {actionError ? <div className="alert alert-danger py-2 small">{actionError}</div> : null}
-                    <p className="small mb-1">Employee: {resourceLabel(selected.resourceId)}</p>
-                    <p className="small mb-1">Project: {projectName(selected.projectId)}</p>
+                    <p className="small mb-1">
+                      Employee:{" "}
+                      <RecordLink module="resource" id={selected.resourceId}>
+                        {resourceLabel(selected.resourceId)}
+                      </RecordLink>
+                    </p>
+                    <p className="small mb-1">
+                      Project:{" "}
+                      <RecordLink module="project" id={selected.projectId}>
+                        {projectName(selected.projectId)}
+                      </RecordLink>
+                    </p>
+                    {selected.purchaseOrderId ? (
+                      <p className="small mb-1">
+                        Purchase order:{" "}
+                        <RecordLink module="purchaseOrder" id={selected.purchaseOrderId}>
+                          Open purchase order
+                        </RecordLink>
+                      </p>
+                    ) : null}
                     <p className="small mb-1">{selected.description ?? "No description"}</p>
                     <p className="small mb-3">{selected.notes ?? "No notes"}</p>
                     {selected.status === "REJECTED" && selected.rejectionReason ? (
@@ -534,41 +575,26 @@ export function ExpensesPage() {
             />
           </div>
           <div className="module-filter-section">
+            <h3>Filter by fields</h3>
             <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={expenseStatusFilterOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search expense statuses" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Category" value={categoryFilter} onChange={setCategoryFilter} options={categoryOptions} placeholder="All categories" emptyLabel="All categories" searchPlaceholder="Search categories" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Employee" value={resourceFilter} onChange={setResourceFilter} options={resourceOptions} placeholder="All employees" emptyLabel="All employees" searchPlaceholder="Search employees" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Region" value={regionFilter} onChange={setRegionFilter} options={regionOptions} placeholder="All regions" emptyLabel="All regions" searchPlaceholder="Search regions" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Billable" value={billableFilter} onChange={(value) => setBillableFilter(value as "" | "true" | "false")} options={billableFilterOptions} placeholder="All" emptyLabel="All" searchPlaceholder="Search options" />
-          </div>
-          <div className="module-filter-section">
-            <h3>Expense from</h3>
-            <input
-              className="form-control form-control-sm"
-              type="date"
-              value={expenseFrom}
-              onChange={(e) => setExpenseFrom(e.target.value)}
-            />
-            <h3 className="mt-2">Expense to</h3>
-            <input
-              className="form-control form-control-sm"
-              type="date"
-              value={expenseTo}
-              onChange={(e) => setExpenseTo(e.target.value)}
+            <ModuleFilterDateRange
+              label="Expense date"
+              from={expenseFrom}
+              to={expenseTo}
+              onFromChange={setExpenseFrom}
+              onToChange={setExpenseTo}
             />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={clearFilters}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {expensesQuery.isLoading ? <LoadingState label="Loading expenses..." /> : null}
@@ -595,8 +621,18 @@ export function ExpensesPage() {
             setRejectReason("");
           }}
           renderCell={(expense, field) => {
-            if (field === "resourceId") return resourceLabel(expense.resourceId);
-            if (field === "projectId") return projectName(expense.projectId);
+            if (field === "resourceId")
+              return (
+                <RecordLink module="resource" id={expense.resourceId}>
+                  {resourceLabel(expense.resourceId)}
+                </RecordLink>
+              );
+            if (field === "projectId")
+              return (
+                <RecordLink module="project" id={expense.projectId}>
+                  {projectName(expense.projectId)}
+                </RecordLink>
+              );
             if (field === "status") return <StatusBadge status={expense.status} />;
             if (field === "amount") return `${expense.currencyCode} ${expense.amount}`;
             if (field === "billable") return expense.billable ? "Yes" : "No";

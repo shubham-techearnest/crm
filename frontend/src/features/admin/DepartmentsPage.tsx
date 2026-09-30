@@ -3,9 +3,14 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormSection } from "@/components/FormKit";
-import { TechEarnestFormKitCreateView, useTechEarnestCreateFlow } from "@/components/TechEarnestCreate";
+import {
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
+  TechEarnestFormKitCreateView,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
@@ -46,7 +51,6 @@ export function DepartmentsPage() {
 
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow({
@@ -85,11 +89,19 @@ export function DepartmentsPage() {
   }, [departmentsQuery.data, search, statusFilter]);
 
   const departmentFormFields = (
-    <FormSection title="Primary details" description="Department name">
-      <div className="col-md-6">
-        <FormField label="Name" required error={errors.name} {...register("name")} />
-      </div>
-    </FormSection>
+    <TechEarnestCreateSection title="Department Information">
+      <TechEarnestCreateGrid>
+        <TechEarnestCreateColumn>
+          <TechEarnestCreateField label="Department Name" required error={errors.name?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
+              {...register("name")}
+            />
+          </TechEarnestCreateField>
+        </TechEarnestCreateColumn>
+      </TechEarnestCreateGrid>
+    </TechEarnestCreateSection>
   );
 
   return (
@@ -108,7 +120,7 @@ export function DepartmentsPage() {
             void handleSubmit(onCreateSubmit)();
           }}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
           {departmentFormFields}
         </TechEarnestFormKitCreateView>
@@ -152,6 +164,12 @@ export function DepartmentsPage() {
           </div>
         </>
       }
+      activeFilterCount={[search.trim(), statusFilter].filter(Boolean).length}
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {departmentsQuery.isLoading ? <LoadingState label="Loading departments..." /> : null}

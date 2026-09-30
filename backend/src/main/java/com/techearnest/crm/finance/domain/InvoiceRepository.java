@@ -44,6 +44,25 @@ public interface InvoiceRepository extends JpaRepository<Invoice, UUID>, JpaSpec
             @Param("overdueOnly") boolean overdueOnly,
             Pageable pageable);
 
+    @Query(
+            """
+            select count(i) > 0 from Invoice i
+            where i.projectId = :projectId
+              and i.deletedAt is null
+              and i.status <> 'VOID'
+              and i.billingPeriodStart = :periodStart
+            """)
+    boolean existsBilledPeriod(@Param("projectId") UUID projectId, @Param("periodStart") java.time.LocalDate periodStart);
+
+    @Query(
+            """
+            select coalesce(sum(i.subtotal), 0) from Invoice i
+            where i.projectId = :projectId
+              and i.deletedAt is null
+              and i.status <> 'VOID'
+            """)
+    java.math.BigDecimal sumBilledSubtotal(@Param("projectId") UUID projectId);
+
     default Page<Invoice> searchWithFilter(
             UUID organizationId,
             String search,

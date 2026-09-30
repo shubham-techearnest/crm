@@ -6,7 +6,15 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell, ModuleMenuDropdown } from "@/components/ModuleListShell/ModuleListShell";
+import { RecordLink, RelatedRecordList } from "@/components/RecordLink";
+import { useUrlSelection } from "@/hooks/useUrlRecord";
+import {
+  ModuleFilterCheckbox,
+  ModuleFilterDateRange,
+  ModuleFilterField,
+  ModuleListShell,
+  ModuleMenuDropdown,
+} from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import type { ModuleMenuItem } from "@/components/ModuleListShell/ModuleListShell";
@@ -38,6 +46,8 @@ import {
   convertLead,
   deleteLead,
   exportLeads,
+  getContact,
+  getDeal,
   getLead,
   listAccounts,
   listActivities,
@@ -98,9 +108,10 @@ export function LeadsPage() {
   const canPublishViews = useHasPermission("ORG_UPDATE");
   const canViewAudit = useHasPermission("AUDIT_VIEW");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
+  const canViewContacts = useHasPermission("CONTACT_VIEW");
+  const canViewDeals = useHasPermission("DEAL_VIEW");
   const [showForm, setShowForm] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
-  const [selected, setSelected] = useState<Lead | null>(null);
   const [showConvert, setShowConvert] = useState(false);
   const [assignOwnerId, setAssignOwnerId] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
@@ -121,24 +132,6 @@ export function LeadsPage() {
   const [noteBody, setNoteBody] = useState("");
   const [viewName, setViewName] = useState("");
   const [viewVisibility, setViewVisibility] = useState<"PRIVATE" | "SHARED" | "PUBLIC">("PRIVATE");
-  useEffect(() => {
-    if (searchParams.get("create") === "1" && canCreate) {
-      setSelected(null);
-      setShowEdit(false);
-      setShowForm(true);
-    }
-  }, [searchParams, canCreate]);
-  const [activeViewId, setActiveViewId] = useState("");
-  const [filterOpen, setFilterOpen] = useState(true);
-  const [viewMode, setViewMode] = useState<"list" | "tile">("list");
-  const [checkedIds, setCheckedIds] = useState<string[]>([]);
-  const [bulkOwnerId, setBulkOwnerId] = useState("");
-  const [bulkStatus, setBulkStatus] = useState("");
-  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
-  const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
-  const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
-  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const useAdvancedQuery = needsLeadQuery({
     ownerId: ownerFilter,
@@ -198,6 +191,27 @@ export function LeadsPage() {
     queryKey: ["crm", "leads", useAdvancedQuery ? "query" : "list", useAdvancedQuery ? queryBody : listParams],
     queryFn: () => (useAdvancedQuery ? queryLeads(queryBody) : listLeads(listParams)),
   });
+  const [selected, setSelected] = useUrlSelection(leadsQuery.data, { fetchById: getLead });
+
+  useEffect(() => {
+    if (searchParams.get("create") === "1" && canCreate) {
+      setSelected(null);
+      setShowEdit(false);
+      setShowForm(true);
+    }
+  }, [searchParams, canCreate]);
+  const [activeViewId, setActiveViewId] = useState("");
+  const [filterOpen, setFilterOpen] = useState(true);
+  const [viewMode, setViewMode] = useState<"list" | "tile">("list");
+  const [checkedIds, setCheckedIds] = useState<string[]>([]);
+  const [bulkOwnerId, setBulkOwnerId] = useState("");
+  const [bulkStatus, setBulkStatus] = useState("");
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
+  const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
+  const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
+  const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const leadRecordQuery = useQuery({
     queryKey: ["crm", "leads", "record", selected?.id],
     queryFn: () => getLead(selected!.id),
@@ -227,7 +241,17 @@ export function LeadsPage() {
   const accountsQuery = useQuery({
     queryKey: ["crm", "accounts"],
     queryFn: () => listAccounts(),
-    enabled: showConvert,
+    enabled: showConvert || !!selected?.convertedAccountId,
+  });
+  const convertedContactQuery = useQuery({
+    queryKey: ["crm", "contacts", "record", selected?.convertedContactId],
+    queryFn: () => getContact(selected!.convertedContactId!),
+    enabled: !!selected?.convertedContactId && canViewContacts,
+  });
+  const convertedDealQuery = useQuery({
+    queryKey: ["crm", "deals", "record", selected?.convertedDealId],
+    queryFn: () => getDeal(selected!.convertedDealId!),
+    enabled: !!selected?.convertedDealId && canViewDeals,
   });
   const viewsQuery = useQuery({
     queryKey: ["crm", "saved-views", "LEAD"],
@@ -249,6 +273,14 @@ export function LeadsPage() {
     queryFn: () => listActivities({ relatedEntityType: "LEAD", relatedEntityId: selected!.id }),
     enabled: !!selected && canViewActivities,
   });
+  const openActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status !== "COMPLETED"),
+    [activitiesQuery.data],
+  );
+  const closedActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status === "COMPLETED"),
+    [activitiesQuery.data],
+  );
   const auditQuery = useQuery({
     queryKey: ["admin", "audit-logs", "LEAD", (selected as Lead | null)?.id],
     queryFn: () => listAuditLogs({ entityType: "LEAD", entityId: selected!.id, size: 50 }),
@@ -316,7 +348,6 @@ export function LeadsPage() {
     onSuccess: async () => {
       await refresh();
       setShowConvert(false);
-      setSelected(null);
       setConvertError(null);
       convertForm.reset({
         createAccount: true,
@@ -704,7 +735,11 @@ export function LeadsPage() {
           onNext={recordNav.goNext}
           hasPrev={recordNav.hasPrev}
           hasNext={recordNav.hasNext}
-          relatedLinks={[...DEFAULT_RELATED_LINKS]}
+          relatedLinks={
+            selected.convertedAccountId || selected.convertedContactId || selected.convertedDealId
+              ? [{ id: "converted", label: "Converted Records" }, ...DEFAULT_RELATED_LINKS]
+              : [...DEFAULT_RELATED_LINKS]
+          }
           primaryAction={
             selected.email ? (
               <a className="btn btn-primary btn-sm" href={`mailto:${selected.email}`}>
@@ -933,11 +968,42 @@ export function LeadsPage() {
                     </form>
                   ) : null}
 
-                  {selected.status === "CONVERTED" ? (
-                    <p className="small text-muted mb-3">
-                      Converted — account {selected.convertedAccountId?.slice(0, 8) ?? "—"}, deal{" "}
-                      {selected.convertedDealId?.slice(0, 8) ?? "—"}
-                    </p>
+                  {selected.convertedAccountId || selected.convertedContactId || selected.convertedDealId ? (
+                    <TechEarnestRecordRelatedCard id="techearnest-record-section-converted" title="Converted Records">
+                      <ul className="related-record-list">
+                        {selected.convertedAccountId ? (
+                          <li>
+                            <span className="related-record-secondary">Account</span>
+                            <RecordLink module="account" id={selected.convertedAccountId}>
+                              {accountsQuery.data?.find((a) => a.id === selected.convertedAccountId)?.name ?? "Open account"}
+                            </RecordLink>
+                          </li>
+                        ) : null}
+                        {selected.convertedContactId ? (
+                          <li>
+                            <span className="related-record-secondary">Contact</span>
+                            <RecordLink module="contact" id={selected.convertedContactId}>
+                              {convertedContactQuery.data
+                                ? `${convertedContactQuery.data.firstName} ${convertedContactQuery.data.lastName}`.trim()
+                                : "Open contact"}
+                            </RecordLink>
+                          </li>
+                        ) : null}
+                        {selected.convertedDealId ? (
+                          <li>
+                            <span className="related-record-secondary">Deal</span>
+                            <RecordLink module="deal" id={selected.convertedDealId}>
+                              {convertedDealQuery.data?.name ?? "Open deal"}
+                            </RecordLink>
+                          </li>
+                        ) : null}
+                      </ul>
+                      {selected.convertedAt ? (
+                        <div className="small text-muted mt-2">
+                          Converted {new Date(selected.convertedAt).toLocaleString()}
+                        </div>
+                      ) : null}
+                    </TechEarnestRecordRelatedCard>
                   ) : null}
 
                   <TechEarnestRecordRelatedCard
@@ -1022,8 +1088,38 @@ export function LeadsPage() {
                   ) : null}
 
                   <TechEarnestRecordRelatedCard id="techearnest-record-section-emails" title="Emails" isEmpty emptyLabel="No records found" />
-                  <TechEarnestRecordRelatedCard id="techearnest-record-section-open-activities" title="Open Activities" isEmpty emptyLabel="No records found" />
-                  <TechEarnestRecordRelatedCard id="techearnest-record-section-closed-activities" title="Closed Activities" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard
+                    id="techearnest-record-section-open-activities"
+                    title="Open Activities"
+                    isEmpty={!openActivities.length && !activitiesQuery.isLoading}
+                    emptyLabel="No records found"
+                  >
+                    <RelatedRecordList
+                      module="activity"
+                      loading={activitiesQuery.isLoading}
+                      items={openActivities.map((activity) => ({
+                        id: activity.id,
+                        label: activity.subject,
+                        secondary: activity.dueDate ? new Date(activity.dueDate).toLocaleDateString() : undefined,
+                        trailing: <StatusBadge status={activity.status} />,
+                      }))}
+                    />
+                  </TechEarnestRecordRelatedCard>
+                  <TechEarnestRecordRelatedCard
+                    id="techearnest-record-section-closed-activities"
+                    title="Closed Activities"
+                    isEmpty={!closedActivities.length && !activitiesQuery.isLoading}
+                    emptyLabel="No records found"
+                  >
+                    <RelatedRecordList
+                      module="activity"
+                      items={closedActivities.map((activity) => ({
+                        id: activity.id,
+                        label: activity.subject,
+                        trailing: <StatusBadge status={activity.status} />,
+                      }))}
+                    />
+                  </TechEarnestRecordRelatedCard>
                   <TechEarnestRecordRelatedCard id="techearnest-record-section-meetings" title="Invited Meetings" isEmpty emptyLabel="No records found" />
                   <TechEarnestRecordRelatedCard id="techearnest-record-section-campaigns" title="Campaigns" isEmpty emptyLabel="No records found" />
                   <TechEarnestRecordRelatedCard id="techearnest-record-section-social" title="Social" isEmpty emptyLabel="No records found" />
@@ -1126,13 +1222,15 @@ export function LeadsPage() {
                 options={LEAD_STATUS_FILTER_OPTIONS}
                 searchPlaceholder="Search Status"
               />
-              <label className="form-label small mb-1">Lead source</label>
-              <input
-                className="form-control form-control-sm mb-2"
-                value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value)}
-                placeholder="e.g. Cold Call"
-              />
+              <ModuleFilterField label="Lead source" htmlFor="leadSourceFilter">
+                <input
+                  id="leadSourceFilter"
+                  className="form-control form-control-sm"
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                  placeholder="e.g. Cold Call"
+                />
+              </ModuleFilterField>
               <TechEarnestFilterSelect
                 label="Priority"
                 value={priorityFilter}
@@ -1154,43 +1252,32 @@ export function LeadsPage() {
                 options={ownerFilterOptions}
                 searchPlaceholder="Search Owners"
               />
-              <label className="form-label small mb-1">Min est. value</label>
-              <input
-                type="number"
-                className="form-control form-control-sm mb-2"
-                value={minValueFilter}
-                onChange={(e) => setMinValueFilter(e.target.value)}
-                placeholder="e.g. 10000"
-              />
-              <label className="form-label small mb-1">Created from</label>
-              <input
-                type="date"
-                className="form-control form-control-sm mb-2"
-                value={createdFrom}
-                onChange={(e) => setCreatedFrom(e.target.value)}
-              />
-              <label className="form-label small mb-1">Created to</label>
-              <input
-                type="date"
-                className="form-control form-control-sm mb-2"
-                value={createdTo}
-                onChange={(e) => setCreatedTo(e.target.value)}
-              />
-              <div className="form-check">
+              <ModuleFilterField label="Min est. value" htmlFor="leadMinValueFilter">
                 <input
-                  className="form-check-input"
-                  type="checkbox"
-                  id="unconvertedOnly"
-                  checked={unconvertedOnly}
-                  onChange={(e) => setUnconvertedOnly(e.target.checked)}
+                  id="leadMinValueFilter"
+                  type="number"
+                  className="form-control form-control-sm"
+                  value={minValueFilter}
+                  onChange={(e) => setMinValueFilter(e.target.value)}
+                  placeholder="e.g. 10000"
                 />
-                <label className="form-check-label small" htmlFor="unconvertedOnly">
-                  Unconverted only
-                </label>
-              </div>
+              </ModuleFilterField>
+              <ModuleFilterDateRange
+                label="Created"
+                from={createdFrom}
+                to={createdTo}
+                onFromChange={setCreatedFrom}
+                onToChange={setCreatedTo}
+              />
+              <ModuleFilterCheckbox
+                id="unconvertedOnly"
+                label="Unconverted only"
+                checked={unconvertedOnly}
+                onChange={setUnconvertedOnly}
+              />
             </div>
             {canManageViews ? (
-              <div className="module-filter-section">
+              <div className="module-filter-section is-collapsed">
                 <h3>Save view</h3>
                 <input
                   className="form-control form-control-sm mb-2"
@@ -1234,11 +1321,9 @@ export function LeadsPage() {
                 </div>
               </div>
             ) : null}
-            <button type="button" className="btn btn-link btn-sm px-0" onClick={clearAllFilters}>
-              Clear filters
-            </button>
           </>
         }
+        onClearFilters={clearAllFilters}
         footerLeft={<span>Total Records: {leads.length}</span>}
         footerRight={<span>View: {activeViewName}</span>}
       >

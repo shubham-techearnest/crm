@@ -28,7 +28,9 @@ public interface ResourceRepository extends JpaRepository<Resource, UUID> {
               and r.deletedAt is null
               and (:search is null
                    or lower(r.employeeCode) like lower(concat('%', cast(:search as string), '%'))
-                   or lower(r.designation) like lower(concat('%', cast(:search as string), '%')))
+                   or lower(r.designation) like lower(concat('%', cast(:search as string), '%'))
+                   or lower(r.fullName) like lower(concat('%', cast(:search as string), '%'))
+                   or lower(r.email) like lower(concat('%', cast(:search as string), '%')))
               and (:regionIds is null or r.regionId in :regionIds)
               and (:ownerId is null or r.managerId = :ownerId or r.userId = :ownerId)
               and (:status is null or r.status = :status)
@@ -48,4 +50,24 @@ public interface ResourceRepository extends JpaRepository<Resource, UUID> {
             Pageable pageable);
 
     boolean existsByOrganizationIdAndEmployeeCodeAndDeletedAtIsNull(UUID organizationId, String employeeCode);
+
+    /** Resources without a login that can receive emailed timesheet links for the given week. */
+    @Query(
+            """
+            select r from Resource r
+            where r.deletedAt is null
+              and r.userId is null
+              and r.email is not null
+              and r.status <> 'INACTIVE'
+              and (r.engagementEndDate is null or r.engagementEndDate >= :weekStart)
+              and exists (
+                    select 1 from ResourceAllocation a
+                    where a.resourceId = r.id
+                      and a.deletedAt is null
+                      and a.status in ('ACTIVE', 'PLANNED')
+                      and a.startDate <= :weekEnd
+                      and a.endDate >= :weekStart)
+            """)
+    java.util.List<Resource> findLinkRecipientsForWeek(
+            @Param("weekStart") java.time.LocalDate weekStart, @Param("weekEnd") java.time.LocalDate weekEnd);
 }

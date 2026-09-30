@@ -3,10 +3,12 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   useTechEarnestCreateFlow,
@@ -48,8 +50,6 @@ export function RolesPage() {
   const [confirmPermissionSave, setConfirmPermissionSave] = useState(false);
   const [permissionSaveError, setPermissionSaveError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
-
   const rolesQuery = useQuery({ queryKey: ["admin", "roles"], queryFn: listRoles });
   const permissionsQuery = useQuery({ queryKey: ["admin", "permissions"], queryFn: listPermissions });
   const tableAclsQuery = useQuery({
@@ -71,7 +71,6 @@ export function RolesPage() {
 
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow({
@@ -85,7 +84,6 @@ export function RolesPage() {
       setSelectedPermissions([...role.permissionCodes]);
     },
     onResetExtras: () => {
-      setShowMore(false);
       setSelectedPermissions([]);
       setPermSearch("");
     },
@@ -230,67 +228,76 @@ export function RolesPage() {
 
   const roleFormFields = (
     <>
-      <FormSection title="Primary details" description="Role identity and scope">
-        <div className="col-md-3">
-          <FormField label="Code" required error={errors.code} {...register("code")} />
-        </div>
-        <div className="col-md-4">
-          <FormField label="Name" required error={errors.name} {...register("name")} />
-        </div>
-        <div className="col-md-3">
-          <label className="form-label required">Data scope</label>
-          <TechEarnestFormSelect
-            control={control}
-            name="dataScope"
-            options={dataScopeOptions}
-            searchPlaceholder="Search Scopes"
-            allowEmpty={false}
-          />
-        </div>
-      </FormSection>
-      <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-        <FormSection title="Permissions">
-          <div className="col-12">
-            <p className="text-muted small">
-              Choose what members assigned to this role can access. You can adjust permissions later.
-            </p>
-            <input
-              className="form-control form-control-sm mb-3"
-              placeholder="Search permissions"
-              value={permSearch}
-              onChange={(event) => setPermSearch(event.target.value)}
-              aria-label="Search permissions"
-            />
-            {permissionsQuery.isLoading ? <p className="text-muted small">Loading permissions…</p> : null}
-            {permissionsQuery.isError ? (
-              <p className="text-danger small" role="alert">Permissions could not be loaded. Retry before creating the role.</p>
-            ) : null}
-            {!permissionsQuery.isLoading && !permissionsQuery.isError ? (
-              <div className="role-create-permissions">
-                {permissionsByModule.map(([module, permissions]) => (
-                  <section key={module} className="role-create-permission-group">
-                    <h3>{module}</h3>
-                    <div>
-                      {permissions.map((permission) => (
-                        <label key={permission.id} className="form-check form-check-inline small">
-                          <input
-                            className="form-check-input"
-                            type="checkbox"
-                            checked={selectedPermissions.includes(permission.code)}
-                            onChange={() => togglePermission(permission.code)}
-                          />
-                          <span className="form-check-label" title={permission.description}>{permission.code}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </section>
-                ))}
-                {!permissionsByModule.length ? <p className="text-muted small mb-0">No permissions match your search.</p> : null}
-              </div>
-            ) : null}
+      <TechEarnestCreateSection title="Role Information">
+        <TechEarnestCreateGrid>
+          <TechEarnestCreateColumn>
+            <TechEarnestCreateField label="Role Name" required error={errors.name?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
+                {...register("name")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Role Code" required error={errors.code?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.code ? " is-invalid" : ""}`}
+                {...register("code")}
+              />
+            </TechEarnestCreateField>
+          </TechEarnestCreateColumn>
+          <TechEarnestCreateColumn>
+            <TechEarnestCreateField label="Data Scope" required error={errors.dataScope?.message}>
+              <TechEarnestFormSelect
+                control={control}
+                name="dataScope"
+                options={dataScopeOptions}
+                searchPlaceholder="Search Scopes"
+                allowEmpty={false}
+              />
+            </TechEarnestCreateField>
+          </TechEarnestCreateColumn>
+        </TechEarnestCreateGrid>
+      </TechEarnestCreateSection>
+      <TechEarnestCreateSection title="Permissions">
+        <p className="text-muted small">
+          Choose what members assigned to this role can access. You can adjust permissions later.
+        </p>
+        <input
+          className="form-control form-control-sm mb-3"
+          placeholder="Search permissions"
+          value={permSearch}
+          onChange={(event) => setPermSearch(event.target.value)}
+          aria-label="Search permissions"
+        />
+        {permissionsQuery.isLoading ? <p className="text-muted small">Loading permissions…</p> : null}
+        {permissionsQuery.isError ? (
+          <p className="text-danger small" role="alert">Permissions could not be loaded. Retry before creating the role.</p>
+        ) : null}
+        {!permissionsQuery.isLoading && !permissionsQuery.isError ? (
+          <div className="role-create-permissions">
+            {permissionsByModule.map(([module, permissions]) => (
+              <section key={module} className="role-create-permission-group">
+                <h3>{module}</h3>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(16rem, 1fr))", gap: "0.25rem 1rem" }}>
+                  {permissions.map((permission) => (
+                    <label key={permission.id} className="form-check small mb-0">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        checked={selectedPermissions.includes(permission.code)}
+                        onChange={() => togglePermission(permission.code)}
+                      />
+                      <span className="form-check-label" title={permission.description}>{permission.code}</span>
+                    </label>
+                  ))}
+                </div>
+              </section>
+            ))}
+            {!permissionsByModule.length ? <p className="text-muted small mb-0">No permissions match your search.</p> : null}
           </div>
-        </FormSection>
-      </FormMoreDetails>
+        ) : null}
+      </TechEarnestCreateSection>
     </>
   );
 
@@ -310,7 +317,7 @@ export function RolesPage() {
             void handleSubmit(onCreateSubmit)();
           }}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
           {roleFormFields}
         </TechEarnestFormKitCreateView>
@@ -354,6 +361,12 @@ export function RolesPage() {
           </div>
         </>
       }
+      activeFilterCount={[search.trim(), scopeFilter].filter(Boolean).length}
+      onClearFilters={() => {
+        setSearch("");
+        setScopeFilter("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {rolesQuery.isLoading ? <LoadingState label="Loading roles..." /> : null}

@@ -4,9 +4,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
-import { FormField } from "@/components/FormField/FormField";
-import { FormSection } from "@/components/FormKit";
-import { optionsFromPairs, TechEarnestFormKitCreateView, TechEarnestPicker } from "@/components/TechEarnestCreate";
+import {
+  optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
+  TechEarnestFormKitCreateView,
+  TechEarnestFormSelect,
+} from "@/components/TechEarnestCreate";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -97,50 +103,55 @@ export function TeamsPage() {
       formError={formError}
       onCancel={() => { setShowForm(false); setEditing(null); form.reset(EMPTY); }}
       onSave={() => void form.handleSubmit((values) => saveMutation.mutateAsync(values))()}
-      onSaveAndNew={() => { setSaveAndNew(true); void form.handleSubmit((values) => saveMutation.mutateAsync(values))(); }}
+      onSaveAndNew={editing ? undefined : () => { setSaveAndNew(true); void form.handleSubmit((values) => saveMutation.mutateAsync(values))(); }}
       onSubmit={() => void form.handleSubmit((values) => saveMutation.mutateAsync(values))()}
       showRecordImage={false}
     >
-      <FormSection title="Team details" description="Set the team name, department, and manager.">
-        <div className="col-md-6">
-          <FormField label="Team name" required error={form.formState.errors.name} {...form.register("name")} />
-        </div>
-        <div className="col-md-6">
-          <label className="form-label" htmlFor="team-department">Department <span className="text-danger">*</span></label>
-          <TechEarnestPicker
-            id="team-department"
-            value={form.watch("departmentId")}
-            onChange={(value) => void form.setValue("departmentId", value, { shouldValidate: true, shouldDirty: true })}
-            options={departmentOptions}
-            placeholder="Select a department"
-            searchPlaceholder="Search departments"
-            lookupTitle="Choose a department"
-            lookupMode="modal"
-            menuPlacement="portal"
-            allowEmpty={false}
-            invalid={!!form.formState.errors.departmentId}
-          />
-          {form.formState.errors.departmentId ? <div className="invalid-feedback d-block">{form.formState.errors.departmentId.message}</div> : null}
-          {!canViewDepartments ? <small className="text-muted">Department access is required to create or edit teams.</small> : null}
-        </div>
-        <div className="col-md-6">
-          <label className="form-label" htmlFor="team-manager">Manager</label>
-          <TechEarnestPicker
-            id="team-manager"
-            value={form.watch("managerId") ?? ""}
-            onChange={(value) => void form.setValue("managerId", value, { shouldDirty: true })}
-            options={managerOptions}
-            placeholder="No manager"
-            searchPlaceholder="Search users"
-            lookupTitle="Choose a manager"
-            lookupMode="modal"
-            menuPlacement="portal"
-            allowEmpty
-            emptyLabel="No manager"
-            mode="user"
-          />
-        </div>
-      </FormSection>
+      <TechEarnestCreateSection title="Team Information">
+        <TechEarnestCreateGrid>
+          <TechEarnestCreateColumn>
+            <TechEarnestCreateField label="Team Name" required error={form.formState.errors.name?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${form.formState.errors.name ? " is-invalid" : ""}`}
+                {...form.register("name")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Department" required error={form.formState.errors.departmentId?.message}>
+              <TechEarnestFormSelect
+                control={form.control}
+                name="departmentId"
+                options={departmentOptions}
+                placeholder="Select a department"
+                searchPlaceholder="Search departments"
+                lookupTitle="Choose a department"
+                lookupMode="modal"
+                menuPlacement="portal"
+                allowEmpty={false}
+                invalid={!!form.formState.errors.departmentId}
+              />
+              {!canViewDepartments ? <small className="text-muted">Department access is required to create or edit teams.</small> : null}
+            </TechEarnestCreateField>
+          </TechEarnestCreateColumn>
+          <TechEarnestCreateColumn>
+            <TechEarnestCreateField label="Manager" error={form.formState.errors.managerId?.message}>
+              <TechEarnestFormSelect
+                control={form.control}
+                name="managerId"
+                options={managerOptions}
+                placeholder="No manager"
+                searchPlaceholder="Search users"
+                lookupTitle="Choose a manager"
+                lookupMode="modal"
+                menuPlacement="portal"
+                allowEmpty
+                emptyLabel="No manager"
+                mode="user"
+              />
+            </TechEarnestCreateField>
+          </TechEarnestCreateColumn>
+        </TechEarnestCreateGrid>
+      </TechEarnestCreateSection>
     </TechEarnestFormKitCreateView>
   ) : (
     <ModuleListShell

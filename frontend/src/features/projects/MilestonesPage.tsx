@@ -2,18 +2,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
+import { RecordLink, RelatedRecordList } from "@/components/RecordLink";
+import { readRecordNavState, useUrlSelection } from "@/hooks/useUrlRecord";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   useTechEarnestCreateFlow,
 } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterDateRange, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -22,8 +27,10 @@ import { useHasPermission } from "@/features/auth/AuthContext";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import {
   createMilestone,
+  getMilestone,
   listMilestones,
   listProjects,
+  listTasks,
   updateMilestone,
   type Milestone,
 } from "./projectApi";
@@ -70,11 +77,8 @@ export function MilestonesPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
-  const [selected, setSelected] = useState<Milestone | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
-
   useEffect(() => {
     const fromQuery = searchParams.get("projectId") ?? "";
     if (fromQuery && fromQuery !== projectId) {
@@ -101,15 +105,31 @@ export function MilestonesPage() {
     queryKey: ["milestones", listParams],
     queryFn: () => listMilestones(listParams),
   });
+  const [selected, setSelected] = useUrlSelection(milestonesQuery.data, { fetchById: getMilestone });
+  const location = useLocation();
+  const cameFrom = readRecordNavState(location.state)?.from;
+  useEffect(() => {
+    if (selected && !projectId) setProjectId(selected.projectId);
+  }, [selected, projectId]);
+  const milestoneTasksQuery = useQuery({
+    queryKey: ["tasks", { projectId: selected?.projectId }],
+    queryFn: () => listTasks({ projectId: selected!.projectId }),
+    enabled: !!selected,
+  });
+  const milestoneTasks = useMemo(
+    () => (milestoneTasksQuery.data ?? []).filter((task) => task.milestoneId === selected?.id),
+    [milestoneTasksQuery.data, selected?.id],
+  );
 
   const createForm = useForm<CreateFormValues>({
     resolver: zodResolver(createSchema),
     defaultValues: MILESTONE_DEFAULTS,
   });
 
+  const createErrors = createForm.formState.errors;
+
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow<CreateFormValues, Milestone>({
@@ -118,7 +138,6 @@ export function MilestonesPage() {
     setShowForm,
     setFormError,
     setSelected,
-    onResetExtras: () => setShowMore(false),
   });
 
   const buildMilestoneBody = (values: CreateFormValues) => ({
@@ -134,15 +153,21 @@ export function MilestonesPage() {
     defaultValues: { name: "", description: "", dueDate: "", status: "PLANNED", sortOrder: "" },
   });
 
+  useEffect(() => {
+    if (!selected) return;
+    updateForm.reset({
+      name: selected.name,
+      description: selected.description ?? "",
+      dueDate: selected.dueDate ?? "",
+      status: selected.status,
+      sortOrder: String(selected.sortOrder),
+    });
+  }, [selected?.id]);
+
   const selectProject = (id: string) => {
     setProjectId(id);
-    setSelected(null);
     setShowForm(false);
-    if (id) {
-      setSearchParams({ projectId: id });
-    } else {
-      setSearchParams({});
-    }
+    setSearchParams(id ? { projectId: id } : {});
   };
 
   const createMutation = useMutation({
@@ -205,41 +230,47 @@ export function MilestonesPage() {
             void createForm.handleSubmit(onCreateSubmit)();
           }}
           onSubmit={() => void createForm.handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
-          <FormSection title="Primary details" description="Milestone name and timing">
-            <div className="col-md-5">
-              <FormField
-                label="Name"
-                required
-                error={createForm.formState.errors.name}
-                {...createForm.register("name")}
-              />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Due date" type="date" {...createForm.register("dueDate")} />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <TechEarnestFormSelect
-                control={createForm.control}
-                name="status"
-                options={milestoneStatusOptions}
-                searchPlaceholder="Search Statuses"
-                allowEmpty={false}
-              />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Additional details">
-              <div className="col-md-2">
-                <FormField label="Sort order" type="number" {...createForm.register("sortOrder")} />
-              </div>
-              <div className="col-12">
-                <FormField label="Description" {...createForm.register("description")} />
-              </div>
-            </FormSection>
-          </FormMoreDetails>
+          <TechEarnestCreateSection title="Milestone Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Milestone Name" required error={createErrors.name?.message}>
+                  <input
+                    type="text"
+                    className={`form-control form-control-sm${createErrors.name ? " is-invalid" : ""}`}
+                    {...createForm.register("name")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Sort Order" error={createErrors.sortOrder?.message}>
+                  <input
+                    type="number"
+                    className={`form-control form-control-sm${createErrors.sortOrder ? " is-invalid" : ""}`}
+                    {...createForm.register("sortOrder")}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Due Date" error={createErrors.dueDate?.message}>
+                  <input type="date" className="form-control form-control-sm" {...createForm.register("dueDate")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Status" error={createErrors.status?.message}>
+                  <TechEarnestFormSelect
+                    control={createForm.control}
+                    name="status"
+                    options={milestoneStatusOptions}
+                    searchPlaceholder="Search Statuses"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Description Information">
+            <TechEarnestCreateField label="Description" wide error={createErrors.description?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...createForm.register("description")} />
+            </TechEarnestCreateField>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
@@ -287,23 +318,25 @@ export function MilestonesPage() {
             <h3>Filter by fields</h3>
             <TechEarnestFilterSelect label="Project" value={projectId} onChange={selectProject} options={(projectsQuery.data ?? []).map((project) => ({ value: project.id, label: project.name, subtitle: project.projectCode }))} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
             <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={MILESTONE_STATUSES.map((value) => ({ value, label: value }))} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search milestone statuses" />
-            <label className="form-label small mb-1">Due from</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              type="date"
-              value={dueFrom}
-              onChange={(e) => setDueFrom(e.target.value)}
-            />
-            <label className="form-label small mb-1">Due to</label>
-            <input
-              className="form-control form-control-sm"
-              type="date"
-              value={dueTo}
-              onChange={(e) => setDueTo(e.target.value)}
+            <ModuleFilterDateRange
+              label="Due"
+              from={dueFrom}
+              to={dueTo}
+              onFromChange={setDueFrom}
+              onToChange={setDueTo}
             />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        selectProject("");
+        setStatusFilter("");
+        setDueFrom("");
+        setDueTo("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {isLoading ? <LoadingState label="Loading milestones..." /> : null}
@@ -378,10 +411,24 @@ export function MilestonesPage() {
             </div>
           )}
 
-          {selected && canManage ? (
+          {selected ? (
             <aside className="module-detail-drawer">
+              {cameFrom ? (
+                <button type="button" className="techearnest-record-return mb-2" onClick={() => setSelected(null)}>
+                  <span aria-hidden="true">‹</span> Back to {cameFrom.label || "previous page"}
+                </button>
+              ) : null}
               <div className="d-flex justify-content-between align-items-start mb-2">
-                <div className="fw-semibold">Edit milestone</div>
+                <div>
+                  <div className="fw-semibold">{selected.name}</div>
+                  <div className="small text-muted">
+                    <RecordLink module="project" id={selected.projectId}>
+                      {projectsQuery.data?.find((project) => project.id === selected.projectId)?.name ?? "Open project"}
+                    </RecordLink>
+                    {" · "}
+                    <StatusBadge status={selected.status} />
+                  </div>
+                </div>
                 <button
                   type="button"
                   className="btn btn-outline-secondary btn-sm"
@@ -390,6 +437,26 @@ export function MilestonesPage() {
                   Close
                 </button>
               </div>
+              <div className="border-top pt-2 mb-3">
+                <div className="form-label mb-1">Tasks ({milestoneTasks.length})</div>
+                {milestoneTasks.length || milestoneTasksQuery.isLoading ? (
+                  <RelatedRecordList
+                    module="task"
+                    loading={milestoneTasksQuery.isLoading}
+                    items={milestoneTasks.map((task) => ({
+                      id: task.id,
+                      label: task.name,
+                      secondary: task.dueDate ? `due ${task.dueDate}` : undefined,
+                      trailing: <StatusBadge status={task.status} />,
+                    }))}
+                  />
+                ) : (
+                  <div className="small text-muted">No tasks linked to this milestone</div>
+                )}
+              </div>
+              {canManage ? (
+              <>
+              <div className="fw-semibold border-top pt-2 mb-2">Edit milestone</div>
               {updateError ? <div className="alert alert-danger py-2">{updateError}</div> : null}
               <form
                 onSubmit={updateForm.handleSubmit((values) =>
@@ -434,6 +501,8 @@ export function MilestonesPage() {
                   Save changes
                 </button>
               </form>
+              </>
+              ) : null}
             </aside>
           ) : null}
         </div>

@@ -1,4 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
+import { isAxiosError } from "axios";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { useNavigate } from "react-router-dom";
@@ -32,8 +33,11 @@ export function LoginPage() {
       await login(values.email, values.password);
       const me = await fetchMe();
       navigate(isPlatformScope(me.dataScope) ? "/platform" : "/", { replace: true });
-    } catch {
-      setServerError("Invalid email or password.");
+    } catch (error) {
+      const message = isAxiosError(error) && error.response?.status === 403
+        ? (error.response.data as { message?: string } | undefined)?.message
+        : undefined;
+      setServerError(message ?? "Invalid email or password.");
     }
   }
 

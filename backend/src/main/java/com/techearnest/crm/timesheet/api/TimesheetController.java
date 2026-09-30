@@ -1,8 +1,14 @@
 package com.techearnest.crm.timesheet.api;
 
 import com.techearnest.crm.common.api.ApiResponse;
+import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.BulkActionResult;
+import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.BulkApproveRequest;
+import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.BulkRejectRequest;
 import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.CreateTimeEntryRequest;
+import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.SaveEntriesRequest;
+import com.techearnest.crm.timesheet.application.TimesheetBulkService;
 import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.CreateTimesheetRequest;
+import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.EntryProjectOption;
 import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.RejectTimesheetRequest;
 import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.TimeEntryResponse;
 import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.TimesheetResponse;
@@ -30,9 +36,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class TimesheetController {
 
     private final TimesheetService timesheetService;
+    private final TimesheetBulkService bulkService;
 
-    public TimesheetController(TimesheetService timesheetService) {
+    public TimesheetController(TimesheetService timesheetService, TimesheetBulkService bulkService) {
         this.timesheetService = timesheetService;
+        this.bulkService = bulkService;
     }
 
     @GetMapping
@@ -44,6 +52,7 @@ public class TimesheetController {
                             iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE)
                     java.time.LocalDate weekStart,
             @RequestParam(required = false, defaultValue = "false") boolean billableOnly,
+            @RequestParam(required = false, defaultValue = "false") boolean awaitingMyApproval,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         var result = timesheetService.list(
@@ -52,6 +61,7 @@ public class TimesheetController {
                 resourceId,
                 weekStart,
                 billableOnly,
+                awaitingMyApproval,
                 PageRequest.of(page, Math.min(size, 100), Sort.by(Sort.Direction.DESC, "weekStartDate")));
         return ApiResponse.page(result.data(), result.pagination());
     }
@@ -70,6 +80,16 @@ public class TimesheetController {
         return ApiResponse.ok(timesheetService.get(id));
     }
 
+    @GetMapping("/entry-projects")
+    public ApiResponse<List<EntryProjectOption>> entryProjectsForResource(@RequestParam(required = false) UUID resourceId) {
+        return ApiResponse.ok(timesheetService.entryProjectsForResource(resourceId));
+    }
+
+    @GetMapping("/{id}/projects")
+    public ApiResponse<List<EntryProjectOption>> entryProjects(@PathVariable UUID id) {
+        return ApiResponse.ok(timesheetService.entryProjects(id));
+    }
+
     @PostMapping
     public ApiResponse<TimesheetResponse> create(@Valid @RequestBody CreateTimesheetRequest request) {
         return ApiResponse.ok(timesheetService.create(request), "Timesheet created successfully");
@@ -79,7 +99,7 @@ public class TimesheetController {
     public ApiResponse<TimesheetResponse> update(
             @PathVariable UUID id, @RequestBody(required = false) UpdateTimesheetRequest request) {
         return ApiResponse.ok(
-                timesheetService.update(id, request != null ? request : new UpdateTimesheetRequest(null)),
+                timesheetService.update(id, request != null ? request : new UpdateTimesheetRequest(null, null)),
                 "Timesheet updated successfully");
     }
 
@@ -87,6 +107,27 @@ public class TimesheetController {
     public ApiResponse<TimeEntryResponse> addEntry(
             @PathVariable UUID id, @Valid @RequestBody CreateTimeEntryRequest request) {
         return ApiResponse.ok(timesheetService.addEntry(id, request), "Time entry added successfully");
+    }
+
+    @PutMapping("/{id}/entries")
+    public ApiResponse<TimesheetResponse> saveEntries(
+            @PathVariable UUID id, @Valid @RequestBody SaveEntriesRequest request) {
+        return ApiResponse.ok(timesheetService.saveEntries(id, request.entries()), "Timesheet saved successfully");
+    }
+
+    @PostMapping("/{id}/copy-previous-week")
+    public ApiResponse<TimesheetResponse> copyPreviousWeek(@PathVariable UUID id) {
+        return ApiResponse.ok(timesheetService.copyPreviousWeek(id), "Previous week copied");
+    }
+
+    @PostMapping("/bulk-approve")
+    public ApiResponse<List<BulkActionResult>> bulkApprove(@Valid @RequestBody BulkApproveRequest request) {
+        return ApiResponse.ok(bulkService.approveAll(request.ids()));
+    }
+
+    @PostMapping("/bulk-reject")
+    public ApiResponse<List<BulkActionResult>> bulkReject(@Valid @RequestBody BulkRejectRequest request) {
+        return ApiResponse.ok(bulkService.rejectAll(request.ids(), request.reason()));
     }
 
     @PostMapping("/{id}/submit")

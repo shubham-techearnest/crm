@@ -2,11 +2,14 @@ package com.techearnest.crm.resource.api;
 
 import com.techearnest.crm.common.api.ApiResponse;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.CreateResourceRequest;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.OnboardResourceRequest;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.OnboardResourceResponse;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.ReplaceSkillsRequest;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.ResourceResponse;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.ResourceSkillResponse;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.UpdateResourceRequest;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.UtilizationResponse;
+import com.techearnest.crm.resource.application.ResourceOnboardingService;
 import com.techearnest.crm.resource.application.ResourceService;
 import com.techearnest.crm.resource.application.UtilizationService;
 import jakarta.validation.Valid;
@@ -32,10 +35,15 @@ public class ResourceController {
 
     private final ResourceService resourceService;
     private final UtilizationService utilizationService;
+    private final ResourceOnboardingService onboardingService;
 
-    public ResourceController(ResourceService resourceService, UtilizationService utilizationService) {
+    public ResourceController(
+            ResourceService resourceService,
+            UtilizationService utilizationService,
+            ResourceOnboardingService onboardingService) {
         this.resourceService = resourceService;
         this.utilizationService = utilizationService;
+        this.onboardingService = onboardingService;
     }
 
     @GetMapping
@@ -65,6 +73,11 @@ public class ResourceController {
     @PostMapping
     public ApiResponse<ResourceResponse> create(@Valid @RequestBody CreateResourceRequest request) {
         return ApiResponse.ok(resourceService.create(request), "Resource created successfully");
+    }
+
+    @PostMapping("/onboard")
+    public ApiResponse<OnboardResourceResponse> onboard(@Valid @RequestBody OnboardResourceRequest request) {
+        return ApiResponse.ok(onboardingService.onboard(request), "Resource created successfully");
     }
 
     @PutMapping("/{id}")

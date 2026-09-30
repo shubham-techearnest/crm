@@ -3,7 +3,9 @@ import { useState } from "react";
 import type { ApiResponse } from "@/types/api";
 import api from "@/api/client";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
-import { useHasPermission } from "@/features/auth/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
+import { RECORD_ROUTES, recordHref, recordModuleForEntityType } from "@/components/RecordLink";
 
 interface NotificationItem {
   id: string;
@@ -32,6 +34,8 @@ async function markNotificationRead(id: string): Promise<void> {
 
 export function NotificationsMenu() {
   const canView = useHasPermission("NOTIFICATION_VIEW");
+  const user = useAuth();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
 
@@ -79,6 +83,11 @@ export function NotificationsMenu() {
               onClick={() => {
                 if (!item.read) {
                   markRead.mutate(item.id);
+                }
+                const module = recordModuleForEntityType(item.entityType);
+                if (module && item.entityId && user.permissions.includes(RECORD_ROUTES[module].permission)) {
+                  setOpen(false);
+                  navigate(recordHref(module, item.entityId));
                 }
               }}
             >

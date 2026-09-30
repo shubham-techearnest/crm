@@ -7,6 +7,7 @@ export interface TechEarnestCreateFieldProps {
   children: ReactNode;
   className?: string;
   wide?: boolean;
+  hint?: ReactNode;
 }
 
 export function TechEarnestCreateField({
@@ -16,6 +17,7 @@ export function TechEarnestCreateField({
   children,
   className = "",
   wide,
+  hint,
 }: TechEarnestCreateFieldProps) {
   return (
     <div
@@ -25,6 +27,7 @@ export function TechEarnestCreateField({
       <div className="techearnest-field-control">
         {children}
         {error ? <div className="invalid-feedback d-block">{error}</div> : null}
+        {hint && !error ? <div className="form-text small">{hint}</div> : null}
       </div>
     </div>
   );

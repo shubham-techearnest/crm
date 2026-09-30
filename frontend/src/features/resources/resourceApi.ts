@@ -8,6 +8,25 @@ function unwrap<T>(response: ApiResponse<T>, fallback = "Request failed"): T {
   return response.data;
 }
 
+export const RESOURCE_TYPES = ["EMPLOYEE", "CONTRACTOR", "FREELANCER", "CONSULTANT"] as const;
+export type ResourceType = (typeof RESOURCE_TYPES)[number];
+
+/** Codes are auto-numbered per prefix (EMP-001, CON-001, FRL-001) when a resource is created. */
+export const RESOURCE_TYPE_META: Record<ResourceType, { label: string; prefix: string; hint: string }> = {
+  EMPLOYEE: { label: "Internal employee", prefix: "EMP", hint: "Own staff, linked to a user account" },
+  CONTRACTOR: { label: "Contractor", prefix: "CON", hint: "External, contract based" },
+  FREELANCER: { label: "Freelancer", prefix: "FRL", hint: "External, engaged per assignment" },
+  CONSULTANT: { label: "Consultant", prefix: "CON", hint: "External, contract based advisory" },
+};
+
+export function resourceTypeLabel(type: string | null | undefined): string {
+  return (type && RESOURCE_TYPE_META[type as ResourceType]?.label) || type || "—";
+}
+
+export function isExternalType(type: string | null | undefined): boolean {
+  return type !== "EMPLOYEE";
+}
+
 export interface Resource {
   id: string;
   organizationId: string;
@@ -28,6 +47,13 @@ export interface Resource {
   status: string;
   createdAt: string;
   updatedAt: string;
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+  engagementEndDate: string | null;
+  /** NONE (no login), INVITED, ACTIVE, EXPIRED or DEACTIVATED. */
+  loginStatus: string;
+  accessExpiresAt: string | null;
 }
 
 export interface CreateResourceBody {
@@ -44,6 +70,10 @@ export interface CreateResourceBody {
   billingRate?: number | null;
   capacityHoursPerWeek?: number | null;
   status?: string;
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  engagementEndDate?: string | null;
 }
 
 export interface UpdateResourceBody {
@@ -59,6 +89,32 @@ export interface UpdateResourceBody {
   billingRate?: number | null;
   capacityHoursPerWeek?: number | null;
   status?: string;
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  engagementEndDate?: string | null;
+  clearEngagementEndDate?: boolean;
+}
+
+export interface PortalAccess {
+  resourceId: string;
+  userId: string | null;
+  email: string | null;
+  loginStatus: string;
+  accessExpiresAt: string | null;
+  inviteUrl: string | null;
+  inviteExpiresAt: string | null;
+  emailed: boolean;
+  /** False when the linked login is a regular internal user. */
+  portalManaged: boolean;
+}
+
+export interface TimesheetLinkIssued {
+  url: string;
+  expiresAt: string;
+  weekStartDate: string;
+  emailed: boolean;
+  email: string | null;
 }
 
 export interface Skill {
@@ -184,6 +240,29 @@ export async function createResource(body: CreateResourceBody): Promise<Resource
   return unwrap(data);
 }
 
+export interface OnboardResourceBody {
+  resource: CreateResourceBody;
+  projectId?: string | null;
+  allocationStartDate?: string | null;
+  allocationEndDate?: string | null;
+  allocationPercentage?: number | null;
+  allocationRole?: string | null;
+  grantPortalAccess?: boolean;
+}
+
+export interface OnboardResourceResult {
+  resource: Resource;
+  allocation: Allocation | null;
+  portalAccess: PortalAccess | null;
+  warnings: string[];
+}
+
+/** Creates the resource, allocates it to a project and grants default access in one step. */
+export async function onboardResource(body: OnboardResourceBody): Promise<OnboardResourceResult> {
+  const { data } = await api.post<ApiResponse<OnboardResourceResult>>("/resources/onboard", body);
+  return unwrap(data);
+}
+
 export async function updateResource(id: string, body: UpdateResourceBody): Promise<Resource> {
   const { data } = await api.put<ApiResponse<Resource>>(`/resources/${id}`, body);
   return unwrap(data);
@@ -218,6 +297,44 @@ export async function getUtilization(
         periodEnd: periodEnd || undefined,
       },
     },
+  );
+  return unwrap(data);
+}
+
+// —— Portal access & timesheet links ——
+
+export async function getPortalAccess(resourceId: string): Promise<PortalAccess> {
+  const { data } = await api.get<ApiResponse<PortalAccess>>(`/resources/${resourceId}/portal-access`);
+  return unwrap(data);
+}
+
+export async function inviteToPortal(
+  resourceId: string,
+  body: { email?: string; accessExpiresOn?: string | null },
+): Promise<PortalAccess> {
+  const { data } = await api.post<ApiResponse<PortalAccess>>(`/resources/${resourceId}/portal-access`, body);
+  return unwrap(data);
+}
+
+export async function updatePortalAccess(resourceId: string, accessExpiresOn: string): Promise<PortalAccess> {
+  const { data } = await api.put<ApiResponse<PortalAccess>>(`/resources/${resourceId}/portal-access`, {
+    accessExpiresOn,
+  });
+  return unwrap(data);
+}
+
+export async function revokePortalAccess(resourceId: string): Promise<PortalAccess> {
+  const { data } = await api.delete<ApiResponse<PortalAccess>>(`/resources/${resourceId}/portal-access`);
+  return unwrap(data);
+}
+
+export async function issueTimesheetLink(
+  resourceId: string,
+  body: { weekStartDate: string; sendEmail?: boolean },
+): Promise<TimesheetLinkIssued> {
+  const { data } = await api.post<ApiResponse<TimesheetLinkIssued>>(
+    `/resources/${resourceId}/timesheet-links`,
+    body,
   );
   return unwrap(data);
 }
@@ -271,6 +388,11 @@ export async function listAllocations(params?: {
       overlapOnly: params?.overlapOnly || undefined,
     },
   });
+  return unwrap(data);
+}
+
+export async function getAllocation(id: string): Promise<Allocation> {
+  const { data } = await api.get<ApiResponse<Allocation>>(`/allocations/${id}`);
   return unwrap(data);
 }
 

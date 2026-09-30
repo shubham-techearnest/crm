@@ -73,6 +73,7 @@ public class AuthService {
         if (!"ACTIVE".equals(user.getStatus())) {
             throw new ForbiddenException("Account is not active");
         }
+        assertAccessNotExpired(user);
         assertOrganizationAllowsLogin(user);
         user = loadRegions(user);
         user.markLoggedIn();
@@ -99,6 +100,7 @@ public class AuthService {
         User user = userRepository
                 .findById(stored.getUserId())
                 .filter(found -> found.getStatus().equals("ACTIVE") && found.getDeletedAt() == null)
+                .filter(found -> !found.isAccessExpired(Instant.now()))
                 .orElseThrow(() -> new BadCredentialsException("Refresh token is invalid"));
         assertOrganizationAllowsLogin(user);
         user = userRepository.findByEmailForLogin(user.getEmail()).orElse(user);
@@ -127,6 +129,12 @@ public class AuthService {
 
     private User loadRegions(User user) {
         return userRepository.findWithRegions(user.getId()).orElse(user);
+    }
+
+    private static void assertAccessNotExpired(User user) {
+        if (user.isAccessExpired(Instant.now())) {
+            throw new ForbiddenException("Your access has expired. Contact your project manager to extend it.");
+        }
     }
 
     private void assertOrganizationAllowsLogin(User user) {

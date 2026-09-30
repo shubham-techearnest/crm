@@ -25,6 +25,15 @@ public class Timesheet {
     public static final String STATUS_APPROVED = "APPROVED";
     public static final String STATUS_REJECTED = "REJECTED";
 
+    /** Entered by the resource's own login. */
+    public static final String SOURCE_SELF = "SELF";
+    /** Entered by a manager on the resource's behalf. */
+    public static final String SOURCE_PROXY = "PROXY";
+    /** Submitted by the resource through an emailed secure link, without a login. */
+    public static final String SOURCE_LINK = "LINK";
+    /** Created from a spreadsheet import. */
+    public static final String SOURCE_IMPORT = "IMPORT";
+
     @Id
     private UUID id;
 
@@ -54,6 +63,15 @@ public class Timesheet {
 
     @Column(name = "rejection_reason")
     private String rejectionReason;
+
+    @Column(name = "entered_by")
+    private UUID enteredBy;
+
+    @Column(name = "entry_source", nullable = false)
+    private String entrySource = SOURCE_SELF;
+
+    @Column(length = 2000)
+    private String notes;
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
@@ -88,6 +106,11 @@ public class Timesheet {
         return timesheet;
     }
 
+    public void recordEntry(String source, UUID enteredBy) {
+        this.entrySource = source;
+        this.enteredBy = enteredBy;
+    }
+
     public void submit() {
         this.status = STATUS_SUBMITTED;
         this.submittedAt = Instant.now();
@@ -108,6 +131,10 @@ public class Timesheet {
         this.approvedAt = Instant.now();
         this.approvedBy = approverId;
         this.rejectionReason = reason;
+    }
+
+    public void updateNotes(String notes) {
+        this.notes = notes;
     }
 
     public boolean isEditable() {
@@ -156,6 +183,18 @@ public class Timesheet {
 
     public String getRejectionReason() {
         return rejectionReason;
+    }
+
+    public UUID getEnteredBy() {
+        return enteredBy;
+    }
+
+    public String getEntrySource() {
+        return entrySource;
+    }
+
+    public String getNotes() {
+        return notes;
     }
 
     public Instant getDeletedAt() {

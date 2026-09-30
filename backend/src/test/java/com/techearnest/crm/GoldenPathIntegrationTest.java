@@ -129,7 +129,7 @@ class GoldenPathIntegrationTest {
 
         String employeeToken = login("employee@example.com");
         java.time.LocalDate monday = java.time.LocalDate.of(2028, 1, 3)
-                .plusDays(Math.abs(suffix.hashCode() % 400) * 7L)
+                .plusWeeks(java.util.concurrent.ThreadLocalRandom.current().nextLong(20_000))
                 .with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
         ObjectNode sheet = objectMapper.createObjectNode();
         sheet.put("weekStartDate", monday.toString());

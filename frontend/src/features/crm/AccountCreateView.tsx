@@ -199,11 +199,11 @@ export function AccountCreateView({
   const createMutation = useMutation({
     mutationFn: (body: Parameters<typeof createAccount>[0]) =>
       account ? updateAccount(account.id, body) : createAccount(body),
-    onSuccess: async (account) => {
-      await attachRecordPhoto("ACCOUNT", account.id, photo.photoFile);
+    onSuccess: async (saved) => {
+      await attachRecordPhoto("ACCOUNT", saved.id, photo.photoFile);
       photo.clearPhoto();
       setFormError(null);
-      onCreated(account, saveMode);
+      onCreated(saved, saveMode);
       if (!account && saveMode === "saveAndNew") {
         reset(defaults);
       }

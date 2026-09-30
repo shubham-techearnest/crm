@@ -24,17 +24,16 @@ import {
 } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
+import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import {
-  RecordShell,
-  DEFAULT_RELATED_LINKS,
-  RecordOverviewField,
-  RecordOverviewGrid,
-  RecordSection,
-  recordCustomTab,
-  recordOverviewTab,
-  recordTimelineTab,
-} from "@/components/RecordShell";
-import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
+  buildTimelineEntries,
+  recordLifecycleInfo,
+  TechEarnestRecordInfoSection,
+  TechEarnestRecordRelatedCard,
+  TechEarnestRecordSummaryStrip,
+  TechEarnestRecordTimeline,
+  useRecordNavigation,
+} from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -42,10 +41,13 @@ import { listDepartments, listRegions, listUsers } from "@/features/admin/adminA
 import { getMyFieldAcls } from "@/features/admin/studio/metadataApi";
 import { listActivities } from "@/features/crm/crmApi";
 import { listProjects, listTasks } from "@/features/projects/projectApi";
+import { listExpenses } from "@/features/expenses/expenseApi";
+import { RecordLink, RelatedRecordList } from "@/components/RecordLink";
+import { useUrlSelection } from "@/hooks/useUrlRecord";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import { useBulkImport } from "@/features/import/useBulkImport";
 import {
-  createResource,
+  onboardResource,
   getResource,
   updateResource,
   getUtilization,
@@ -54,18 +56,23 @@ import {
   listResources,
   listSkills,
   putResourceSkills,
+  isExternalType,
+  RESOURCE_TYPE_META,
+  RESOURCE_TYPES,
+  resourceTypeLabel,
   type Resource,
   type ResourceSkillItem,
 } from "./resourceApi";
+import { errorMessage, LoginStatusBadge, ResourcePortalPanel } from "./ResourcePortalPanel";
+import { ResourceTimesheetsCard } from "@/features/timesheets/TimeTrackingCards";
 
-const RESOURCE_TYPES = ["EMPLOYEE", "CONTRACTOR", "FREELANCER", "CONSULTANT"] as const;
 const PROFICIENCIES = ["BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"] as const;
-const RESOURCE_STATUSES = ["AVAILABLE", "ALLOCATED", "ON_LEAVE", "INACTIVE"] as const;
+const RESOURCE_STATUSES = ["AVAILABLE", "ON_LEAVE", "INACTIVE"] as const;
 
-const resourceTypeOptions = enumPickerOptions(RESOURCE_TYPES);
 const resourceStatusOptions = enumPickerOptions(RESOURCE_STATUSES);
 
-const resourceSchema = z.object({
+const resourceSchema = z
+  .object({
   userId: z.string().optional(),
   departmentId: z.string().optional(),
   managerId: z.string().optional(),
@@ -78,7 +85,37 @@ const resourceSchema = z.object({
   billingRate: z.string().optional(),
   status: z.string().optional(),
   joiningDate: z.string().optional(),
-});
+  fullName: z.string().max(200).optional(),
+  email: z.union([z.literal(""), z.string().trim().email("Enter a valid email")]).optional(),
+  phone: z.string().max(50).optional(),
+  engagementEndDate: z.string().optional(),
+  projectId: z.string().optional(),
+  allocationStartDate: z.string().optional(),
+  allocationEndDate: z.string().optional(),
+  allocationPercentage: z.string().optional(),
+  allocationRole: z.string().max(128).optional(),
+  grantPortalAccess: z.boolean().optional(),
+  })
+  .superRefine((values, ctx) => {
+    const external = isExternalType(values.resourceType);
+    if (!external) {
+      if (!values.userId) {
+        ctx.addIssue({ code: "custom", path: ["userId"], message: "Pick the employee's user account" });
+      }
+    } else if (!values.userId && !values.fullName?.trim()) {
+      ctx.addIssue({ code: "custom", path: ["fullName"], message: "Full name is required for external resources" });
+    }
+    if (external && values.grantPortalAccess && !values.userId && !values.email?.trim()) {
+      ctx.addIssue({ code: "custom", path: ["email"], message: "Email is required to send the portal login" });
+    }
+    const pct = Number(values.allocationPercentage);
+    if (values.allocationPercentage?.trim() && (!Number.isFinite(pct) || pct <= 0 || pct > 100)) {
+      ctx.addIssue({ code: "custom", path: ["allocationPercentage"], message: "Enter 1–100" });
+    }
+    if (values.allocationStartDate && values.allocationEndDate && values.allocationEndDate < values.allocationStartDate) {
+      ctx.addIssue({ code: "custom", path: ["allocationEndDate"], message: "End date cannot be before start date" });
+    }
+  });
 
 type ResourceFormValues = z.infer<typeof resourceSchema>;
 
@@ -95,6 +132,16 @@ const RESOURCE_DEFAULTS: ResourceFormValues = {
   billingRate: "",
   status: "AVAILABLE",
   joiningDate: "",
+  fullName: "",
+  email: "",
+  phone: "",
+  engagementEndDate: "",
+  projectId: "",
+  allocationStartDate: "",
+  allocationEndDate: "",
+  allocationPercentage: "100",
+  allocationRole: "",
+  grantPortalAccess: true,
 };
 
 function currentMonthRange(): { periodStart: string; periodEnd: string } {
@@ -124,11 +171,25 @@ function formatDateTime(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function ResourceTypeBadge({ type }: { type: string }) {
+  const external = isExternalType(type);
+  return (
+    <span className={`badge ${external ? "bg-warning-subtle text-warning-emphasis" : "bg-primary-subtle text-primary-emphasis"}`}>
+      {resourceTypeLabel(type)}
+    </span>
+  );
+}
+
 function resourceTitle(resource: Resource): string {
-  return resource.employeeName ?? resource.designation ?? resource.employeeCode ?? "Resource";
+  return resource.employeeName ?? resource.fullName ?? resource.designation ?? resource.employeeCode ?? "Resource";
 }
 
 const RESOURCE_OPTIONAL_COLUMNS = [
+  { field: "fullName", label: "Full name" },
+  { field: "email", label: "Email" },
+  { field: "phone", label: "Phone" },
+  { field: "engagementEndDate", label: "Engagement end" },
+  { field: "accessExpiresAt", label: "Portal access until" },
   { field: "departmentName", label: "Department" },
   { field: "managerName", label: "Manager" },
   { field: "joiningDate", label: "Joining date" },
@@ -141,9 +202,14 @@ export function ResourcesPage() {
   const canManage = useHasPermission("RESOURCE_MANAGE");
   const canViewAllocations = useHasPermission("ALLOCATION_VIEW");
   const canViewProjects = useHasPermission("PROJECT_VIEW");
+  const canViewTimesheets = useHasPermission("TIMESHEET_VIEW");
   const canViewTasks = useHasPermission("TASK_VIEW");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
+  const canViewExpenses = useHasPermission("EXPENSE_VIEW");
   const hasRateViewPermission = useHasPermission("RATE_VIEW");
+  const canInvitePortal = useHasPermission("RESOURCE_PORTAL_INVITE");
+  const canAllocate = useHasPermission("RESOURCE_ALLOCATE") && canViewProjects;
+  const canSendTimesheetLink = useHasPermission("TIMESHEET_LINK_SEND");
   const rateAclQuery = useQuery({
     queryKey: ["metadata", "field-acls", "me", "resource"],
     queryFn: () => getMyFieldAcls("resource"),
@@ -163,7 +229,6 @@ export function ResourcesPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [regionFilter, setRegionFilter] = useState("");
   const [skillFilter, setSkillFilter] = useState("");
-  const [selected, setSelected] = useState<Resource | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [editingResourceId, setEditingResourceId] = useState<string | null>(null);
   const [skillsError, setSkillsError] = useState<string | null>(null);
@@ -185,6 +250,12 @@ export function ResourcesPage() {
   const resourcesQuery = useQuery({
     queryKey: ["resources", listParams],
     queryFn: () => listResources(listParams),
+  });
+  const [selected, setSelected] = useUrlSelection(resourcesQuery.data, { fetchById: getResource });
+  const resourceExpensesQuery = useQuery({
+    queryKey: ["expenses", "resource", selected?.id],
+    queryFn: () => listExpenses({ resourceId: selected!.id }),
+    enabled: !!selected && canViewExpenses,
   });
   const resourceDetailQuery = useQuery({
     queryKey: ["resources", selected?.id, "detail"],
@@ -227,8 +298,10 @@ export function ResourcesPage() {
   const projectsQuery = useQuery({
     queryKey: ["projects"],
     queryFn: () => listProjects(),
-    enabled: !!selected && canViewProjects,
+    enabled: (!!selected || (showForm && canAllocate)) && canViewProjects,
   });
+  const formProjectsQuery = projectsQuery;
+  const [createNotice, setCreateNotice] = useState<{ notes: string[]; warnings: string[] } | null>(null);
   const assignedTasksQuery = useQuery({
     queryKey: ["tasks", "resource", (selected as Resource | null)?.id],
     queryFn: () => listTasks({ assignedResourceId: selected!.id }),
@@ -268,11 +341,20 @@ export function ResourcesPage() {
     control,
     handleSubmit,
     reset,
+    watch,
+    setValue,
+    setError,
     formState: { errors, isSubmitting, isDirty },
   } = useForm<ResourceFormValues>({
     resolver: zodResolver(resourceSchema),
     defaultValues: RESOURCE_DEFAULTS,
   });
+  const formResourceType = watch("resourceType");
+  const formProjectId = watch("projectId");
+  const formGrantPortal = watch("grantPortalAccess");
+  const formProject = (formProjectsQuery.data ?? []).find((project) => project.id === formProjectId);
+  const formIsExternal = isExternalType(formResourceType);
+  const formCode = watch("employeeCode");
 
   const {
     setSaveAndNew,
@@ -288,13 +370,16 @@ export function ResourcesPage() {
   });
 
   const buildResourceBody = (values: ResourceFormValues) => ({
+    fullName: values.fullName?.trim() || undefined,
+    email: values.email?.trim() || undefined,
+    phone: values.phone?.trim() || undefined,
+    engagementEndDate: values.engagementEndDate || null,
     userId: values.userId || null,
     departmentId: values.departmentId || null,
     managerId: values.managerId || null,
     regionId: values.regionId,
     resourceType: values.resourceType,
     designation: values.designation || undefined,
-    employeeCode: values.employeeCode || undefined,
     capacityHoursPerWeek: parseOptionalNumber(values.capacityHoursPerWeek) ?? null,
     costRate: canWriteCostRate ? parseOptionalNumber(values.costRate) ?? null : undefined,
     billingRate: canWriteBillingRate ? parseOptionalNumber(values.billingRate) ?? null : undefined,
@@ -303,13 +388,26 @@ export function ResourcesPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: createResource,
-    onSuccess: async (resource) => {
-      await queryClient.invalidateQueries({ queryKey: ["resources"] });
+    mutationFn: onboardResource,
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["resources"] }),
+        queryClient.invalidateQueries({ queryKey: ["allocations"] }),
+      ]);
       setFormError(null);
-      await afterCreateSuccess(resource, "RESOURCE");
+      const notes: string[] = [];
+      if (result.allocation) notes.push(`Allocated to ${projectName(result.allocation.projectId)}.`);
+      if (result.portalAccess) {
+        notes.push(
+          result.portalAccess.emailed
+            ? `Portal login sent to ${result.portalAccess.email}.`
+            : `Portal login created for ${result.portalAccess.email}; share the invite link from the Portal & timesheets tab.`,
+        );
+      }
+      setCreateNotice({ notes, warnings: result.warnings });
+      await afterCreateSuccess(result.resource, "RESOURCE");
     },
-    onError: () => setFormError("Could not create resource. Check required fields."),
+    onError: (e) => setFormError(errorMessage(e, "Could not create resource. Check required fields.")),
   });
 
   const updateMutation = useMutation({
@@ -322,16 +420,39 @@ export function ResourcesPage() {
       setShowForm(false);
       reset(RESOURCE_DEFAULTS);
     },
-    onError: () => setFormError("Could not update resource. Check required fields and unique employee code."),
+    onError: (e) => setFormError(errorMessage(e, "Could not update resource. Check required fields.")),
   });
 
   const onCreateSubmit = (values: ResourceFormValues) => {
-    createMutation.mutate(buildResourceBody(values));
+    if (canAllocate && isExternalType(values.resourceType) && !values.projectId) {
+      setError("projectId", { type: "custom", message: "Select the project this resource will work on" });
+      return;
+    }
+    const pct = parseOptionalNumber(values.allocationPercentage);
+    createMutation.mutate({
+      resource: buildResourceBody(values),
+      projectId: canAllocate ? values.projectId || null : null,
+      allocationStartDate: values.allocationStartDate || null,
+      allocationEndDate: values.allocationEndDate || null,
+      allocationPercentage: pct ?? null,
+      allocationRole: values.allocationRole?.trim() || null,
+      grantPortalAccess: canInvitePortal && isExternalType(values.resourceType) ? !!values.grantPortalAccess : false,
+    });
   };
 
   const onUpdateSubmit = (values: ResourceFormValues) => {
     if (!editingResourceId) return;
-    updateMutation.mutate({ id: editingResourceId, body: buildResourceBody(values) });
+    updateMutation.mutate({
+      id: editingResourceId,
+      body: {
+        ...buildResourceBody(values),
+        // Blank strings clear contact fields on update; omitted (undefined) would keep the old value.
+        fullName: values.fullName?.trim() ?? "",
+        email: values.email?.trim() ?? "",
+        phone: values.phone?.trim() ?? "",
+        clearEngagementEndDate: !values.engagementEndDate,
+      },
+    });
   };
 
   function openResourceEdit(resource: Resource) {
@@ -350,6 +471,10 @@ export function ResourcesPage() {
       billingRate: resource.billingRate != null ? String(resource.billingRate) : "",
       status: resource.status,
       joiningDate: resource.joiningDate ?? "",
+      fullName: resource.fullName ?? "",
+      email: resource.email ?? "",
+      phone: resource.phone ?? "",
+      engagementEndDate: resource.engagementEndDate ?? "",
     });
     setShowForm(true);
   }
@@ -378,6 +503,7 @@ export function ResourcesPage() {
   function openCreateResource() {
     setEditingResourceId(null);
     setFormError(null);
+    setCreateNotice(null);
     reset(RESOURCE_DEFAULTS);
     setShowForm(true);
   }
@@ -386,6 +512,24 @@ export function ResourcesPage() {
     const map = new Map((projectsQuery.data ?? []).map((project) => [project.id, project.name]));
     return (id: string) => map.get(id) ?? id.slice(0, 8);
   }, [projectsQuery.data]);
+  const formProjectOptions = useMemo(
+    () =>
+      optionsFromPairs(
+        (projectsQuery.data ?? [])
+          .filter((project) => project.status !== "COMPLETED" && project.status !== "CANCELLED")
+          .map((project) => ({ value: project.id, label: project.name, subtitle: project.projectCode })),
+      ),
+    [projectsQuery.data],
+  );
+
+  const openActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status !== "COMPLETED"),
+    [activitiesQuery.data],
+  );
+  const closedActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status === "COMPLETED"),
+    [activitiesQuery.data],
+  );
 
   const relatedProjects = useMemo(() => {
     const projectIds = new Set((allocationsQuery.data ?? []).map((allocation) => allocation.projectId));
@@ -459,20 +603,65 @@ export function ResourcesPage() {
           onSubmit={() => void handleSubmit(editingResourceId ? onUpdateSubmit : onCreateSubmit)()}
           photo={photo}
         >
+          <TechEarnestCreateSection title="Resource Type">
+            <div className="resource-type-picker" role="radiogroup" aria-label="Resource type">
+              {RESOURCE_TYPES.map((type) => {
+                const meta = RESOURCE_TYPE_META[type];
+                const active = formResourceType === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={`resource-type-option${active ? " is-active" : ""}`}
+                    onClick={() => setValue("resourceType", type, { shouldDirty: true, shouldValidate: true })}
+                  >
+                    <span className="resource-type-option__title">
+                      {meta.label}
+                      <span className="resource-type-option__prefix">{meta.prefix}-###</span>
+                    </span>
+                    <span className="resource-type-option__hint">{meta.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </TechEarnestCreateSection>
           <TechEarnestCreateSection title="Resource Information">
             <TechEarnestCreateGrid>
               <TechEarnestCreateColumn>
-                <TechEarnestCreateField label="Employee">
-                  <TechEarnestFormUserSelect
-                    control={control}
-                    name="userId"
-                    users={pickerUsers}
-                    searchPlaceholder="Search Users"
-                    placeholder={usersQuery.isError ? "Users are not available" : "Select employee"}
+                {formIsExternal ? (
+                  <TechEarnestCreateField label="Full Name" required error={errors.fullName?.message}>
+                    <input
+                      type="text"
+                      maxLength={200}
+                      className="form-control form-control-sm"
+                      placeholder="Contractor or freelancer name"
+                      {...register("fullName")}
+                    />
+                  </TechEarnestCreateField>
+                ) : (
+                  <TechEarnestCreateField label="User Account" required error={errors.userId?.message}>
+                    <TechEarnestFormUserSelect
+                      control={control}
+                      name="userId"
+                      users={pickerUsers}
+                      searchPlaceholder="Search Users"
+                      placeholder={usersQuery.isError ? "Users are not available" : "Select the employee's user"}
+                    />
+                  </TechEarnestCreateField>
+                )}
+                <TechEarnestCreateField label="Code">
+                  <input
+                    type="text"
+                    readOnly
+                    className="form-control form-control-sm"
+                    value={
+                      formCode
+                      || `Auto-generated on save (${RESOURCE_TYPE_META[formResourceType as keyof typeof RESOURCE_TYPE_META]?.prefix ?? "EMP"}-###)`
+                    }
+                    aria-readonly="true"
                   />
-                </TechEarnestCreateField>
-                <TechEarnestCreateField label="Employee Code" error={errors.employeeCode?.message}>
-                  <input type="text" maxLength={64} className="form-control form-control-sm" {...register("employeeCode")} />
                 </TechEarnestCreateField>
                 <TechEarnestCreateField label="Designation" error={errors.designation?.message}>
                   <input type="text" maxLength={128} className="form-control form-control-sm" {...register("designation")} />
@@ -510,16 +699,6 @@ export function ResourcesPage() {
                     invalid={!!errors.regionId}
                   />
                 </TechEarnestCreateField>
-                <TechEarnestCreateField label="Resource Type" required error={errors.resourceType?.message}>
-                  <TechEarnestFormSelect
-                    control={control}
-                    name="resourceType"
-                    options={resourceTypeOptions}
-                    searchPlaceholder="Search Types"
-                    allowEmpty={false}
-                    invalid={!!errors.resourceType}
-                  />
-                </TechEarnestCreateField>
                 <TechEarnestCreateField label="Status">
                   <TechEarnestFormSelect
                     control={control}
@@ -535,6 +714,128 @@ export function ResourcesPage() {
               </TechEarnestCreateColumn>
             </TechEarnestCreateGrid>
           </TechEarnestCreateSection>
+          {formIsExternal ? (
+            <TechEarnestCreateSection title="Contact & Engagement">
+              <p className="small text-muted mb-2">
+                External resources sign in through a portal login to fill in timesheets for the projects they are
+                allocated to. Their access ends on the engagement end date.
+              </p>
+              <TechEarnestCreateGrid>
+                <TechEarnestCreateColumn>
+                  <TechEarnestCreateField label="Email" error={errors.email?.message}>
+                    <input
+                      type="email"
+                      maxLength={255}
+                      className="form-control form-control-sm"
+                      placeholder="Needed for the portal login"
+                      {...register("email")}
+                    />
+                  </TechEarnestCreateField>
+                  <TechEarnestCreateField label="Phone" error={errors.phone?.message}>
+                    <input type="tel" maxLength={50} className="form-control form-control-sm" {...register("phone")} />
+                  </TechEarnestCreateField>
+                </TechEarnestCreateColumn>
+                <TechEarnestCreateColumn>
+                  <TechEarnestCreateField label="Engagement End Date">
+                    <input type="date" className="form-control form-control-sm" {...register("engagementEndDate")} />
+                  </TechEarnestCreateField>
+                </TechEarnestCreateColumn>
+              </TechEarnestCreateGrid>
+            </TechEarnestCreateSection>
+          ) : null}
+          {!editingResourceId && canAllocate ? (
+            <TechEarnestCreateSection title="Project & Access">
+              <TechEarnestCreateGrid>
+                <TechEarnestCreateColumn>
+                  <TechEarnestCreateField
+                    label="Project"
+                    required={formIsExternal}
+                    error={errors.projectId?.message}
+                    hint={formIsExternal ? undefined : "Optional for employees; leave empty to keep them on the bench."}
+                  >
+                    <TechEarnestFormSelect
+                      control={control}
+                      name="projectId"
+                      options={formProjectOptions}
+                      searchPlaceholder="Search Projects"
+                      placeholder="Select project"
+                      invalid={!!errors.projectId}
+                    />
+                  </TechEarnestCreateField>
+                  {formProjectId ? (
+                    <>
+                      <TechEarnestCreateField label="Role on Project" error={errors.allocationRole?.message}>
+                        <input
+                          type="text"
+                          maxLength={128}
+                          className="form-control form-control-sm"
+                          placeholder="e.g. Backend developer"
+                          {...register("allocationRole")}
+                        />
+                      </TechEarnestCreateField>
+                      <TechEarnestCreateField label="Allocation %" error={errors.allocationPercentage?.message}>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          step="5"
+                          className="form-control form-control-sm"
+                          {...register("allocationPercentage")}
+                        />
+                      </TechEarnestCreateField>
+                    </>
+                  ) : null}
+                </TechEarnestCreateColumn>
+                <TechEarnestCreateColumn>
+                  {formProjectId ? (
+                    <>
+                      <TechEarnestCreateField label="Allocation Start" hint="Defaults to today.">
+                        <input type="date" className="form-control form-control-sm" {...register("allocationStartDate")} />
+                      </TechEarnestCreateField>
+                      <TechEarnestCreateField
+                        label="Allocation End"
+                        error={errors.allocationEndDate?.message}
+                        hint={
+                          formProject?.endDate
+                            ? `Defaults to the project end date (${formProject.endDate}).`
+                            : "Defaults to the engagement end date, or 3 months."
+                        }
+                      >
+                        <input type="date" className="form-control form-control-sm" {...register("allocationEndDate")} />
+                      </TechEarnestCreateField>
+                    </>
+                  ) : null}
+                  {formIsExternal && canInvitePortal ? (
+                    <TechEarnestCreateField label="Default Access">
+                      <div className="form-check mb-0">
+                        <input
+                          id="resource-grant-portal"
+                          type="checkbox"
+                          className="form-check-input"
+                          {...register("grantPortalAccess")}
+                        />
+                        <label className="form-check-label small" htmlFor="resource-grant-portal">
+                          Send portal login to fill timesheets
+                        </label>
+                      </div>
+                      {formGrantPortal ? (
+                        <div className="form-text small">
+                          An invite with a set-password link is emailed. They see only their allocated projects and own
+                          timesheets.
+                        </div>
+                      ) : null}
+                    </TechEarnestCreateField>
+                  ) : null}
+                  {!formIsExternal ? (
+                    <p className="small text-muted mb-0 pt-1">
+                      Employees sign in with their existing user account and can log time on the selected project
+                      straight away.
+                    </p>
+                  ) : null}
+                </TechEarnestCreateColumn>
+              </TechEarnestCreateGrid>
+            </TechEarnestCreateSection>
+          ) : null}
           <TechEarnestCreateSection title="Capacity & Rates">
             <TechEarnestCreateGrid>
               <TechEarnestCreateColumn>
@@ -563,7 +864,7 @@ export function ResourcesPage() {
               subtitle={[selectedResource.designation, selectedResource.employeeCode].filter(Boolean).join(" · ") || selectedResource.id.slice(0, 8)}
               meta={
                 <span className="text-muted small">
-                  {regionName(selectedResource.regionId)} · {selectedResource.resourceType}
+                  {regionName(selectedResource.regionId)} · {resourceTypeLabel(selectedResource.resourceType)}
                 </span>
               }
               status={<StatusBadge status={selectedResource.status} />}
@@ -575,67 +876,160 @@ export function ResourcesPage() {
               onNext={recordNav.goNext}
               hasPrev={recordNav.hasPrev}
               hasNext={recordNav.hasNext}
-              relatedLinks={[...DEFAULT_RELATED_LINKS]}
-              primaryAction={canManage ? (
-                <button type="button" className="btn btn-sm btn-primary" onClick={() => openResourceEdit(selectedResource)}>
-                  Edit resource
+              relatedLinks={[
+                ...(canViewAllocations ? [{ id: "allocations", label: "Allocations" }] : []),
+                ...(canViewTimesheets ? [{ id: "timesheets", label: "Timesheets" }] : []),
+                ...(canViewExpenses ? [{ id: "expenses", label: "Expenses" }] : []),
+                ...(canViewProjects ? [{ id: "projects", label: "Projects" }] : []),
+                ...(canViewTasks ? [{ id: "tasks", label: "Assigned Tasks" }] : []),
+                ...DEFAULT_RELATED_LINKS,
+              ]}
+              primaryAction={
+                selectedResource.email ? (
+                  <a className="btn btn-primary btn-sm" href={`mailto:${selectedResource.email}`}>
+                    Send Email
+                  </a>
+                ) : (
+                  <button type="button" className="btn btn-primary btn-sm" disabled>
+                    Send Email
+                  </button>
+                )
+              }
+              secondaryActions={
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm"
+                  disabled={!canManage}
+                  onClick={() => openResourceEdit(selectedResource)}
+                >
+                  Edit
                 </button>
-              ) : null}
+              }
               tabs={[
-                recordOverviewTab(
-                  <RecordOverviewGrid>
-                    <RecordOverviewField label="Employee" value={selectedResource.employeeName ?? "—"} />
-                    <RecordOverviewField label="Status" value={<StatusBadge status={selectedResource.status} />} />
-                    <RecordOverviewField label="Type" value={selectedResource.resourceType} />
-                    <RecordOverviewField label="Department" value={selectedResource.departmentName ?? "—"} />
-                    <RecordOverviewField label="Reporting manager" value={selectedResource.managerName ?? "—"} />
-                    <RecordOverviewField label="Region" value={regionName(selectedResource.regionId)} />
-                    <RecordOverviewField label="Employee code" value={selectedResource.employeeCode ?? "—"} />
-                    <RecordOverviewField label="Designation" value={selectedResource.designation ?? "—"} />
-                    <RecordOverviewField
-                      label="Capacity"
-                      value={
-                        selectedResource.capacityHoursPerWeek != null
-                          ? `${selectedResource.capacityHoursPerWeek} hrs/week`
-                          : "—"
-                      }
-                    />
-                    <RecordOverviewField label="Joining date" value={selectedResource.joiningDate ?? "—"} />
-                    {canViewCostRate ? (
-                      <RecordOverviewField label="Cost rate" value={formatRate(selectedResource.costRate)} />
-                    ) : null}
-                    {canViewBillingRate ? (
-                      <>
-                        <RecordOverviewField
-                          label="Billing rate"
-                          value={formatRate(selectedResource.billingRate)}
-                        />
-                      </>
-                    ) : null}
-                    <RecordOverviewField
-                      label="Skills"
-                      value={
-                        resourceSkillsQuery.isLoading
-                          ? "Loading…"
-                          : `${resourceSkillsQuery.data?.length ?? draftSkills.length} assigned`
-                      }
-                    />
-                    <RecordOverviewField
-                      label="Utilization (this month)"
-                      value={
-                        utilizationQuery.isLoading
+                {
+                  id: "overview",
+                  label: "Overview",
+                  content: (
+                <>
+                  {createNotice ? (
+                    <div
+                      className={`alert ${createNotice.warnings.length ? "alert-warning" : "alert-success"} py-2 small d-flex justify-content-between align-items-start`}
+                      role="status"
+                    >
+                      <div>
+                        {createNotice.notes.map((note) => (
+                          <div key={note}>{note}</div>
+                        ))}
+                        {createNotice.warnings.map((warning) => (
+                          <div key={warning} className="fw-semibold">
+                            {warning}
+                          </div>
+                        ))}
+                      </div>
+                      <button type="button" className="btn-close btn-sm" aria-label="Dismiss" onClick={() => setCreateNotice(null)} />
+                    </div>
+                  ) : null}
+                  <TechEarnestRecordSummaryStrip
+                    fields={[
+                      { label: "Reporting Manager", value: selectedResource.managerName ?? "—" },
+                      { label: "Email", value: selectedResource.email ?? "—" },
+                      { label: "Resource Type", value: resourceTypeLabel(selectedResource.resourceType) },
+                      {
+                        label: "Utilization",
+                        value: utilizationQuery.isLoading
                           ? "Loading…"
                           : utilizationQuery.data?.utilizationPercent != null
                             ? `${utilizationQuery.data.utilizationPercent}%`
-                            : "—"
-                      }
-                    />
-                  </RecordOverviewGrid>,
-                ),
-                recordCustomTab(
-                  "skills",
-                  "Skills",
-                  <>
+                            : "—",
+                      },
+                      { label: "Status", value: <StatusBadge status={selectedResource.status} /> },
+                    ]}
+                  />
+
+                  <TechEarnestRecordInfoSection
+                    title="Resource Information"
+                    fields={[
+                      { label: isExternalType(selectedResource.resourceType) ? "Name" : "Employee", value: selectedResource.employeeName ?? "—" },
+                      { label: "Code", value: selectedResource.employeeCode ?? "—" },
+                      { label: "Designation", value: selectedResource.designation ?? "—" },
+                      { label: "Department", value: selectedResource.departmentName ?? "—" },
+                      { label: "Reporting Manager", value: selectedResource.managerName ?? "—" },
+                      { label: "Region", value: regionName(selectedResource.regionId) },
+                      { label: "Resource Type", value: <ResourceTypeBadge type={selectedResource.resourceType} /> },
+                      { label: "Status", value: selectedResource.status },
+                      { label: "Joining Date", value: selectedResource.joiningDate ?? "—" },
+                      { label: "Login", value: <LoginStatusBadge status={selectedResource.loginStatus} /> },
+                    ]}
+                  />
+
+                  <TechEarnestRecordInfoSection
+                    title="Contact & Engagement"
+                    fields={[
+                      { label: "Full Name", value: selectedResource.fullName ?? "—" },
+                      { label: "Email", value: selectedResource.email ?? "—" },
+                      { label: "Phone", value: selectedResource.phone ?? "—" },
+                      { label: "Engagement End", value: selectedResource.engagementEndDate ?? "—" },
+                      ...(selectedResource.accessExpiresAt
+                        ? [{ label: "Portal Access Until", value: new Date(selectedResource.accessExpiresAt).toLocaleDateString() }]
+                        : []),
+                    ]}
+                  />
+
+                  <TechEarnestRecordInfoSection
+                    title="Capacity & Rates"
+                    fields={[
+                      {
+                        label: "Capacity",
+                        value:
+                          selectedResource.capacityHoursPerWeek != null
+                            ? `${selectedResource.capacityHoursPerWeek} hrs/week`
+                            : "—",
+                      },
+                      ...(canViewCostRate ? [{ label: "Cost Rate", value: formatRate(selectedResource.costRate) }] : []),
+                      ...(canViewBillingRate ? [{ label: "Billing Rate", value: formatRate(selectedResource.billingRate) }] : []),
+                      {
+                        label: `Allocated (${monthRange.periodStart} → ${monthRange.periodEnd})`,
+                        value: utilizationQuery.data?.allocatedHours != null ? `${utilizationQuery.data.allocatedHours}h` : "—",
+                      },
+                      {
+                        label: "Available This Month",
+                        value: utilizationQuery.data?.availableHours != null ? `${utilizationQuery.data.availableHours}h` : "—",
+                      },
+                      {
+                        label: "Utilization",
+                        value: (
+                          <>
+                            {utilizationQuery.data?.utilizationPercent != null
+                              ? `${utilizationQuery.data.utilizationPercent}%`
+                              : "—"}
+                            {utilizationQuery.data?.overAllocated ? (
+                              <span className="badge bg-danger ms-1">OVER ALLOCATED</span>
+                            ) : null}
+                          </>
+                        ),
+                      },
+                      ...(utilizationQuery.data?.warning ? [{ label: "Warning", value: utilizationQuery.data.warning }] : []),
+                    ]}
+                  />
+
+                  <TechEarnestRecordRelatedCard
+                    id="techearnest-record-section-skills"
+                    title={`Skills (${draftSkills.length})`}
+                    isEmpty={!resourceSkillsQuery.isLoading && !draftSkills.length && !canManage}
+                    emptyLabel="No records found"
+                    actions={
+                      canManage ? (
+                        <button
+                          type="button"
+                          className="btn btn-outline-secondary btn-sm"
+                          disabled={skillsMutation.isPending}
+                          onClick={() => skillsMutation.mutate()}
+                        >
+                          Save
+                        </button>
+                      ) : null
+                    }
+                  >
                     {skillsError ? <div className="alert alert-danger py-2">{skillsError}</div> : null}
                     {resourceSkillsQuery.isLoading ? (
                       <LoadingState label="Loading skills…" workspace />
@@ -720,166 +1114,190 @@ export function ResourcesPage() {
                           >
                             Add to list
                           </button>
-                          <button
-                            type="button"
-                            className="btn btn-primary btn-sm"
-                            disabled={skillsMutation.isPending}
-                            onClick={() => skillsMutation.mutate()}
-                          >
-                            Save skills
-                          </button>
                         </div>
                       </>
                     ) : null}
-                  </>,
-                ),
-                recordCustomTab(
-                  "utilization",
-                  "Utilization",
-                  <div className="border rounded p-2 bg-light">
-                    <h2 className="h6 mb-2">
-                      Utilization ({monthRange.periodStart} → {monthRange.periodEnd})
-                    </h2>
-                    {utilizationQuery.isLoading ? (
-                      <LoadingState label="Loading utilization…" workspace />
-                    ) : utilizationQuery.data ? (
-                      <dl className="row small mb-0">
-                        <dt className="col-6">Capacity</dt>
-                        <dd className="col-6 mb-1">{utilizationQuery.data.capacityHours ?? "—"}h</dd>
-                        <dt className="col-6">Allocated</dt>
-                        <dd className="col-6 mb-1">{utilizationQuery.data.allocatedHours ?? "—"}h</dd>
-                        <dt className="col-6">Available</dt>
-                        <dd className="col-6 mb-1">{utilizationQuery.data.availableHours ?? "—"}h</dd>
-                        <dt className="col-6">Utilization</dt>
-                        <dd className="col-6 mb-1">
-                          {utilizationQuery.data.utilizationPercent != null
-                            ? `${utilizationQuery.data.utilizationPercent}%`
-                            : "—"}
-                          {utilizationQuery.data.overAllocated ? (
-                            <span className="badge bg-danger ms-1">OVER ALLOCATED</span>
-                          ) : null}
-                        </dd>
-                        {utilizationQuery.data.warning ? (
-                          <>
-                            <dt className="col-6">Warning</dt>
-                            <dd className="col-6 mb-0">{utilizationQuery.data.warning}</dd>
-                          </>
-                        ) : null}
-                      </dl>
-                    ) : (
-                      <p className="small text-muted mb-0">No utilization data</p>
-                    )}
-                  </div>,
-                ),
-                recordCustomTab(
-                  "allocations",
-                  "Allocations",
-                  <>
-                    {allocationsQuery.isLoading ? (
-                      <LoadingState label="Loading allocations…" workspace />
-                    ) : null}
-                    <ul className="list-unstyled small mb-0">
-                      {(allocationsQuery.data ?? []).map((allocation) => (
-                        <li key={allocation.id} className="mb-2">
-                          <div className="fw-semibold">{projectName(allocation.projectId)}</div>
-                          <div>
-                            <StatusBadge status={allocation.status} />
-                            {allocation.role ? (
-                              <span className="text-muted"> · {allocation.role}</span>
-                            ) : null}
-                          </div>
-                          <div className="text-muted">
-                            {allocation.startDate} – {allocation.endDate}
-                            {allocation.allocationPercentage != null
-                              ? ` · ${allocation.allocationPercentage}%`
-                              : ""}
-                            {allocation.allocatedHours != null
-                              ? ` · ${allocation.allocatedHours}h`
-                              : ""}
-                          </div>
-                          {allocation.warning ? (
-                            <div className="text-warning">{allocation.warning}</div>
-                          ) : null}
-                        </li>
-                      ))}
-                      {!allocationsQuery.data?.length ? (
-                        <li className="text-muted">No allocations</li>
-                      ) : null}
-                    </ul>
-                    {canViewAllocations ? (
-                      <Link className="small" to="/allocations">
-                        Open Allocations
-                      </Link>
-                    ) : null}
-                  </>,
-                  { visible: canViewAllocations },
-                ),
-                recordCustomTab(
-                  "projects",
-                  "Projects",
-                  <>
-                    {projectsQuery.isLoading || allocationsQuery.isLoading ? (
-                      <LoadingState label="Loading projects…" workspace />
-                    ) : null}
-                    <RecordSection title={`Allocated projects (${relatedProjects.length})`}>
+                  </TechEarnestRecordRelatedCard>
+
+                  {canViewAllocations ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-allocations"
+                      title={`Allocations (${allocationsQuery.data?.length ?? 0})`}
+                      isEmpty={!allocationsQuery.isLoading && !(allocationsQuery.data ?? []).length}
+                      emptyLabel="No records found"
+                      actions={
+                        <Link className="btn btn-outline-secondary btn-sm" to="/allocations">
+                          Open Allocations
+                        </Link>
+                      }
+                    >
                       <ul className="list-unstyled small mb-0">
-                        {relatedProjects.map((project) => (
-                          <li key={project.id} className="mb-2">
-                            <div className="fw-semibold">{project.name}</div>
-                            <div>
-                              <StatusBadge status={project.status} />
-                              {project.health ? (
-                                <span className="ms-1">
-                                  <StatusBadge status={project.health} />
-                                </span>
-                              ) : null}
+                        {(allocationsQuery.data ?? []).map((allocation) => (
+                          <li key={allocation.id} className="mb-2 border-bottom pb-2">
+                            <div className="d-flex justify-content-between gap-2">
+                              <span className="fw-semibold">
+                                <RecordLink module="project" id={allocation.projectId}>
+                                  {projectName(allocation.projectId)}
+                                </RecordLink>
+                              </span>
+                              <StatusBadge status={allocation.status} />
                             </div>
                             <div className="text-muted">
-                              {project.projectCode}
-                              {project.progressPercent != null
-                                ? ` · ${project.progressPercent}% complete`
-                                : ""}
+                              {allocation.role ? `${allocation.role} · ` : ""}
+                              <RecordLink module="allocation" id={allocation.id}>
+                                {allocation.startDate} – {allocation.endDate}
+                              </RecordLink>
+                              {allocation.allocationPercentage != null ? ` · ${allocation.allocationPercentage}%` : ""}
+                              {allocation.allocatedHours != null ? ` · ${allocation.allocatedHours}h` : ""}
                             </div>
+                            {allocation.warning ? <div className="text-warning">{allocation.warning}</div> : null}
                           </li>
                         ))}
-                        {!relatedProjects.length ? (
-                          <li className="text-muted">No allocated projects</li>
-                        ) : null}
                       </ul>
-                      {canViewProjects ? (
-                        <Link className="small" to="/projects">
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  <ResourceTimesheetsCard
+                    resourceId={selectedResource.id}
+                    periodStart={monthRange.periodStart}
+                    periodEnd={monthRange.periodEnd}
+                    projectName={projectName}
+                    canViewTimesheets={canViewTimesheets}
+                  />
+
+                  {canViewExpenses ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-expenses"
+                      title={`Expenses (${resourceExpensesQuery.data?.length ?? 0})`}
+                      isEmpty={!resourceExpensesQuery.isLoading && !(resourceExpensesQuery.data ?? []).length}
+                      emptyLabel="No records found"
+                    >
+                      <RelatedRecordList
+                        module="expense"
+                        loading={resourceExpensesQuery.isLoading}
+                        items={(resourceExpensesQuery.data ?? []).map((expense) => ({
+                          id: expense.id,
+                          label: expense.category,
+                          secondary: [
+                            `${expense.amount.toLocaleString()} ${expense.currencyCode}`,
+                            expense.projectId ? projectName(expense.projectId) : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · "),
+                          trailing: <StatusBadge status={expense.status} />,
+                        }))}
+                      />
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  {canViewProjects ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-projects"
+                      title={`Projects (${relatedProjects.length})`}
+                      isEmpty={!projectsQuery.isLoading && !allocationsQuery.isLoading && !relatedProjects.length}
+                      emptyLabel="No records found"
+                      actions={
+                        <Link className="btn btn-outline-secondary btn-sm" to="/projects">
                           Open Projects
                         </Link>
-                      ) : null}
-                    </RecordSection>
-                    {canViewTasks ? (
-                      <RecordSection title={`Assigned tasks (${assignedTasksQuery.data?.length ?? 0})`}>
-                        {assignedTasksQuery.isLoading ? (
-                          <LoadingState label="Loading tasks…" workspace />
-                        ) : null}
-                        <ul className="list-unstyled small mb-0">
-                          {(assignedTasksQuery.data ?? []).map((task) => (
-                            <li key={task.id} className="mb-1">
-                              {task.name} — <StatusBadge status={task.status} />
-                              {task.dueDate ? ` · due ${task.dueDate}` : ""}
-                            </li>
-                          ))}
-                          {!assignedTasksQuery.data?.length ? (
-                            <li className="text-muted">No assigned tasks</li>
-                          ) : null}
-                        </ul>
-                        <Link className="small" to="/tasks">
+                      }
+                    >
+                      <RelatedRecordList
+                        module="project"
+                        items={relatedProjects.map((project) => ({
+                          id: project.id,
+                          label: project.name,
+                          secondary: `${project.projectCode}${
+                            project.progressPercent != null ? ` · ${project.progressPercent}% complete` : ""
+                          }`,
+                          trailing: (
+                            <span className="d-flex gap-1">
+                              <StatusBadge status={project.status} />
+                              {project.health ? <StatusBadge status={project.health} /> : null}
+                            </span>
+                          ),
+                        }))}
+                      />
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  {canViewTasks ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-tasks"
+                      title={`Assigned Tasks (${assignedTasksQuery.data?.length ?? 0})`}
+                      isEmpty={!assignedTasksQuery.isLoading && !(assignedTasksQuery.data ?? []).length}
+                      emptyLabel="No records found"
+                      actions={
+                        <Link className="btn btn-outline-secondary btn-sm" to="/tasks">
                           Open Tasks
                         </Link>
-                      </RecordSection>
-                    ) : null}
-                  </>,
-                  { visible: canViewProjects || canViewTasks },
-                ),
-                recordTimelineTab(<TechEarnestRecordTimeline entries={timelineEntries} />, {
-                  visible: canViewActivities,
+                      }
+                    >
+                      <RelatedRecordList
+                        module="task"
+                        items={(assignedTasksQuery.data ?? []).map((task) => ({
+                          id: task.id,
+                          label: task.name,
+                          secondary: [projectName(task.projectId), task.dueDate ? `due ${task.dueDate}` : null]
+                            .filter(Boolean)
+                            .join(" · "),
+                          trailing: <StatusBadge status={task.status} />,
+                        }))}
+                      />
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  {canViewActivities ? (
+                    <>
+                      <TechEarnestRecordRelatedCard
+                        id="techearnest-record-section-open-activities"
+                        title="Open Activities"
+                        isEmpty={!openActivities.length}
+                        emptyLabel="No records found"
+                      >
+                        <RelatedRecordList
+                          module="activity"
+                          items={openActivities.map((activity) => ({
+                            id: activity.id,
+                            label: activity.subject,
+                            trailing: <StatusBadge status={activity.status} />,
+                          }))}
+                        />
+                      </TechEarnestRecordRelatedCard>
+                      <TechEarnestRecordRelatedCard
+                        id="techearnest-record-section-closed-activities"
+                        title="Closed Activities"
+                        isEmpty={!closedActivities.length}
+                        emptyLabel="No records found"
+                      >
+                        <RelatedRecordList
+                          module="activity"
+                          items={closedActivities.map((activity) => ({
+                            id: activity.id,
+                            label: activity.subject,
+                            trailing: <StatusBadge status={activity.status} />,
+                          }))}
+                        />
+                      </TechEarnestRecordRelatedCard>
+                    </>
+                  ) : null}
+                </>
+                  ),
+                },
+                {
+                  id: "portal",
+                  label: "Portal & timesheets",
+                  visible: canInvitePortal || canSendTimesheetLink,
+                  content: <ResourcePortalPanel key={selectedResource.id} resource={selectedResource} />,
+                },
+                {
                   id: "timeline",
-                }),
+                  label: "Timeline",
+                  visible: true,
+                  content: (
+                    <TechEarnestRecordTimeline entries={timelineEntries} loading={activitiesQuery.isLoading} />
+                  ),
+                },
               ]}
             />
 
@@ -910,7 +1328,7 @@ export function ResourcesPage() {
               className="form-control form-control-sm"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Code or designation"
+              placeholder="Name, email, code or designation"
             />
           </div>
           <div className="module-filter-section">
@@ -921,6 +1339,12 @@ export function ResourcesPage() {
           </div>
         </>
       }
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+        setRegionFilter("");
+        setSkillFilter("");
+      }}
       recordCount={rows.length}
     >
       {resourcesQuery.isLoading ? <LoadingState label="Loading resources..." /> : null}
@@ -949,6 +1373,7 @@ export function ResourcesPage() {
                 { field: "regionId", label: "Region" },
                 { field: "capacityHoursPerWeek", label: "Capacity" },
                 { field: "status", label: "Status" },
+                { field: "loginStatus", label: "Login" },
                 ...(canViewCostRate ? [{ field: "costRate", label: "Cost rate" }] : []),
                 ...(canViewBillingRate ? [{ field: "billingRate", label: "Billing rate" }] : []),
               ]}
@@ -966,13 +1391,16 @@ export function ResourcesPage() {
                 if (field === "capacityHoursPerWeek") return resource.capacityHoursPerWeek != null ? `${resource.capacityHoursPerWeek}h` : "—";
                 if (field === "costRate" || field === "billingRate") return formatRate((resource as unknown as Record<string, number | null>)[field]);
                 if (field === "createdAt" || field === "updatedAt") return formatDateTime(resource[field]);
+                if (field === "loginStatus") return <LoginStatusBadge status={resource.loginStatus} />;
+                if (field === "accessExpiresAt") return resource.accessExpiresAt ? new Date(resource.accessExpiresAt).toLocaleDateString() : "—";
                 if (field === "userId") return resource.employeeName ?? "—";
                 if (field === "managerId") return resource.managerName ?? "—";
                 if (field === "departmentId") return resource.departmentName ?? "—";
+                if (field === "resourceType") return <ResourceTypeBadge type={resource.resourceType} />;
                 const value = (resource as unknown as Record<string, unknown>)[field];
                 return value == null || value === "" ? "—" : String(value);
               }}
-              nameFields={["employeeName", "employeeCode", "designation"]}
+              nameFields={["employeeName", "fullName", "employeeCode", "designation"]}
               excludedFields={[...(!canViewCostRate ? ["costRate"] : []), ...(!canViewBillingRate ? ["billingRate"] : [])]}
               emptyMessage="No resources match the current filters."
             />
@@ -990,7 +1418,7 @@ export function ResourcesPage() {
                 >
                   <div className="tile-title">{resourceTitle(resource)}</div>
                   <div className="small text-muted">
-                    {resource.resourceType} · {resource.status}
+                    {resourceTypeLabel(resource.resourceType)} · {resource.status}
                   </div>
                 </button>
               ))}

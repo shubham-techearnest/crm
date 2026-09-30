@@ -1,4 +1,6 @@
 import { FormField } from "@/components/FormField/FormField";
+import { RecordLink, RelatedRecordList } from "@/components/RecordLink";
+import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import {
   TechEarnestDealStagePipeline,
   TechEarnestRecordInfoSection,
@@ -6,7 +8,7 @@ import {
   TechEarnestRecordSummaryStrip,
   formatDealStage,
 } from "@/components/TechEarnestRecord";
-import type { Deal } from "./crmApi";
+import type { Activity, Deal, DealStageHistoryEntry } from "./crmApi";
 
 const DEAL_STAGES = [
   "NEW",
@@ -28,17 +30,30 @@ function expectedRevenue(deal: Deal) {
   return formatMoney((deal.value * deal.probability) / 100);
 }
 
+function formatDate(value: string | null | undefined) {
+  return value ? new Date(value).toLocaleDateString() : "—";
+}
+
 export interface DealRecordOverviewProps {
   deal: Deal;
   ownerName: string;
   accountName: string;
   contactName?: string;
+  contactEmail?: string | null;
+  userName: (userId: string | null | undefined) => string;
+  stageHistory: DealStageHistoryEntry[];
+  activities: Activity[] | null;
+  /** Projects created from this deal; null hides the section (no permission). */
+  projects?: { id: string; name: string; projectCode?: string | null; status: string }[] | null;
+  leadName?: string | null;
   canStage: boolean;
   canCreateProject: boolean;
   canViewNotes: boolean;
   canCreateNotes: boolean;
+  canDeleteNotes: boolean;
   canViewDocs: boolean;
   canUploadDocs: boolean;
+  canDeleteDocs: boolean;
   stageError: string | null;
   projectError: string | null;
   projectSuccess: string | null;
@@ -55,8 +70,10 @@ export interface DealRecordOverviewProps {
   onStageClick: (stage: string) => void;
   onCreateProject: () => void;
   onSaveNote: () => void;
+  onDeleteNote: (id: string) => void;
   onUploadDocument: (file: File) => void;
-  onDownloadDocument: (id: string) => void;
+  onDownloadDocument: (id: string, fileName: string) => void;
+  onDeleteDocument: (id: string) => void;
 }
 
 export function DealRecordOverview({
@@ -64,12 +81,20 @@ export function DealRecordOverview({
   ownerName,
   accountName,
   contactName,
+  contactEmail,
+  userName,
+  stageHistory,
+  activities,
+  projects = null,
+  leadName,
   canStage,
   canCreateProject,
   canViewNotes,
   canCreateNotes,
+  canDeleteNotes,
   canViewDocs,
   canUploadDocs,
+  canDeleteDocs,
   stageError,
   projectError,
   projectSuccess,
@@ -86,9 +111,15 @@ export function DealRecordOverview({
   onStageClick,
   onCreateProject,
   onSaveNote,
+  onDeleteNote,
   onUploadDocument,
   onDownloadDocument,
+  onDeleteDocument,
 }: DealRecordOverviewProps) {
+  const openActivities = (activities ?? []).filter((activity) => activity.status !== "COMPLETED");
+  const closedActivities = (activities ?? []).filter((activity) => activity.status === "COMPLETED");
+  const history = [...stageHistory].sort((a, b) => b.changedAt.localeCompare(a.changedAt));
+
   return (
     <>
       <TechEarnestDealStagePipeline
@@ -116,8 +147,18 @@ export function DealRecordOverview({
             {contactName.slice(0, 1).toUpperCase()}
           </div>
           <div>
-            <div className="techearnest-deal-contact-name">{contactName}</div>
-            <div className="techearnest-deal-contact-account">at {accountName}</div>
+            <div className="techearnest-deal-contact-name">
+              <RecordLink module="contact" id={deal.contactId}>
+                {contactName}
+              </RecordLink>
+            </div>
+            <div className="techearnest-deal-contact-account">
+              at{" "}
+              <RecordLink module="account" id={deal.accountId}>
+                {accountName}
+              </RecordLink>
+              {contactEmail ? <> · {contactEmail}</> : null}
+            </div>
           </div>
         </div>
       ) : null}
@@ -128,20 +169,47 @@ export function DealRecordOverview({
           { label: "Deal Owner", value: ownerName },
           { label: "Amount", value: formatMoney(deal.value) },
           { label: "Deal Name", value: deal.name },
-          { label: "Closing Date", value: deal.expectedCloseDate ? new Date(deal.expectedCloseDate).toLocaleDateString() : "—" },
-          { label: "Account Name", value: <span className="techearnest-record-link">{accountName}</span> },
-          { label: "Stage", value: formatDealStage(deal.stage) },
-          { label: "Type", value: deal.source ?? "—" },
-          { label: "Probability (%)", value: deal.probability ?? "—" },
-          { label: "Next Step", value: "—" },
-          { label: "Expected Revenue", value: expectedRevenue(deal) },
-          { label: "Lead Source", value: deal.source ?? "—" },
-          { label: "Campaign Source", value: deal.competitor ?? "—" },
-          { label: "Contact Name", value: contactName ? <span className="techearnest-record-link">{contactName}</span> : "—" },
+          { label: "Closing Date", value: formatDate(deal.expectedCloseDate) },
           {
-            label: "Created By",
-            value: `${new Date(deal.createdAt).toLocaleString()}`,
+            label: "Account Name",
+            value: (
+              <RecordLink module="account" id={deal.accountId}>
+                {accountName}
+              </RecordLink>
+            ),
           },
+          { label: "Stage", value: formatDealStage(deal.stage) },
+          {
+            label: "Contact Name",
+            value: contactName ? (
+              <RecordLink module="contact" id={deal.contactId}>
+                {contactName}
+              </RecordLink>
+            ) : (
+              "—"
+            ),
+          },
+          { label: "Probability (%)", value: deal.probability ?? "—" },
+          { label: "Lead Source", value: deal.source ?? "—" },
+          ...(deal.leadId
+            ? [
+                {
+                  label: "Converted From Lead",
+                  value: (
+                    <RecordLink module="lead" id={deal.leadId}>
+                      {leadName ?? "Open lead"}
+                    </RecordLink>
+                  ),
+                },
+              ]
+            : []),
+          { label: "Expected Revenue", value: expectedRevenue(deal) },
+          { label: "Competitor", value: deal.competitor ?? "—" },
+          ...(deal.wonAt ? [{ label: "Won On", value: formatDate(deal.wonAt) }] : []),
+          ...(deal.lostAt ? [{ label: "Lost On", value: formatDate(deal.lostAt) }] : []),
+          ...(deal.lostReason ? [{ label: "Lost Reason", value: deal.lostReason }] : []),
+          { label: "Created", value: new Date(deal.createdAt).toLocaleString() },
+          { label: "Modified", value: new Date(deal.updatedAt).toLocaleString() },
         ]}
       />
 
@@ -179,29 +247,36 @@ export function DealRecordOverview({
         id="techearnest-record-section-stage-history"
         title="Stage History"
         isEmpty={false}
-        actions={<span className="badge text-bg-light">{DEAL_STAGES.indexOf(deal.stage as (typeof DEAL_STAGES)[number]) + 1}</span>}
+        actions={<span className="badge text-bg-light">{history.length || 1}</span>}
       >
         <div className="table-responsive">
           <table className="table table-sm techearnest-record-table mb-0">
             <thead>
               <tr>
-                <th>Stage</th>
-                <th>Amount</th>
-                <th>Probability (%)</th>
-                <th>Expected Revenue</th>
-                <th>Closing Date</th>
-                <th>Modified Time</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Changed By</th>
+                <th>Changed At</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td>{formatDealStage(deal.stage)}</td>
-                <td>{formatMoney(deal.value)}</td>
-                <td>{deal.probability ?? "—"}</td>
-                <td>{expectedRevenue(deal)}</td>
-                <td>{deal.expectedCloseDate ? new Date(deal.expectedCloseDate).toLocaleDateString() : "—"}</td>
-                <td>{new Date(deal.updatedAt).toLocaleString()}</td>
-              </tr>
+              {history.length ? (
+                history.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{entry.fromStage ? formatDealStage(entry.fromStage) : "—"}</td>
+                    <td>{formatDealStage(entry.toStage)}</td>
+                    <td>{userName(entry.changedBy)}</td>
+                    <td>{new Date(entry.changedAt).toLocaleString()}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td>—</td>
+                  <td>{formatDealStage(deal.stage)}</td>
+                  <td>{ownerName}</td>
+                  <td>{new Date(deal.createdAt).toLocaleString()}</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -211,8 +286,60 @@ export function DealRecordOverview({
         {deal.competitor ? <div>{deal.competitor}</div> : null}
       </TechEarnestRecordRelatedCard>
 
-      <TechEarnestRecordRelatedCard id="techearnest-record-section-open-activities" title="Open Activities" isEmpty emptyLabel="No records found" />
-      <TechEarnestRecordRelatedCard id="techearnest-record-section-closed-activities" title="Closed Activities" isEmpty emptyLabel="No records found" />
+      {activities ? (
+        <>
+          <TechEarnestRecordRelatedCard
+            id="techearnest-record-section-open-activities"
+            title="Open Activities"
+            isEmpty={!openActivities.length}
+            emptyLabel="No records found"
+          >
+            <RelatedRecordList
+              module="activity"
+              items={openActivities.map((activity) => ({
+                id: activity.id,
+                label: activity.subject,
+                secondary: activity.dueDate ? `due ${formatDate(activity.dueDate)}` : undefined,
+                trailing: <StatusBadge status={activity.status} />,
+              }))}
+            />
+          </TechEarnestRecordRelatedCard>
+          <TechEarnestRecordRelatedCard
+            id="techearnest-record-section-closed-activities"
+            title="Closed Activities"
+            isEmpty={!closedActivities.length}
+            emptyLabel="No records found"
+          >
+            <RelatedRecordList
+              module="activity"
+              items={closedActivities.map((activity) => ({
+                id: activity.id,
+                label: activity.subject,
+                trailing: <StatusBadge status={activity.status} />,
+              }))}
+            />
+          </TechEarnestRecordRelatedCard>
+        </>
+      ) : null}
+
+      {projects ? (
+        <TechEarnestRecordRelatedCard
+          id="techearnest-record-section-projects"
+          title="Projects"
+          isEmpty={!projects.length}
+          emptyLabel="No projects created from this deal"
+        >
+          <RelatedRecordList
+            module="project"
+            items={projects.map((project) => ({
+              id: project.id,
+              label: project.name,
+              secondary: project.projectCode ?? undefined,
+              trailing: <StatusBadge status={project.status} />,
+            }))}
+          />
+        </TechEarnestRecordRelatedCard>
+      ) : null}
 
       <TechEarnestRecordRelatedCard
         id="techearnest-record-section-contact-roles"
@@ -232,8 +359,16 @@ export function DealRecordOverview({
               </thead>
               <tbody>
                 <tr>
-                  <td><span className="techearnest-record-link">{contactName}</span></td>
-                  <td><span className="techearnest-record-link">{accountName}</span></td>
+                  <td>
+                    <RecordLink module="contact" id={deal.contactId}>
+                      {contactName}
+                    </RecordLink>
+                  </td>
+                  <td>
+                    <RecordLink module="account" id={deal.accountId}>
+                      {accountName}
+                    </RecordLink>
+                  </td>
                   <td>Primary Contact</td>
                 </tr>
               </tbody>
@@ -269,7 +404,14 @@ export function DealRecordOverview({
             {notes.map((note) => (
               <li key={note.id} className="mb-2 border-bottom pb-2">
                 <div>{note.body}</div>
-                <div className="text-muted">{new Date(note.createdAt).toLocaleString()}</div>
+                <div className="text-muted d-flex justify-content-between">
+                  <span>{new Date(note.createdAt).toLocaleString()}</span>
+                  {canDeleteNotes ? (
+                    <button type="button" className="btn btn-link btn-sm p-0" onClick={() => onDeleteNote(note.id)}>
+                      Delete
+                    </button>
+                  ) : null}
+                </div>
               </li>
             ))}
           </ul>
@@ -299,10 +441,19 @@ export function DealRecordOverview({
         >
           <ul className="list-unstyled small mb-0">
             {documents.map((doc) => (
-              <li key={doc.id} className="mb-2">
-                <button type="button" className="btn btn-link btn-sm p-0" onClick={() => onDownloadDocument(doc.id)}>
+              <li key={doc.id} className="mb-2 d-flex justify-content-between gap-2">
+                <button
+                  type="button"
+                  className="btn btn-link btn-sm p-0 text-start"
+                  onClick={() => onDownloadDocument(doc.id, doc.fileName)}
+                >
                   {doc.fileName}
                 </button>
+                {canDeleteDocs ? (
+                  <button type="button" className="btn btn-link btn-sm p-0 text-danger" onClick={() => onDeleteDocument(doc.id)}>
+                    Delete
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -310,6 +461,8 @@ export function DealRecordOverview({
       ) : null}
 
       <TechEarnestRecordRelatedCard id="techearnest-record-section-emails" title="Emails" isEmpty emptyLabel="No records found" />
+      <TechEarnestRecordRelatedCard id="techearnest-record-section-meetings" title="Invited Meetings" isEmpty emptyLabel="No records found" />
+      <TechEarnestRecordRelatedCard id="techearnest-record-section-social" title="Social" isEmpty emptyLabel="No records found" />
     </>
   );
 }

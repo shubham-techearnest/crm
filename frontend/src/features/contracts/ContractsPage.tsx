@@ -3,18 +3,20 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFilterSelect,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   useTechEarnestCreateFlow,
 } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterField, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
@@ -23,7 +25,10 @@ import { listRegions } from "@/features/admin/adminApi";
 import { listAccounts } from "@/features/crm/crmApi";
 import { listProjects } from "@/features/projects/projectApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { createContract, listContracts, queryContracts } from "./contractApi";
+import { useLocation } from "react-router-dom";
+import { RecordLink } from "@/components/RecordLink";
+import { readRecordNavState, useUrlRecordId } from "@/hooks/useUrlRecord";
+import { createContract, getContract, listContracts, queryContracts } from "./contractApi";
 import { buildContractFilterConditions, needsContractQuery } from "./contractFilterCatalog";
 
 const schema = z.object({
@@ -111,6 +116,17 @@ export function ContractsPage() {
   const accountsQuery = useQuery({ queryKey: ["crm", "accounts"], queryFn: () => listAccounts() });
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
+  const [selectedId, setSelectedId] = useUrlRecordId();
+  const location = useLocation();
+  const cameFrom = readRecordNavState(location.state)?.from;
+  const selectedFromRows = (contractsQuery.data ?? []).find((contract) => contract.id === selectedId) ?? null;
+  const selectedFetchQuery = useQuery({
+    queryKey: ["contracts", "record", selectedId],
+    queryFn: () => getContract(selectedId!),
+    enabled: !!selectedId && !!contractsQuery.data && !selectedFromRows,
+    retry: false,
+  });
+  const selected = selectedFromRows ?? (selectedFetchQuery.data?.id === selectedId ? selectedFetchQuery.data : null);
 
   const {
     register,
@@ -125,7 +141,6 @@ export function ContractsPage() {
 
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow({
@@ -133,6 +148,7 @@ export function ContractsPage() {
     reset,
     setShowForm,
     setFormError,
+    setSelected: (contract) => setSelectedId(contract.id),
   });
 
   const regionOptions = useMemo(
@@ -204,87 +220,110 @@ export function ContractsPage() {
             void handleSubmit(onCreateSubmit)();
           }}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
-          <FormSection title="Contract" description="Account, dates, value, renewal">
-            <div className="col-md-3">
-              <label className="form-label required">Region</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="regionId"
-                options={regionOptions}
-                searchPlaceholder="Search Regions"
-                allowEmpty={false}
-                placeholder="Select"
-                invalid={!!errors.regionId}
-              />
-              {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <label className="form-label required">Account</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="accountId"
-                options={accountOptions}
-                searchPlaceholder="Search Accounts"
-                lookupIcon="building"
-                allowEmpty={false}
-                placeholder="Select"
-                invalid={!!errors.accountId}
-              />
-              {errors.accountId ? <div className="invalid-feedback d-block">{errors.accountId.message}</div> : null}
-            </div>
-            <div className="col-md-3">
-              <FormField label="Name" required error={errors.name} {...register("name")} />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Number" error={errors.contractNumber} {...register("contractNumber")} />
-            </div>
-            <div className="col-md-2">
-              <FormField label="Value" type="number" error={errors.valueAmount} {...register("valueAmount")} />
-            </div>
-            <div className="col-md-2">
-              <FormField label="Start" type="date" error={errors.startDate} {...register("startDate")} />
-            </div>
-            <div className="col-md-2">
-              <FormField label="End" type="date" error={errors.endDate} {...register("endDate")} />
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="Notice days"
-                type="number"
-                error={errors.renewalNoticeDays}
-                {...register("renewalNoticeDays")}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="status"
-                options={contractStatusOptions}
-                searchPlaceholder="Search Statuses"
-                allowEmpty={false}
-              />
-            </div>
-            <div className="col-md-2 form-check mt-4">
-              <input className="form-check-input" type="checkbox" id="autoRenew" {...register("autoRenew")} />
-              <label className="form-check-label" htmlFor="autoRenew">
-                Auto renew
-              </label>
-            </div>
-            <div className="col-md-4">
-              <label className="form-label">Project</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="projectId"
-                options={projectOptions}
-                searchPlaceholder="Search Projects"
-                lookupIcon="apps"
-                placeholder="Optional"
-              />
-            </div>
-          </FormSection>
+          <TechEarnestCreateSection title="Contract Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Contract Name" required error={errors.name?.message}>
+                  <input
+                    type="text"
+                    className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
+                    {...register("name")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Contract Number" error={errors.contractNumber?.message}>
+                  <input
+                    type="text"
+                    className={`form-control form-control-sm${errors.contractNumber ? " is-invalid" : ""}`}
+                    {...register("contractNumber")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Account Name" required error={errors.accountId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="accountId"
+                    options={accountOptions}
+                    searchPlaceholder="Search Accounts"
+                    lookupIcon="building"
+                    allowEmpty={false}
+                    placeholder="Select account"
+                    invalid={!!errors.accountId}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Project" error={errors.projectId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="projectId"
+                    options={projectOptions}
+                    searchPlaceholder="Search Projects"
+                    lookupIcon="apps"
+                    placeholder="Optional"
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Region" required error={errors.regionId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="regionId"
+                    options={regionOptions}
+                    searchPlaceholder="Search Regions"
+                    allowEmpty={false}
+                    placeholder="Select region"
+                    invalid={!!errors.regionId}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Status" error={errors.status?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="status"
+                    options={contractStatusOptions}
+                    searchPlaceholder="Search Statuses"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Start Date" error={errors.startDate?.message}>
+                  <input
+                    type="date"
+                    className={`form-control form-control-sm${errors.startDate ? " is-invalid" : ""}`}
+                    {...register("startDate")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="End Date" error={errors.endDate?.message}>
+                  <input
+                    type="date"
+                    className={`form-control form-control-sm${errors.endDate ? " is-invalid" : ""}`}
+                    {...register("endDate")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Contract Value" error={errors.valueAmount?.message}>
+                  <input
+                    type="number"
+                    className={`form-control form-control-sm${errors.valueAmount ? " is-invalid" : ""}`}
+                    {...register("valueAmount")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Notice Period (Days)" error={errors.renewalNoticeDays?.message}>
+                  <input
+                    type="number"
+                    className={`form-control form-control-sm${errors.renewalNoticeDays ? " is-invalid" : ""}`}
+                    {...register("renewalNoticeDays")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Auto Renew">
+                  <div className="form-check techearnest-checkbox-field">
+                    <input type="checkbox" className="form-check-input" id="autoRenew" {...register("autoRenew")} />
+                  </div>
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Description Information">
+            <TechEarnestCreateField label="Terms" wide error={errors.terms?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...register("terms")} />
+            </TechEarnestCreateField>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
@@ -322,28 +361,81 @@ export function ContractsPage() {
             />
           </div>
           <div className="module-filter-section">
+            <h3>Filter by fields</h3>
             <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={contractFilterStatusOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search contract statuses" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Account" value={accountFilter} onChange={setAccountFilter} options={accountOptions} placeholder="All accounts" emptyLabel="All accounts" searchPlaceholder="Search accounts" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Auto renew" value={autoRenewFilter} onChange={(value) => setAutoRenewFilter(value as "" | "true" | "false")} options={autoRenewFilterOptions} placeholder="All" emptyLabel="All" searchPlaceholder="Search options" />
-          </div>
-          <div className="module-filter-section">
-            <h3>Expiry within (days)</h3>
-            <input
-              className="form-control form-control-sm"
-              type="number"
-              value={expiryWithinDays}
-              onChange={(e) => setExpiryWithinDays(e.target.value)}
-              placeholder="e.g. 30"
-            />
+            <ModuleFilterField label="Expiry within (days)" htmlFor="contractExpiryWithinFilter">
+              <input
+                id="contractExpiryWithinFilter"
+                className="form-control form-control-sm"
+                type="number"
+                value={expiryWithinDays}
+                onChange={(e) => setExpiryWithinDays(e.target.value)}
+                placeholder="e.g. 30"
+              />
+            </ModuleFilterField>
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+        setAccountFilter("");
+        setAutoRenewFilter("");
+        setExpiryWithinDays("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
+      {selected ? (
+        <div className="border-bottom bg-white p-3">
+          {cameFrom ? (
+            <button type="button" className="techearnest-record-return mb-2" onClick={() => setSelectedId(null)}>
+              <span aria-hidden="true">‹</span> Back to {cameFrom.label || "previous page"}
+            </button>
+          ) : null}
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div>
+              <h2 className="h6 mb-1">
+                {selected.contractNumber ? `${selected.contractNumber} · ` : ""}
+                {selected.name}
+              </h2>
+              <div className="small text-muted d-flex flex-wrap gap-2 align-items-center">
+                <StatusBadge status={selected.status} />
+                <span>
+                  Account{" "}
+                  <RecordLink module="account" id={selected.accountId}>
+                    {accountName(selected.accountId)}
+                  </RecordLink>
+                </span>
+                {selected.projectId ? (
+                  <span>
+                    Project{" "}
+                    <RecordLink module="project" id={selected.projectId}>
+                      {projectsQuery.data?.find((project) => project.id === selected.projectId)?.name ?? "Open project"}
+                    </RecordLink>
+                  </span>
+                ) : null}
+                <span>
+                  {selected.startDate ?? "—"} – {selected.endDate ?? "—"}
+                </span>
+                {selected.valueAmount != null ? (
+                  <span>
+                    {selected.currencyCode} {selected.valueAmount.toLocaleString()}
+                  </span>
+                ) : null}
+                <span>{selected.autoRenew ? `Auto-renews (${selected.renewalNoticeDays}d notice)` : "No auto-renew"}</span>
+              </div>
+              {selected.terms ? <p className="small mb-0 mt-2">{selected.terms}</p> : null}
+            </div>
+            <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setSelectedId(null)}>
+              Close
+            </button>
+          </div>
+        </div>
+      ) : null}
       {contractsQuery.isLoading ? <LoadingState label="Loading contracts..." /> : null}
       {contractsQuery.error ? <ErrorState title="Unable to load contracts" message="Try again." /> : null}
       {!contractsQuery.isLoading && !contractsQuery.error ? (
@@ -359,8 +451,15 @@ export function ContractsPage() {
           ]}
           rows={rows}
           rowKey={(contract) => contract.id}
+          selectedRowKey={selectedId}
+          onRowClick={(contract) => setSelectedId(contract.id)}
           renderCell={(contract, field) => {
-            if (field === "accountId") return accountName(contract.accountId);
+            if (field === "accountId")
+              return (
+                <RecordLink module="account" id={contract.accountId}>
+                  {accountName(contract.accountId)}
+                </RecordLink>
+              );
             if (field === "status") return <StatusBadge status={contract.status} />;
             if (field === "valueAmount") return contract.valueAmount != null ? `${contract.currencyCode} ${contract.valueAmount}` : "—";
             if (field === "autoRenew") return contract.autoRenew ? "Yes" : "No";

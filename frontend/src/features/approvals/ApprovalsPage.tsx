@@ -8,6 +8,7 @@ import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { EntityRecordLink, useEntityNames } from "@/components/RecordLink";
 import { actOnApproval, listApprovalRequests } from "./approvalApi";
 
 const APPROVAL_TYPES = enumPickerOptions(["TIMESHEET", "DEAL", "EXPENSE", "PURCHASE_ORDER"]);
@@ -38,6 +39,12 @@ export function ApprovalsPage() {
     queryKey: ["approvals", listParams],
     queryFn: () => listApprovalRequests(listParams),
   });
+
+  const approvalTargets = useMemo(
+    () => (query.data ?? []).map((row) => ({ entityType: row.targetType, entityId: row.targetId })),
+    [query.data],
+  );
+  const entityName = useEntityNames(approvalTargets);
 
   const actMutation = useMutation({
     mutationFn: ({
@@ -100,6 +107,7 @@ export function ApprovalsPage() {
             />
           </div>
           <div className="module-filter-section">
+            <h3>Filter by fields</h3>
             <TechEarnestFilterSelect
               label="Type"
               value={targetType}
@@ -109,8 +117,6 @@ export function ApprovalsPage() {
               emptyLabel="All types"
               searchPlaceholder="Search approval types"
             />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect
               label="Status"
               value={status}
@@ -123,6 +129,13 @@ export function ApprovalsPage() {
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setTargetType("");
+        setStatus("PENDING");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {actionError ? <div className="alert alert-danger m-3 py-2">{actionError}</div> : null}
@@ -142,7 +155,12 @@ export function ApprovalsPage() {
           rows={rows}
           rowKey={(row) => row.id}
           renderCell={(row, field) => {
-            if (field === "targetId") return <span className="small text-muted">{row.targetId.slice(0, 8)}…</span>;
+            if (field === "targetId")
+              return (
+                <EntityRecordLink entityType={row.targetType} id={row.targetId}>
+                  {entityName(row.targetType, row.targetId)}
+                </EntityRecordLink>
+              );
             if (field === "submittedAt") return <span className="small">{new Date(row.submittedAt).toLocaleString()}</span>;
             if (field === "status") return <StatusBadge status={row.status} />;
             if (field === "comment") return row.status === "PENDING" && canAct ? (

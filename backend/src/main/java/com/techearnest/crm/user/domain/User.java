@@ -67,6 +67,9 @@ public class User {
     @Column(name = "last_login_at")
     private Instant lastLoginAt;
 
+    @Column(name = "access_expires_at")
+    private Instant accessExpiresAt;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -249,6 +252,27 @@ public class User {
 
     public void deactivate() {
         this.status = "DEACTIVATED";
+    }
+
+    public Instant getAccessExpiresAt() {
+        return accessExpiresAt;
+    }
+
+    public void setAccessExpiresAt(Instant accessExpiresAt) {
+        this.accessExpiresAt = accessExpiresAt;
+    }
+
+    public boolean isAccessExpired(Instant now) {
+        return accessExpiresAt != null && !accessExpiresAt.isAfter(now);
+    }
+
+    public void acceptInvite(String passwordHash) {
+        this.passwordHash = passwordHash;
+        this.status = "ACTIVE";
+    }
+
+    public void reinvite() {
+        this.status = "INVITED";
     }
 
     public void markDeleted() {

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterDateRange, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -10,6 +10,7 @@ import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listUsers } from "@/features/admin/adminApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import { deleteDocument, documentDownloadUrl, listDocuments, uploadDocument, type DocumentMeta } from "@/features/crm/foundationApi";
+import { EntityRecordLink, useEntityNames } from "@/components/RecordLink";
 
 const ENTITY_TYPES = ["LEAD", "ACCOUNT", "CONTACT", "DEAL", "PROJECT", "ACTIVITY"] as const;
 
@@ -52,6 +53,7 @@ export function DocumentsPage() {
     queryFn: () => listUsers(),
     enabled: canViewUsers,
   });
+  const entityName = useEntityNames(docsQuery.data);
 
   const uploadMutation = useMutation({
     mutationFn: (file: File) =>
@@ -152,23 +154,26 @@ export function DocumentsPage() {
                 ...(usersQuery.data ?? []).map((user) => ({ value: user.id, label: `${user.firstName} ${user.lastName}`.trim(), subtitle: user.email ?? undefined })),
               ]} placeholder="All users" emptyLabel="All users" searchPlaceholder="Search users" />
             ) : null}
-            <label className="form-label small mb-1">Created from</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              type="date"
-              value={createdFrom}
-              onChange={(e) => setCreatedFrom(e.target.value)}
-            />
-            <label className="form-label small mb-1">Created to</label>
-            <input
-              className="form-control form-control-sm"
-              type="date"
-              value={createdTo}
-              onChange={(e) => setCreatedTo(e.target.value)}
+            <ModuleFilterDateRange
+              label="Created"
+              from={createdFrom}
+              to={createdTo}
+              onFromChange={setCreatedFrom}
+              onToChange={setCreatedTo}
             />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setEntityType("");
+        setVisibility("");
+        setUploadedBy("");
+        setCreatedFrom("");
+        setCreatedTo("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {showUpload ? (
@@ -243,7 +248,12 @@ export function DocumentsPage() {
           rowKey={(doc) => doc.id}
           onRowClick={(doc) => void openDownload(doc.id, doc.fileName)}
           renderCell={(doc, field) => {
-            if (field === "entityId") return <>{doc.entityType} · <code className="small">{doc.entityId.slice(0, 8)}…</code></>;
+            if (field === "entityId")
+              return (
+                <EntityRecordLink entityType={doc.entityType} id={doc.entityId}>
+                  {entityName(doc.entityType, doc.entityId)}
+                </EntityRecordLink>
+              );
             if (field === "createdAt") return <span className="small">{new Date(doc.createdAt).toLocaleString()}</span>;
             const value = (doc as unknown as Record<string, unknown>)[field];
             return value == null || value === "" ? "—" : String(value);

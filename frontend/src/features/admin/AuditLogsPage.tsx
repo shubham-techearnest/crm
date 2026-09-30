@@ -1,11 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import {
+  ModuleFilterDateRange,
+  ModuleFilterField,
+  ModuleListShell,
+} from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { EntityRecordLink } from "@/components/RecordLink";
 import { listAuditLogs, listRegions, listUsers } from "./adminApi";
 
 const ACTIONS = [
@@ -108,48 +113,41 @@ export function AuditLogsPage() {
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
             <TechEarnestFilterSelect label="Action" value={actionFilter} onChange={setActionFilter} options={ACTIONS.map((value) => ({ value, label: value }))} placeholder="All actions" emptyLabel="All actions" searchPlaceholder="Search audit actions" />
-            <label className="form-label small mb-1">Entity type</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              value={entityFilter}
-              onChange={(e) => setEntityFilter(e.target.value)}
-              placeholder="e.g. LEAD, SYS_FORM_LAYOUT"
-            />
+            <ModuleFilterField label="Entity type" htmlFor="auditEntityFilter">
+              <input
+                id="auditEntityFilter"
+                className="form-control form-control-sm"
+                value={entityFilter}
+                onChange={(e) => setEntityFilter(e.target.value)}
+                placeholder="e.g. LEAD, SYS_FORM_LAYOUT"
+              />
+            </ModuleFilterField>
             <TechEarnestFilterSelect label="User" value={userFilter} onChange={setUserFilter} options={(usersQuery.data ?? []).map((user) => ({ value: user.id, label: `${user.firstName} ${user.lastName}`.trim(), subtitle: user.email ?? undefined }))} placeholder="All users" emptyLabel="All users" searchPlaceholder="Search users" />
             <TechEarnestFilterSelect label="Region" value={regionFilter} onChange={setRegionFilter} options={(regionsQuery.data ?? []).map((region) => ({ value: region.id, label: region.name }))} placeholder="All regions" emptyLabel="All regions" searchPlaceholder="Search regions" />
-            <label className="form-label small mb-1">From date</label>
-            <input
-              type="date"
-              className="form-control form-control-sm mb-2"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-            <label className="form-label small mb-1">To date</label>
-            <input
-              type="date"
-              className="form-control form-control-sm"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
+            <ModuleFilterDateRange
+              label="Date"
+              from={fromDate}
+              to={toDate}
+              onFromChange={setFromDate}
+              onToChange={setToDate}
             />
           </div>
-          <button
-            type="button"
-            className="btn btn-link btn-sm px-0"
-            onClick={() => {
-              setSearch("");
-              setActionFilter("");
-              setEntityFilter("");
-              setUserFilter("");
-              setRegionFilter("");
-              setFromDate("");
-              setToDate("");
-            }}
-          >
-            Clear filters
-          </button>
           <p className="small text-muted mt-2 mb-0">Payload / secret fields are never shown.</p>
         </>
       }
+      activeFilterCount={
+        [search.trim(), actionFilter, entityFilter, userFilter, regionFilter, fromDate, toDate].filter(Boolean).length
+      }
+      onClearFilters={() => {
+        setSearch("");
+        setActionFilter("");
+        setEntityFilter("");
+        setUserFilter("");
+        setRegionFilter("");
+        setFromDate("");
+        setToDate("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {auditQuery.isLoading ? <LoadingState label="Loading audit logs..." /> : null}
@@ -174,7 +172,12 @@ export function AuditLogsPage() {
               rowKey={(log) => log.id}
               renderCell={(log, field) => {
                 if (field === "createdAt") return <span className="small">{new Date(log.createdAt).toLocaleString()}</span>;
-                if (field === "entityId") return <code className="small">{log.entityId ? `${log.entityId.slice(0, 8)}…` : "—"}</code>;
+                if (field === "entityId")
+                  return (
+                    <EntityRecordLink entityType={log.entityType} id={log.entityId}>
+                      <code className="small">{log.entityId?.slice(0, 8)}…</code>
+                    </EntityRecordLink>
+                  );
                 if (field === "userId") return userLabel(log.userId);
                 if (field === "regionId") return regionLabel(log.regionId);
                 if (field === "newValue") return log.newValue ? <code className="small">{log.newValue.length > 120 ? `${log.newValue.slice(0, 120)}…` : log.newValue}</code> : "—";

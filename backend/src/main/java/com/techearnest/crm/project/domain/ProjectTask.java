@@ -178,6 +178,10 @@ public class ProjectTask implements Persistable<UUID> {
         this.actualHours = (this.actualHours == null ? BigDecimal.ZERO : this.actualHours).add(hours);
     }
 
+    public void setActualHours(BigDecimal hours) {
+        this.actualHours = hours == null ? BigDecimal.ZERO : hours;
+    }
+
     public void setCompletionPercentage(BigDecimal completionPercentage) {
         this.completionPercentage = completionPercentage;
     }

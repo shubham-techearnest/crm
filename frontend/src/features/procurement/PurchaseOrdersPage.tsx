@@ -21,14 +21,24 @@ import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { useRecordNavigation } from "@/components/TechEarnestRecord";
+import {
+  buildTimelineEntries,
+  recordLifecycleInfo,
+  TechEarnestRecordInfoSection,
+  TechEarnestRecordRelatedCard,
+  TechEarnestRecordSummaryStrip,
+  TechEarnestRecordTimeline,
+  useRecordNavigation,
+} from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
-import { useHasPermission } from "@/features/auth/AuthContext";
-import { listRegions, listUsers } from "@/features/admin/adminApi";
+import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
+import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
 import { listProjects } from "@/features/projects/projectApi";
 import { listTaxRates } from "@/features/finance/taxApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useUrlRecordId } from "@/hooks/useUrlRecord";
+import { RecordLink } from "@/components/RecordLink";
 import { useBulkImport } from "@/features/import/useBulkImport";
 import { getVendor, listVendors } from "./vendorsApi";
 import {
@@ -96,6 +106,9 @@ const DEFAULTS: FormValues = {
 
 export function PurchaseOrdersPage() {
   const queryClient = useQueryClient();
+  const auth = useAuth();
+  const canViewAudit = useHasPermission("AUDIT_VIEW");
+  const canViewUsers = useHasPermission("USER_VIEW");
   const canCreate = useHasPermission("PO_CREATE");
   const canApprove = useHasPermission("PO_APPROVE");
   const canUpdate = useHasPermission("PO_UPDATE");
@@ -105,7 +118,7 @@ export function PurchaseOrdersPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [vendorFilter, setVendorFilter] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useUrlRecordId();
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [addDesc, setAddDesc] = useState("");
@@ -139,7 +152,7 @@ export function PurchaseOrdersPage() {
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => listUsers(),
-    enabled: showForm && canCreate,
+    enabled: (showForm && canCreate) || (!!selectedId && canViewUsers),
     retry: false,
   });
   const taxQuery = useQuery({
@@ -150,6 +163,11 @@ export function PurchaseOrdersPage() {
     queryKey: ["purchase-orders", selectedId],
     queryFn: () => getPurchaseOrder(selectedId!),
     enabled: !!selectedId,
+  });
+  const auditQuery = useQuery({
+    queryKey: ["admin", "audit-logs", "PURCHASE_ORDER", selectedId],
+    queryFn: () => listAuditLogs({ entityType: "PURCHASE_ORDER", entityId: selectedId!, size: 30 }),
+    enabled: !!selectedId && canViewAudit,
   });
 
   const {
@@ -164,7 +182,7 @@ export function PurchaseOrdersPage() {
   });
   const { fields, append, remove } = useFieldArray({ control, name: "items" });
 
-  const { photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
+  const { setSaveAndNew, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: DEFAULTS,
     reset,
     setShowForm,
@@ -290,6 +308,51 @@ export function PurchaseOrdersPage() {
       ?? id.slice(0, 8);
   const projectName = (id: string | null) =>
     id ? (projectsQuery.data?.find((p) => p.id === id)?.name ?? id.slice(0, 8)) : "—";
+  const selectedVendor = selected
+    ? (vendorsQuery.data?.find((vendor) => vendor.id === selected.vendorId)
+      ?? (selectedVendorQuery.data?.id === selected.vendorId ? selectedVendorQuery.data : undefined))
+    : undefined;
+  const regionName = (id: string) => regionsQuery.data?.find((r) => r.id === id)?.name ?? id.slice(0, 8);
+  const taxRateName = (id: string | null) => {
+    if (!id) return "—";
+    const rate = taxQuery.data?.find((t) => t.id === id);
+    return rate ? `${rate.code} (${rate.ratePercent}%)` : id.slice(0, 8);
+  };
+  const userLabel = useMemo(() => {
+    const map = new Map(
+      (usersQuery.data ?? []).map((user) => [user.id, `${user.firstName} ${user.lastName}`.trim()]),
+    );
+    return (id: string | null | undefined) =>
+      id ? (id === auth.userId ? auth.displayName : (map.get(id) ?? id.slice(0, 8))) : "—";
+  }, [usersQuery.data, auth.userId, auth.displayName]);
+  const timelineEntries = useMemo(
+    () =>
+      buildTimelineEntries(
+        auditQuery.data,
+        undefined,
+        userLabel,
+        recordLifecycleInfo("Purchase Order", selected ? { ...selected, ownerId: selected.requesterId } : null),
+      ),
+    [auditQuery.data, userLabel, selected],
+  );
+  const money = (value: number | null | undefined) =>
+    value == null ? "—" : `${selected?.currencyCode ?? ""} ${value}`.trim();
+  const canEditLines = !!selected && (selected.status === "DRAFT" || selected.status === "REJECTED");
+  const receivedSummary = selected?.items?.length
+    ? `${selected.items.reduce((sum, item) => sum + (item.receivedQty ?? 0), 0)} / ${selected.items.reduce(
+        (sum, item) => sum + item.quantity,
+        0,
+      )}`
+    : "—";
+  const openEditDetails = (po: PurchaseOrder) => {
+    setEditProjectId(po.projectId ?? "");
+    setEditNeededBy(po.neededBy ?? "");
+    setEditCurrencyCode(po.currencyCode);
+    setEditPoNumber(po.poNumber ?? "");
+    setEditNotes(po.notes ?? "");
+    setActionError(null);
+    setShowEditDetails(true);
+  };
   const activeFilterCount = [search, statusFilter, vendorFilter, projectFilter].filter(Boolean).length;
 
   const regionOptions = useMemo(
@@ -327,8 +390,12 @@ export function PurchaseOrdersPage() {
           formError={formError}
           onCancel={() => cancelCreate(isDirty)}
           onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
           <TechEarnestCreateSection title="Purchase Order Information">
             <TechEarnestCreateGrid>
@@ -409,8 +476,8 @@ export function PurchaseOrdersPage() {
                   <tr>
                     <th className="required">Description</th>
                     <th style={{ width: "7rem" }} className="required">Quantity</th>
-                    <th style={{ width: "9rem" }} className="required">Unit price</th>
-                    <th style={{ width: "12rem" }}>Tax rate</th>
+                    <th style={{ width: "9rem" }} className="required">Unit Price</th>
+                    <th style={{ width: "12rem" }}>Tax Rate</th>
                     <th style={{ width: "3rem" }} aria-label="Actions" />
                   </tr>
                 </thead>
@@ -510,73 +577,66 @@ export function PurchaseOrdersPage() {
             hasNext={recordNav.hasNext}
             relatedLinks={[...DEFAULT_RELATED_LINKS]}
             primaryAction={
+              selectedVendor?.email ? (
+                <a
+                  className="btn btn-primary btn-sm"
+                  href={`mailto:${selectedVendor.email}?subject=${encodeURIComponent(
+                    `Purchase Order ${selected.poNumber ?? ""}`.trim(),
+                  )}`}
+                >
+                  Send Email
+                </a>
+              ) : (
+                <button type="button" className="btn btn-primary btn-sm" disabled>
+                  Send Email
+                </button>
+              )
+            }
+            secondaryActions={
               <>
-                {canUpdate && selected.status === "DRAFT" ? (
+                <button
+                  type="button"
+                  className="btn btn-outline-secondary btn-sm"
+                  disabled={!canUpdate || selected.status !== "DRAFT"}
+                  onClick={() => openEditDetails(selected)}
+                >
+                  Edit
+                </button>
+                {selected.status === "DRAFT" || selected.status === "REJECTED" ? (
                   <button
                     type="button"
-                    className="btn btn-sm btn-outline-secondary"
-                    onClick={() => {
-                      setEditProjectId(selected.projectId ?? "");
-                      setEditNeededBy(selected.neededBy ?? "");
-                      setEditCurrencyCode(selected.currencyCode);
-                      setEditPoNumber(selected.poNumber ?? "");
-                      setEditNotes(selected.notes ?? "");
-                      setActionError(null);
-                      setShowEditDetails(true);
-                    }}
-                  >
-                    Edit details
-                  </button>
-                ) : null}
-                {canCreate && (selected.status === "DRAFT" || selected.status === "REJECTED") ? (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-primary"
-                    disabled={submitMutation.isPending}
+                    className="btn btn-outline-secondary btn-sm"
+                    disabled={!canCreate || submitMutation.isPending}
                     onClick={() => submitMutation.mutate(selected.id)}
                   >
                     Submit
                   </button>
                 ) : null}
-                {canApprove && selected.status === "PENDING_APPROVAL" ? (
+                {selected.status === "PENDING_APPROVAL" ? (
                   <button
                     type="button"
-                    className="btn btn-sm btn-success"
-                    disabled={approveMutation.isPending}
+                    className="btn btn-outline-success btn-sm"
+                    disabled={!canApprove || approveMutation.isPending}
                     onClick={() => approveMutation.mutate(selected.id)}
                   >
                     Approve
                   </button>
                 ) : null}
-                {canUpdate && selected.status === "APPROVED" ? (
+                {selected.status === "APPROVED" ? (
                   <button
                     type="button"
-                    className="btn btn-sm btn-outline-primary"
-                    disabled={sendMutation.isPending}
+                    className="btn btn-outline-secondary btn-sm"
+                    disabled={!canUpdate || sendMutation.isPending}
                     onClick={() => sendMutation.mutate(selected.id)}
                   >
-                    Send
+                    Send to Vendor
                   </button>
                 ) : null}
-              </>
-            }
-            secondaryActions={
-              <>
-                {canApprove && selected.status === "PENDING_APPROVAL" ? (
+                {selected.status === "SENT" || selected.status === "APPROVED" ? (
                   <button
                     type="button"
-                    className="btn btn-sm btn-outline-danger"
-                    disabled={rejectMutation.isPending || !rejectReason.trim()}
-                    onClick={() => rejectMutation.mutate({ id: selected.id, reason: rejectReason.trim() })}
-                  >
-                    Reject
-                  </button>
-                ) : null}
-                {canUpdate && (selected.status === "SENT" || selected.status === "APPROVED") ? (
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-outline-secondary"
-                    disabled={closeMutation.isPending}
+                    className="btn btn-outline-secondary btn-sm"
+                    disabled={!canUpdate || closeMutation.isPending}
                     onClick={() => closeMutation.mutate(selected.id)}
                   >
                     Close
@@ -592,35 +652,151 @@ export function PurchaseOrdersPage() {
                   <>
                     {actionError ? <div className="alert alert-danger py-2 small">{actionError}</div> : null}
                     {canApprove && selected.status === "PENDING_APPROVAL" ? (
-                      <div className="mb-3">
-                        <label className="form-label small">Rejection reason</label>
+                      <div className="alert alert-warning py-2 small d-flex flex-wrap align-items-center gap-2">
+                        <span className="fw-semibold">Awaiting approval.</span>
                         <input
-                          className="form-control form-control-sm"
+                          className="form-control form-control-sm flex-grow-1"
+                          style={{ maxWidth: "24rem" }}
                           value={rejectReason}
                           onChange={(e) => setRejectReason(e.target.value)}
-                          placeholder="Required to reject"
+                          placeholder="Rejection reason (required to reject)"
                         />
+                        <button
+                          type="button"
+                          className="btn btn-outline-danger btn-sm"
+                          disabled={rejectMutation.isPending || !rejectReason.trim()}
+                          onClick={() => rejectMutation.mutate({ id: selected.id, reason: rejectReason.trim() })}
+                        >
+                          Reject
+                        </button>
                       </div>
                     ) : null}
-                    <p className="small mb-1">Vendor: {vendorName(selected.vendorId)}</p>
-                    <p className="small mb-1">Project: {projectName(selected.projectId)}</p>
-                    <p className="small mb-1">Needed: {selected.neededBy ?? "—"}</p>
-                    <p className="small mb-3">
-                      Subtotal {selected.subtotal} · Tax {selected.taxTotal}
-                    </p>
-                    <h3 className="h6">Lines</h3>
-                    <ul className="small mb-3">
-                      {(selected.items ?? []).map((line) => (
-                        <li key={line.id}>
-                          {line.description} — {line.quantity} × {line.unitPrice} = {line.amount}
-                        </li>
-                      ))}
-                      {!selected.items?.length ? <li className="text-muted">No lines</li> : null}
-                    </ul>
-                    {canCreate && (selected.status === "DRAFT" || selected.status === "REJECTED") ? (
+
+                    <TechEarnestRecordSummaryStrip
+                      fields={[
+                        {
+                          label: "Vendor",
+                          value: (
+                            <RecordLink module="vendor" id={selected.vendorId}>
+                              {vendorName(selected.vendorId)}
+                            </RecordLink>
+                          ),
+                        },
+                        {
+                          label: "Project",
+                          value: (
+                            <RecordLink module="project" id={selected.projectId}>
+                              {projectName(selected.projectId)}
+                            </RecordLink>
+                          ),
+                        },
+                        { label: "Total", value: money(selected.total) },
+                        { label: "Needed By", value: selected.neededBy ?? "—" },
+                        { label: "Status", value: <StatusBadge status={selected.status} /> },
+                      ]}
+                    />
+
+                    <TechEarnestRecordInfoSection
+                      title="Purchase Order Information"
+                      fields={[
+                        { label: "PO Number", value: selected.poNumber ?? "Draft" },
+                        {
+                          label: "Vendor",
+                          value: (
+                            <RecordLink module="vendor" id={selected.vendorId}>
+                              {vendorName(selected.vendorId)}
+                            </RecordLink>
+                          ),
+                        },
+                        {
+                          label: "Project",
+                          value: (
+                            <RecordLink module="project" id={selected.projectId}>
+                              {projectName(selected.projectId)}
+                            </RecordLink>
+                          ),
+                        },
+                        { label: "Requester", value: userLabel(selected.requesterId) },
+                        { label: "Region", value: regionName(selected.regionId) },
+                        { label: "Currency", value: selected.currencyCode },
+                        { label: "Status", value: selected.status },
+                        { label: "Needed By", value: selected.neededBy ?? "—" },
+                      ]}
+                    />
+
+                    <TechEarnestRecordInfoSection
+                      title="Amounts"
+                      fields={[
+                        { label: "Subtotal", value: money(selected.subtotal) },
+                        { label: "Tax", value: money(selected.taxTotal) },
+                        { label: "Total", value: money(selected.total) },
+                        { label: "Received Qty", value: receivedSummary },
+                      ]}
+                    />
+
+                    {selectedVendor ? (
+                      <TechEarnestRecordInfoSection
+                        title="Vendor Details"
+                        fields={[
+                          { label: "Vendor Name", value: selectedVendor.name },
+                          { label: "Email", value: selectedVendor.email ?? "—" },
+                          { label: "Phone", value: selectedVendor.phone ?? "—" },
+                          { label: "Tax Number", value: selectedVendor.taxNumber ?? "—" },
+                          {
+                            label: "Payment Terms",
+                            value: selectedVendor.paymentTermsDays != null ? `${selectedVendor.paymentTermsDays} days` : "—",
+                          },
+                          { label: "Vendor Status", value: selectedVendor.status },
+                        ]}
+                      />
+                    ) : null}
+
+                    <TechEarnestRecordInfoSection
+                      title="Description"
+                      fields={[{ label: "Notes", value: selected.notes || "—" }]}
+                    />
+
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-po-lines"
+                      title={`Line Items (${selected.items?.length ?? 0})`}
+                      isEmpty={!selected.items?.length && !(canCreate && canEditLines)}
+                      emptyLabel="No records found"
+                    >
+                      {selected.items?.length ? (
+                        <div className="table-responsive">
+                          <table className="table table-sm small mb-2">
+                            <thead>
+                              <tr>
+                                <th>#</th>
+                                <th>Description</th>
+                                <th className="text-end">Qty</th>
+                                <th className="text-end">Received</th>
+                                <th className="text-end">Unit Price</th>
+                                <th>Tax Rate</th>
+                                <th className="text-end">Tax</th>
+                                <th className="text-end">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selected.items.map((line) => (
+                                <tr key={line.id}>
+                                  <td>{line.lineNo}</td>
+                                  <td>{line.description}</td>
+                                  <td className="text-end">{line.quantity}</td>
+                                  <td className="text-end">{line.receivedQty ?? 0}</td>
+                                  <td className="text-end">{line.unitPrice}</td>
+                                  <td>{taxRateName(line.taxRateId)}</td>
+                                  <td className="text-end">{line.taxAmount}</td>
+                                  <td className="text-end">{line.amount}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : null}
+                    {canCreate && canEditLines ? (
                       <>
-                        <h3 className="h6">Add line</h3>
-                        <div className="mb-2">
+                        <div>
                           <input
                             className="form-control form-control-sm mb-1"
                             placeholder="Description"
@@ -657,14 +833,21 @@ export function PurchaseOrdersPage() {
                                 })
                               }
                             >
-                              Add
+                              Add Line
                             </button>
                           </div>
                         </div>
                       </>
                     ) : null}
+                    </TechEarnestRecordRelatedCard>
                   </>
                 ),
+              },
+              {
+                id: "timeline",
+                label: "Timeline",
+                visible: true,
+                content: <TechEarnestRecordTimeline entries={timelineEntries} loading={auditQuery.isLoading} />,
               },
             ]}
                 />
@@ -708,16 +891,21 @@ export function PurchaseOrdersPage() {
             />
           </div>
           <div className="module-filter-section">
+            <h3>Filter by fields</h3>
             <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={poStatusFilterOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search purchase order statuses" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Vendor" value={vendorFilter} onChange={setVendorFilter} options={vendorOptions} placeholder="All vendors" emptyLabel="All vendors" searchPlaceholder="Search vendors" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+        setVendorFilter("");
+        setProjectFilter("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {posQuery.isLoading ? <LoadingState label="Loading purchase orders..." /> : null}
@@ -747,8 +935,18 @@ export function PurchaseOrdersPage() {
           }}
           renderCell={(row, field) => {
             if (field === "poNumber") return row.poNumber ?? "Draft";
-            if (field === "vendorId") return vendorName(row.vendorId);
-            if (field === "projectId") return projectName(row.projectId);
+            if (field === "vendorId")
+              return (
+                <RecordLink module="vendor" id={row.vendorId}>
+                  {vendorName(row.vendorId)}
+                </RecordLink>
+              );
+            if (field === "projectId")
+              return (
+                <RecordLink module="project" id={row.projectId}>
+                  {projectName(row.projectId)}
+                </RecordLink>
+              );
             if (field === "status") return <StatusBadge status={row.status} />;
             if (field === "total") return `${row.currencyCode} ${row.total}`;
             const value = (row as unknown as Record<string, unknown>)[field];

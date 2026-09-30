@@ -77,7 +77,8 @@ class BulkImportFlowTest {
         String code = "IMP-" + unique;
         post("projects",
                 Map.of("accountName", accountB, "name", "Rollout " + unique, "projectCode", code,
-                        "billingType", "hourly", "startDate", "2026-01-01", "endDate", "2026-06-30"),
+                        "billingType", "hourly", "hourlyRate", "1500", "startDate", "2026-01-01",
+                        "endDate", "2026-06-30"),
                 Map.of("accountName", accountB, "name", "Clone", "projectCode", code))
                 .andExpect(jsonPath("$.data.imported").value(1))
                 .andExpect(jsonPath("$.data.skipped").value(1));
@@ -93,11 +94,11 @@ class BulkImportFlowTest {
                 .andExpect(jsonPath("$.data.issues[0].index").value(2));
 
         post("resources",
-                Map.of("employeeCode", "EMP-" + unique, "designation", "Engineer", "resourceType", "contractor",
-                        "capacityHoursPerWeek", "40"),
+                Map.of("employeeCode", "EMP-" + unique, "fullName", "Import Contractor", "designation", "Engineer",
+                        "resourceType", "contractor", "capacityHoursPerWeek", "40"),
                 Map.of("designation", "Nobody"))
                 .andExpect(jsonPath("$.data.imported").value(1))
-                .andExpect(jsonPath("$.data.issues[0].reason", Matchers.containsString("employee code")));
+                .andExpect(jsonPath("$.data.issues[0].reason", Matchers.containsString("linked to an existing user")));
 
         post("purchase-orders",
                 Map.of("poNumber", "PO-" + unique, "vendorName", "Missing Vendor " + unique,

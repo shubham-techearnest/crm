@@ -396,7 +396,7 @@ public class InvoiceService {
         return number;
     }
 
-    private void recalculate(Invoice invoice) {
+    void recalculate(Invoice invoice) {
         List<InvoiceLine> lines = invoiceLineRepository.findActiveByInvoiceId(invoice.getId());
         BigDecimal subtotal = BigDecimal.ZERO;
         BigDecimal taxTotal = BigDecimal.ZERO;
@@ -407,7 +407,7 @@ public class InvoiceService {
         invoice.recalculateTotals(subtotal, taxTotal);
     }
 
-    private InvoiceResponse detail(Invoice invoice) {
+    InvoiceResponse detail(Invoice invoice) {
         return InvoiceResponse.from(
                 invoice,
                 invoiceLineRepository.findActiveByInvoiceId(invoice.getId()),
@@ -431,7 +431,7 @@ public class InvoiceService {
         return invoice;
     }
 
-    private TaxRate resolveTax(UUID taxRateId, UUID organizationId) {
+    TaxRate resolveTax(UUID taxRateId, UUID organizationId) {
         if (taxRateId == null) {
             return null;
         }
@@ -444,7 +444,7 @@ public class InvoiceService {
         return tax;
     }
 
-    private static BigDecimal taxAmount(BigDecimal amount, TaxRate tax) {
+    static BigDecimal taxAmount(BigDecimal amount, TaxRate tax) {
         if (tax == null) {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }

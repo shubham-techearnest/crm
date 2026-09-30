@@ -16,17 +16,32 @@ import {
   useTechEarnestCreateFlow,
 } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import {
+  ModuleFilterCheckbox,
+  ModuleFilterDateRange,
+  ModuleFilterField,
+  ModuleListShell,
+} from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { useRecordNavigation } from "@/components/TechEarnestRecord";
+import {
+  buildTimelineEntries,
+  recordLifecycleInfo,
+  TechEarnestRecordInfoSection,
+  TechEarnestRecordRelatedCard,
+  TechEarnestRecordSummaryStrip,
+  TechEarnestRecordTimeline,
+  useRecordNavigation,
+} from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
-import { useHasPermission } from "@/features/auth/AuthContext";
-import { listRegions } from "@/features/admin/adminApi";
+import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
+import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
 import { listAccounts } from "@/features/crm/crmApi";
 import { listProjects } from "@/features/projects/projectApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useUrlRecordId } from "@/hooks/useUrlRecord";
+import { RecordLink } from "@/components/RecordLink";
 import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   applyCreditNote,
@@ -74,11 +89,15 @@ const CREATE_DEFAULTS: CreateFormValues = {
 
 export function InvoicesPage() {
   const queryClient = useQueryClient();
+  const auth = useAuth();
+  const canViewAudit = useHasPermission("AUDIT_VIEW");
+  const canViewUsers = useHasPermission("USER_VIEW");
   const canCreate = useHasPermission("INVOICE_CREATE");
   const canUpdate = useHasPermission("INVOICE_UPDATE");
   const canVoid = useHasPermission("INVOICE_DELETE");
   const canPay = useHasPermission("PAYMENT_MANAGE");
-  const canCredit = useHasPermission("CREDIT_NOTE_MANAGE") || useHasPermission("INVOICE_UPDATE");
+  const canManageCredit = useHasPermission("CREDIT_NOTE_MANAGE");
+  const canCredit = canManageCredit || canUpdate;
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
   const [statusFilter, setStatusFilter] = useState("");
@@ -89,7 +108,7 @@ export function InvoicesPage() {
   const [dueTo, setDueTo] = useState("");
   const [minBalance, setMinBalance] = useState("");
   const [overdueOnly, setOverdueOnly] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useUrlRecordId();
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState("");
@@ -164,6 +183,16 @@ export function InvoicesPage() {
     queryFn: () => listUnbilledTime(detailQuery.data?.projectId ?? undefined),
     enabled: !!selectedId && detailQuery.data?.status === "DRAFT",
   });
+  const auditQuery = useQuery({
+    queryKey: ["admin", "audit-logs", "INVOICE", selectedId],
+    queryFn: () => listAuditLogs({ entityType: "INVOICE", entityId: selectedId!, size: 30 }),
+    enabled: !!selectedId && canViewAudit,
+  });
+  const usersQuery = useQuery({
+    queryKey: ["admin", "users"],
+    queryFn: () => listUsers(),
+    enabled: !!selectedId && canViewUsers,
+  });
 
   const {
     register,
@@ -176,7 +205,7 @@ export function InvoicesPage() {
     defaultValues: CREATE_DEFAULTS,
   });
 
-  const { photo, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
+  const { setSaveAndNew, cancelCreate, afterCreateSuccess } = useTechEarnestCreateFlow({
     defaults: CREATE_DEFAULTS,
     reset,
     setShowForm,
@@ -304,6 +333,24 @@ export function InvoicesPage() {
   const selected: Invoice | undefined = detailQuery.data;
   const accountName = (id: string) =>
     accountsQuery.data?.find((a) => a.id === id)?.name ?? id.slice(0, 8);
+  const projectName = (id: string | null) =>
+    id ? (projectsQuery.data?.find((p) => p.id === id)?.name ?? id.slice(0, 8)) : "—";
+  const regionName = (id: string) => regionsQuery.data?.find((r) => r.id === id)?.name ?? id.slice(0, 8);
+  const selectedAccount = selected ? accountsQuery.data?.find((a) => a.id === selected.accountId) : undefined;
+  const userLabel = useMemo(() => {
+    const map = new Map(
+      (usersQuery.data ?? []).map((user) => [user.id, `${user.firstName} ${user.lastName}`.trim()]),
+    );
+    return (id: string | null | undefined) =>
+      id ? (id === auth.userId ? auth.displayName : (map.get(id) ?? id.slice(0, 8))) : "—";
+  }, [usersQuery.data, auth.userId, auth.displayName]);
+  const timelineEntries = useMemo(
+    () => buildTimelineEntries(auditQuery.data, undefined, userLabel, recordLifecycleInfo("Invoice", selected ?? null)),
+    [auditQuery.data, userLabel, selected],
+  );
+  const money = (value: number | null | undefined) =>
+    value == null ? "—" : `${selected?.currencyCode ?? ""} ${value}`.trim();
+  const canTakeMoney = !!selected && ["ISSUED", "PARTIALLY_PAID", "OVERDUE"].includes(selected.status) && selected.balanceDue > 0;
   const activeFilterCount = [
     search,
     statusFilter,
@@ -315,6 +362,17 @@ export function InvoicesPage() {
     minBalance,
     overdueOnly ? "1" : "",
   ].filter(Boolean).length;
+  const clearFilters = () => {
+    setSearch("");
+    setStatusFilter("");
+    setAccountFilter("");
+    setProjectFilter("");
+    setRegionFilter("");
+    setDueFrom("");
+    setDueTo("");
+    setMinBalance("");
+    setOverdueOnly(false);
+  };
 
   return (
     <>
@@ -328,8 +386,12 @@ export function InvoicesPage() {
           formError={formError}
           onCancel={() => cancelCreate(isDirty)}
           onSave={() => void handleSubmit(onCreateSubmit)()}
+          onSaveAndNew={() => {
+            setSaveAndNew(true);
+            void handleSubmit(onCreateSubmit)();
+          }}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
           <TechEarnestCreateSection title="Invoice Information">
             <TechEarnestCreateGrid>
@@ -413,30 +475,46 @@ export function InvoicesPage() {
             hasNext={recordNav.hasNext}
             relatedLinks={[...DEFAULT_RELATED_LINKS]}
             primaryAction={
-              canUpdate && selected.status === "DRAFT" ? (
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary"
-                  disabled={issueMutation.isPending}
-                  onClick={() => issueMutation.mutate(selected.id)}
+              selectedAccount?.email ? (
+                <a
+                  className="btn btn-primary btn-sm"
+                  href={`mailto:${selectedAccount.email}?subject=${encodeURIComponent(
+                    `Invoice ${selected.invoiceNumber ?? ""}`.trim(),
+                  )}`}
                 >
-                  Issue
+                  Send Email
+                </a>
+              ) : (
+                <button type="button" className="btn btn-primary btn-sm" disabled>
+                  Send Email
                 </button>
-              ) : null
+              )
             }
             secondaryActions={
-              canVoid && ["DRAFT", "ISSUED", "OVERDUE"].includes(selected.status) ? (
+              <>
+                {selected.status === "DRAFT" ? (
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary btn-sm"
+                    disabled={!canUpdate || issueMutation.isPending}
+                    onClick={() => issueMutation.mutate(selected.id)}
+                  >
+                    Issue
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  className="btn btn-sm btn-outline-danger"
-                  disabled={voidMutation.isPending}
+                  className="btn btn-outline-danger btn-sm"
+                  disabled={
+                    !canVoid || !["DRAFT", "ISSUED", "OVERDUE"].includes(selected.status) || voidMutation.isPending
+                  }
                   onClick={() => {
                     if (window.confirm("Void this invoice?")) voidMutation.mutate(selected.id);
                   }}
                 >
                   Void
                 </button>
-              ) : null
+              </>
             }
             tabs={[
               {
@@ -445,30 +523,137 @@ export function InvoicesPage() {
                 content: (
                   <>
                     {actionError ? <div className="alert alert-danger py-2 small">{actionError}</div> : null}
-                    <p className="small mb-1">Account: {accountName(selected.accountId)}</p>
-                    <p className="small mb-1">Due: {selected.dueDate ?? "—"}</p>
-                    <p className="small mb-3">
-                      Paid {selected.amountPaid} · Credited {selected.amountCredited ?? 0}
-                    </p>
-                    <h3 className="h6">Lines</h3>
+                    <TechEarnestRecordSummaryStrip
+                      fields={[
+                        {
+                          label: "Account",
+                          value: (
+                            <RecordLink module="account" id={selected.accountId}>
+                              {accountName(selected.accountId)}
+                            </RecordLink>
+                          ),
+                        },
+                        { label: "Total", value: money(selected.total) },
+                        { label: "Balance Due", value: money(selected.balanceDue) },
+                        { label: "Due Date", value: selected.dueDate ?? "—" },
+                        { label: "Status", value: <StatusBadge status={selected.status} /> },
+                      ]}
+                    />
+
+                    <TechEarnestRecordInfoSection
+                      title="Invoice Information"
+                      fields={[
+                        { label: "Invoice Number", value: selected.invoiceNumber ?? "Draft" },
+                        {
+                          label: "Account",
+                          value: (
+                            <RecordLink module="account" id={selected.accountId}>
+                              {accountName(selected.accountId)}
+                            </RecordLink>
+                          ),
+                        },
+                        {
+                          label: "Project",
+                          value: (
+                            <RecordLink module="project" id={selected.projectId}>
+                              {projectName(selected.projectId)}
+                            </RecordLink>
+                          ),
+                        },
+                        { label: "Region", value: regionName(selected.regionId) },
+                        { label: "Currency", value: selected.currencyCode },
+                        { label: "Status", value: selected.status },
+                        { label: "Issue Date", value: selected.issueDate ?? "—" },
+                        { label: "Due Date", value: selected.dueDate ?? "—" },
+                      ]}
+                    />
+
+                    <TechEarnestRecordInfoSection
+                      title="Amounts"
+                      fields={[
+                        { label: "Subtotal", value: money(selected.subtotal) },
+                        { label: "Tax", value: money(selected.taxTotal) },
+                        { label: "Total", value: money(selected.total) },
+                        { label: "Amount Paid", value: money(selected.amountPaid) },
+                        { label: "Amount Credited", value: money(selected.amountCredited ?? 0) },
+                        { label: "Balance Due", value: money(selected.balanceDue) },
+                      ]}
+                    />
+
+                    <TechEarnestRecordInfoSection
+                      title="Description"
+                      fields={[{ label: "Notes", value: selected.notes || "—" }]}
+                    />
+
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-lines"
+                      title={`Line Items (${selected.lines?.length ?? 0})`}
+                      isEmpty={!selected.lines?.length}
+                      emptyLabel="No records found"
+                      actions={
+                        selected.status === "DRAFT" && canUpdate ? (
+                          <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowAddLine(true)}>
+                            New Line
+                          </button>
+                        ) : null
+                      }
+                    >
+                      <div className="table-responsive">
+                        <table className="table table-sm small mb-0">
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Description</th>
+                              <th className="text-end">Qty</th>
+                              <th className="text-end">Unit Price</th>
+                              <th className="text-end">Tax</th>
+                              <th className="text-end">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(selected.lines ?? []).map((line) => (
+                              <tr key={line.id}>
+                                <td>{line.lineNo}</td>
+                                <td>
+                                  {line.description}
+                                  {line.timeEntryId ? <span className="badge bg-light text-dark ms-1">Time</span> : null}
+                                  {line.projectId && line.projectId !== selected.projectId ? (
+                                    <div className="text-muted">
+                                      <RecordLink module="project" id={line.projectId}>
+                                        {projectName(line.projectId)}
+                                      </RecordLink>
+                                    </div>
+                                  ) : null}
+                                </td>
+                                <td className="text-end">{line.quantity}</td>
+                                <td className="text-end">{line.unitPrice}</td>
+                                <td className="text-end">{line.taxAmount}</td>
+                                <td className="text-end">{line.amount}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </TechEarnestRecordRelatedCard>
+
                     {selected.status === "DRAFT" && canUpdate ? (
-                      <button type="button" className="btn btn-sm btn-outline-primary mb-2" onClick={() => setShowAddLine(true)}>
-                        Add line item
-                      </button>
-                    ) : null}
-                    <ul className="small mb-3">
-                      {(selected.lines ?? []).map((l) => (
-                        <li key={l.id}>
-                          {l.description} — {l.amount}
-                          {l.timeEntryId ? " (time)" : ""}
-                        </li>
-                      ))}
-                      {!selected.lines?.length ? <li className="text-muted">No lines</li> : null}
-                    </ul>
-                    {selected.status === "DRAFT" && canUpdate ? (
-                      <>
-                        <h3 className="h6">Pull billable time</h3>
-                        <ul className="small mb-2 list-unstyled">
+                      <TechEarnestRecordRelatedCard
+                        id="techearnest-record-section-unbilled"
+                        title={`Unbilled Time (${unbilledQuery.data?.length ?? 0})`}
+                        isEmpty={!unbilledQuery.isLoading && !unbilledQuery.data?.length}
+                        emptyLabel="No unbilled approved time"
+                        actions={
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary btn-sm"
+                            disabled={!selectedTimeIds.length || pullMutation.isPending}
+                            onClick={() => pullMutation.mutate({ id: selected.id, ids: selectedTimeIds })}
+                          >
+                            Add Selected Time
+                          </button>
+                        }
+                      >
+                        <ul className="small mb-0 list-unstyled">
                           {(unbilledQuery.data ?? []).map((e) => (
                             <li key={e.id} className="form-check">
                               <input
@@ -489,33 +674,17 @@ export function InvoicesPage() {
                               </label>
                             </li>
                           ))}
-                          {!unbilledQuery.data?.length ? (
-                            <li className="text-muted">No unbilled approved time</li>
-                          ) : null}
                         </ul>
-                        <button
-                          type="button"
-                          className="btn btn-sm btn-outline-primary"
-                          disabled={!selectedTimeIds.length || pullMutation.isPending}
-                          onClick={() =>
-                            pullMutation.mutate({ id: selected.id, ids: selectedTimeIds })
-                          }
-                        >
-                          Add selected time
-                        </button>
-                      </>
+                      </TechEarnestRecordRelatedCard>
                     ) : null}
-                  </>
-                ),
-              },
-              {
-                id: "payments",
-                label: "Payments",
-                content: (
-                  <>
-                    {canPay &&
-                    ["ISSUED", "PARTIALLY_PAID", "OVERDUE"].includes(selected.status) &&
-                    selected.balanceDue > 0 ? (
+
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-payments"
+                      title={`Payments (${selected.payments?.length ?? 0})`}
+                      isEmpty={!selected.payments?.length && !(canPay && canTakeMoney)}
+                      emptyLabel="No records found"
+                    >
+                    {canPay && canTakeMoney ? (
                       <div className="input-group input-group-sm mb-3">
                         <input
                           className="form-control"
@@ -536,27 +705,26 @@ export function InvoicesPage() {
                         </button>
                       </div>
                     ) : null}
-                    <ul className="small mb-0">
+                    <ul className="list-unstyled small mb-0">
                       {(selected.payments ?? []).map((p) => (
-                        <li key={p.id}>
-                          {p.paidAt}: {p.amount} {p.method ? `(${p.method})` : ""}
+                        <li key={p.id} className="mb-2 d-flex justify-content-between gap-2">
+                          <span>
+                            {p.paidAt}
+                            {p.method ? <span className="text-muted"> · {p.method}</span> : null}
+                          </span>
+                          <span className="fw-semibold">{money(p.amount)}</span>
                         </li>
                       ))}
-                      {!selected.payments?.length ? (
-                        <li className="text-muted">No payments</li>
-                      ) : null}
                     </ul>
-                  </>
-                ),
-              },
-              {
-                id: "credits",
-                label: "Credits",
-                content: (
-                  <>
-                    {canCredit &&
-                    ["ISSUED", "PARTIALLY_PAID", "OVERDUE"].includes(selected.status) &&
-                    selected.balanceDue > 0 ? (
+                    </TechEarnestRecordRelatedCard>
+
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-credit-notes"
+                      title={`Credit Notes (${selected.creditNotes?.length ?? 0})`}
+                      isEmpty={!selected.creditNotes?.length && !(canCredit && canTakeMoney)}
+                      emptyLabel="No records found"
+                    >
+                    {canCredit && canTakeMoney ? (
                       <div className="input-group input-group-sm mb-3">
                         <input
                           className="form-control"
@@ -580,19 +748,26 @@ export function InvoicesPage() {
                         </button>
                       </div>
                     ) : null}
-                    <ul className="small mb-0">
+                    <ul className="list-unstyled small mb-0">
                       {(selected.creditNotes ?? []).map((c) => (
-                        <li key={c.id}>
-                          {c.creditNumber ?? "Draft"} · {c.amount} ·{" "}
+                        <li key={c.id} className="mb-2 d-flex justify-content-between gap-2">
+                          <span>
+                            {c.creditNumber ?? "Draft"} · {money(c.amount)}
+                            {c.reason ? <span className="text-muted"> · {c.reason}</span> : null}
+                          </span>
                           <StatusBadge status={c.status} />
                         </li>
                       ))}
-                      {!selected.creditNotes?.length ? (
-                        <li className="text-muted">No credit notes</li>
-                      ) : null}
                     </ul>
+                    </TechEarnestRecordRelatedCard>
                   </>
                 ),
+              },
+              {
+                id: "timeline",
+                label: "Timeline",
+                visible: true,
+                content: <TechEarnestRecordTimeline entries={timelineEntries} loading={auditQuery.isLoading} />,
               },
             ]}
                 />
@@ -641,48 +816,28 @@ export function InvoicesPage() {
             />
           </div>
           <div className="module-filter-section">
+            <h3>Filter by fields</h3>
             <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={invoiceStatusOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search invoice statuses" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Account" value={accountFilter} onChange={setAccountFilter} options={accountOptions} placeholder="All accounts" emptyLabel="All accounts" searchPlaceholder="Search accounts" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Region" value={regionFilter} onChange={setRegionFilter} options={regionOptions} placeholder="All regions" emptyLabel="All regions" searchPlaceholder="Search regions" />
-          </div>
-          <div className="module-filter-section">
-            <h3>Due from</h3>
-            <input className="form-control form-control-sm" type="date" value={dueFrom} onChange={(e) => setDueFrom(e.target.value)} />
-            <h3 className="mt-2">Due to</h3>
-            <input className="form-control form-control-sm" type="date" value={dueTo} onChange={(e) => setDueTo(e.target.value)} />
-          </div>
-          <div className="module-filter-section">
-            <h3>Min balance</h3>
-            <input
-              className="form-control form-control-sm"
-              type="number"
-              value={minBalance}
-              onChange={(e) => setMinBalance(e.target.value)}
-            />
-          </div>
-          <div className="module-filter-section">
-            <div className="form-check">
+            <ModuleFilterDateRange label="Due" from={dueFrom} to={dueTo} onFromChange={setDueFrom} onToChange={setDueTo} />
+            <ModuleFilterField label="Min balance" htmlFor="invMinBalanceFilter">
               <input
-                id="invOverdue"
-                className="form-check-input"
-                type="checkbox"
-                checked={overdueOnly}
-                onChange={(e) => setOverdueOnly(e.target.checked)}
+                id="invMinBalanceFilter"
+                className="form-control form-control-sm"
+                type="number"
+                value={minBalance}
+                onChange={(e) => setMinBalance(e.target.value)}
               />
-              <label className="form-check-label small" htmlFor="invOverdue">
-                Overdue only
-              </label>
-            </div>
+            </ModuleFilterField>
+            <ModuleFilterCheckbox id="invOverdue" label="Overdue only" checked={overdueOnly} onChange={setOverdueOnly} />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={clearFilters}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {invoicesQuery.isLoading ? <LoadingState label="Loading invoices..." /> : null}
@@ -712,7 +867,12 @@ export function InvoicesPage() {
           }}
           renderCell={(inv, field) => {
             if (field === "invoiceNumber") return inv.invoiceNumber ?? "Draft";
-            if (field === "accountId") return accountName(inv.accountId);
+            if (field === "accountId")
+              return (
+                <RecordLink module="account" id={inv.accountId}>
+                  {accountName(inv.accountId)}
+                </RecordLink>
+              );
             if (field === "status") return <StatusBadge status={inv.status} />;
             if (field === "total" || field === "balanceDue") return `${inv.currencyCode} ${(inv as unknown as Record<string, unknown>)[field] ?? "—"}`;
             const value = (inv as unknown as Record<string, unknown>)[field];

@@ -3,10 +3,15 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
-import { TechEarnestFormKitCreateView, useTechEarnestCreateFlow } from "@/components/TechEarnestCreate";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import {
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
+  TechEarnestFormKitCreateView,
+  useTechEarnestCreateFlow,
+} from "@/components/TechEarnestCreate";
+import { ModuleFilterField, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
@@ -31,7 +36,6 @@ export function SkillsPage() {
   const [nameFilter, setNameFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
   const [skillToDelete, setSkillToDelete] = useState<Skill | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -62,7 +66,6 @@ export function SkillsPage() {
 
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow({
@@ -70,7 +73,6 @@ export function SkillsPage() {
     reset,
     setShowForm,
     setFormError,
-    onResetExtras: () => setShowMore(false),
   });
 
   const buildBody = (values: FormValues) => ({
@@ -137,20 +139,28 @@ export function SkillsPage() {
   const activeFilterCount = [search, nameFilter, categoryFilter].filter(Boolean).length;
 
   const skillFormFields = (
-    <>
-      <FormSection title="Primary details" description="Skill name">
-        <div className="col-md-6">
-          <FormField label="Name" required error={errors.name} {...register("name")} />
-        </div>
-      </FormSection>
-      <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-        <FormSection title="Classification">
-          <div className="col-md-4">
-            <FormField label="Category" error={errors.category} {...register("category")} />
-          </div>
-        </FormSection>
-      </FormMoreDetails>
-    </>
+    <TechEarnestCreateSection title="Skill Information">
+      <TechEarnestCreateGrid>
+        <TechEarnestCreateColumn>
+          <TechEarnestCreateField label="Skill Name" required error={errors.name?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
+              {...register("name")}
+            />
+          </TechEarnestCreateField>
+        </TechEarnestCreateColumn>
+        <TechEarnestCreateColumn>
+          <TechEarnestCreateField label="Category" error={errors.category?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.category ? " is-invalid" : ""}`}
+              {...register("category")}
+            />
+          </TechEarnestCreateField>
+        </TechEarnestCreateColumn>
+      </TechEarnestCreateGrid>
+    </TechEarnestCreateSection>
   );
 
   return (
@@ -175,7 +185,7 @@ export function SkillsPage() {
             void handleSubmit(onCreateSubmit)();
           } : undefined}
           onSubmit={() => void handleSubmit(editingSkillId ? onUpdateSubmit : onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
           {skillFormFields}
         </TechEarnestFormKitCreateView>
@@ -216,23 +226,34 @@ export function SkillsPage() {
           </div>
           <div className="module-filter-section">
             <h3>Filter by fields</h3>
-            <label className="form-label small mb-1">Name contains</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              value={nameFilter}
-              onChange={(e) => setNameFilter(e.target.value)}
-              placeholder="e.g. Java"
-            />
-            <label className="form-label small mb-1">Category</label>
-            <input
-              className="form-control form-control-sm"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              placeholder="e.g. Backend"
-            />
+            <ModuleFilterField label="Name contains" htmlFor="skillNameFilter">
+              <input
+                id="skillNameFilter"
+                className="form-control form-control-sm"
+                value={nameFilter}
+                onChange={(e) => setNameFilter(e.target.value)}
+                placeholder="e.g. Java"
+              />
+            </ModuleFilterField>
+            <ModuleFilterField label="Category" htmlFor="skillCategoryFilter">
+              <input
+                id="skillCategoryFilter"
+                className="form-control form-control-sm"
+                value={categoryFilter}
+                onChange={(e) => setCategoryFilter(e.target.value)}
+                placeholder="e.g. Backend"
+              />
+            </ModuleFilterField>
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setNameFilter("");
+        setCategoryFilter("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {skillsQuery.isLoading ? <LoadingState label="Loading skills..." /> : null}

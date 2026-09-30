@@ -4,17 +4,22 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import axios from "axios";
-import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
+import { useLocation } from "react-router-dom";
+import { RecordLink } from "@/components/RecordLink";
+import { readRecordNavState, useUrlRecordId } from "@/hooks/useUrlRecord";
 import {
   enumPickerOptions,
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   useTechEarnestCreateFlow,
 } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterCheckbox, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -27,6 +32,7 @@ import { listProjects } from "@/features/projects/projectApi";
 import {
   createAllocation,
   deleteAllocation,
+  getAllocation,
   listAllocations,
   listResources,
   updateAllocation,
@@ -98,7 +104,6 @@ export function AllocationsPage() {
   const [resourceFilter, setResourceFilter] = useState("");
   const [overlapOnly, setOverlapOnly] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
   const [pendingBody, setPendingBody] = useState<Parameters<typeof createAllocation>[0] | null>(null);
   const [overAllocWarn, setOverAllocWarn] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -132,6 +137,17 @@ export function AllocationsPage() {
   });
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const resourcesQuery = useQuery({ queryKey: ["resources"], queryFn: () => listResources() });
+  const [selectedId, setSelectedId] = useUrlRecordId();
+  const location = useLocation();
+  const cameFrom = readRecordNavState(location.state)?.from;
+  const selectedFromRows = (allocationsQuery.data ?? []).find((allocation) => allocation.id === selectedId) ?? null;
+  const selectedFetchQuery = useQuery({
+    queryKey: ["allocations", "record", selectedId],
+    queryFn: () => getAllocation(selectedId!),
+    enabled: !!selectedId && !!allocationsQuery.data && !selectedFromRows,
+    retry: false,
+  });
+  const selected = selectedFromRows ?? (selectedFetchQuery.data?.id === selectedId ? selectedFetchQuery.data : null);
 
   const projectOptions = useMemo(
     () =>
@@ -168,7 +184,6 @@ export function AllocationsPage() {
 
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow({
@@ -177,7 +192,6 @@ export function AllocationsPage() {
     setShowForm,
     setFormError,
     onResetExtras: () => {
-      setShowMore(false);
       setOverAllocWarn(false);
       setPendingBody(null);
       setPendingUpdate(null);
@@ -311,7 +325,6 @@ export function AllocationsPage() {
       role: allocation.role ?? "",
       status: allocation.status,
     });
-    setShowMore(true);
     setShowForm(true);
   }
 
@@ -399,95 +412,86 @@ export function AllocationsPage() {
             void handleSubmit((values) => void submitAllocation(values))();
           } : undefined}
           onSubmit={() => void handleSubmit((values) => void submitAllocation(values))()}
-          photo={photo}
+          showRecordImage={false}
         >
-          <FormSection title="Primary details" description="Who, which project, and when">
-            <div className="col-md-4">
-              <label className="form-label required">Project</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="projectId"
-                options={projectOptions}
-                searchPlaceholder="Search Projects"
-                lookupIcon="apps"
-                allowEmpty={false}
-                placeholder="Select project"
-                invalid={!!errors.projectId}
-                disabled={!!editingAllocation}
-              />
-              {errors.projectId ? (
-                <div className="invalid-feedback d-block">{errors.projectId.message}</div>
-              ) : null}
-            </div>
-            <div className="col-md-4">
-              <label className="form-label required">Resource</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="resourceId"
-                options={resourceOptions}
-                searchPlaceholder="Search Resources"
-                lookupIcon="users"
-                allowEmpty={false}
-                placeholder="Select resource"
-                invalid={!!errors.resourceId}
-                disabled={!!editingAllocation}
-              />
-              {errors.resourceId ? (
-                <div className="invalid-feedback d-block">{errors.resourceId.message}</div>
-              ) : null}
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="Start date"
-                type="date"
-                required
-                error={errors.startDate}
-                {...register("startDate")}
-              />
-            </div>
-            <div className="col-md-2">
-              <FormField
-                label="End date"
-                type="date"
-                required
-                error={errors.endDate}
-                {...register("endDate")}
-              />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Effort & role">
-              <div className="col-md-2">
-                <FormField
-                  label="Allocated hours"
-                  type="number"
-                  error={errors.allocatedHours}
-                  {...register("allocatedHours")}
-                />
-              </div>
-              <div className="col-md-2">
-                <FormField
-                  label="Percentage"
-                  type="number"
-                  error={errors.allocationPercentage}
-                  {...register("allocationPercentage")}
-                />
-              </div>
-              <div className="col-md-4">
-                <FormField label="Role" error={errors.role} {...register("role")} />
-              </div>
-              <div className="col-md-2">
-                <label className="form-label">Status</label>
-                <TechEarnestFormSelect
-                  control={control}
-                  name="status"
-                  options={allocationStatusOptions}
-                  searchPlaceholder="Search Statuses"
-                  allowEmpty={false}
-                />
-              </div>
-            </FormSection>
-          </FormMoreDetails>
+          <TechEarnestCreateSection title="Allocation Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Project" required error={errors.projectId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="projectId"
+                    options={projectOptions}
+                    searchPlaceholder="Search Projects"
+                    lookupIcon="apps"
+                    allowEmpty={false}
+                    placeholder="Select project"
+                    invalid={!!errors.projectId}
+                    disabled={!!editingAllocation}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Resource" required error={errors.resourceId?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="resourceId"
+                    options={resourceOptions}
+                    searchPlaceholder="Search Resources"
+                    lookupIcon="users"
+                    allowEmpty={false}
+                    placeholder="Select resource"
+                    invalid={!!errors.resourceId}
+                    disabled={!!editingAllocation}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Role" error={errors.role?.message}>
+                  <input
+                    type="text"
+                    className={`form-control form-control-sm${errors.role ? " is-invalid" : ""}`}
+                    {...register("role")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Status" error={errors.status?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="status"
+                    options={allocationStatusOptions}
+                    searchPlaceholder="Search Statuses"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Start Date" required error={errors.startDate?.message}>
+                  <input
+                    type="date"
+                    className={`form-control form-control-sm${errors.startDate ? " is-invalid" : ""}`}
+                    {...register("startDate")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="End Date" required error={errors.endDate?.message}>
+                  <input
+                    type="date"
+                    className={`form-control form-control-sm${errors.endDate ? " is-invalid" : ""}`}
+                    {...register("endDate")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Allocated Hours" error={errors.allocatedHours?.message}>
+                  <input
+                    type="number"
+                    className={`form-control form-control-sm${errors.allocatedHours ? " is-invalid" : ""}`}
+                    {...register("allocatedHours")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Allocation %" error={errors.allocationPercentage?.message}>
+                  <input
+                    type="number"
+                    className={`form-control form-control-sm${errors.allocationPercentage ? " is-invalid" : ""}`}
+                    {...register("allocationPercentage")}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
@@ -507,7 +511,7 @@ export function AllocationsPage() {
       }
       primaryAction={
         canAllocate ? (
-          <button type="button" className="btn btn-primary btn-sm" onClick={() => { setEditingAllocation(null); setFormError(null); reset(ALLOCATION_DEFAULTS); setShowMore(false); setShowForm(true); }}>
+          <button type="button" className="btn btn-primary btn-sm" onClick={() => { setEditingAllocation(null); setFormError(null); reset(ALLOCATION_DEFAULTS); setShowForm(true); }}>
             Create Allocation
           </button>
         ) : null
@@ -529,26 +533,72 @@ export function AllocationsPage() {
             <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={ALLOCATION_STATUSES.map((value) => ({ value, label: value }))} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search allocation statuses" />
             <TechEarnestFilterSelect label="Project" value={projectFilter} onChange={setProjectFilter} options={projectOptions} placeholder="All projects" emptyLabel="All projects" searchPlaceholder="Search projects" />
             <TechEarnestFilterSelect label="Resource" value={resourceFilter} onChange={setResourceFilter} options={resourceOptions} placeholder="All resources" emptyLabel="All resources" searchPlaceholder="Search resources" />
-            <div className="form-check">
-              <input
-                id="overlapOnly"
-                className="form-check-input"
-                type="checkbox"
-                checked={overlapOnly}
-                onChange={(e) => setOverlapOnly(e.target.checked)}
-              />
-              <label className="form-check-label small" htmlFor="overlapOnly">
-                Overlapping only
-              </label>
-            </div>
+            <ModuleFilterCheckbox
+              id="overlapOnly"
+              label="Overlapping only"
+              checked={overlapOnly}
+              onChange={setOverlapOnly}
+            />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+        setProjectFilter("");
+        setResourceFilter("");
+        setOverlapOnly(false);
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {allocationsQuery.isLoading ? <LoadingState label="Loading allocations..." /> : null}
       {allocationsQuery.error ? (
         <ErrorState title="Unable to load allocations" message="Try again." />
+      ) : null}
+
+      {selected ? (
+        <div className="border-bottom bg-white p-3">
+          {cameFrom ? (
+            <button type="button" className="techearnest-record-return mb-2" onClick={() => setSelectedId(null)}>
+              <span aria-hidden="true">‹</span> Back to {cameFrom.label || "previous page"}
+            </button>
+          ) : null}
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div>
+              <h2 className="h6 mb-1">
+                <RecordLink module="resource" id={selected.resourceId}>
+                  {resourceLabel(selected.resourceId)}
+                </RecordLink>
+                {" on "}
+                <RecordLink module="project" id={selected.projectId}>
+                  {projectName(selected.projectId)}
+                </RecordLink>
+              </h2>
+              <div className="small text-muted d-flex flex-wrap gap-2 align-items-center">
+                <StatusBadge status={selected.status} />
+                <span>
+                  {selected.startDate} – {selected.endDate}
+                </span>
+                {selected.role ? <span>{selected.role}</span> : null}
+                {selected.allocationPercentage != null ? <span>{selected.allocationPercentage}%</span> : null}
+                {selected.allocatedHours != null ? <span>{selected.allocatedHours} h</span> : null}
+              </div>
+              {selected.warning ? <div className="small text-warning mt-1">{selected.warning}</div> : null}
+            </div>
+            <div className="d-flex gap-2">
+              {canAllocate ? (
+                <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => openEdit(selected)}>
+                  Edit
+                </button>
+              ) : null}
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setSelectedId(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {!allocationsQuery.isLoading && !allocationsQuery.error ? (
@@ -571,9 +621,21 @@ export function AllocationsPage() {
               ]}
               rows={rows}
               rowKey={(allocation) => allocation.id}
+              selectedRowKey={selectedId}
+              onRowClick={(allocation) => setSelectedId(allocation.id)}
               renderCell={(allocation, field) => {
-                if (field === "projectId") return projectName(allocation.projectId);
-                if (field === "resourceId") return resourceLabel(allocation.resourceId);
+                if (field === "projectId")
+                  return (
+                    <RecordLink module="project" id={allocation.projectId}>
+                      {projectName(allocation.projectId)}
+                    </RecordLink>
+                  );
+                if (field === "resourceId")
+                  return (
+                    <RecordLink module="resource" id={allocation.resourceId}>
+                      {resourceLabel(allocation.resourceId)}
+                    </RecordLink>
+                  );
                 if (field === "status") return <StatusBadge status={allocation.status} />;
                 if (field === "warning") return allocation.warning ? <span className="badge bg-warning text-dark">{allocation.warning}</span> : "—";
                 if (field === "costRate" || field === "billingRate") return allocation[field] == null ? "—" : Number(allocation[field]).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -601,9 +663,16 @@ export function AllocationsPage() {
             <div className="module-tile-grid">
               {rows.map((allocation) => (
                 <article key={allocation.id} className="module-tile text-start">
-                  <div className="tile-title">{projectName(allocation.projectId)}</div>
+                  <div className="tile-title">
+                    <RecordLink module="project" id={allocation.projectId}>
+                      {projectName(allocation.projectId)}
+                    </RecordLink>
+                  </div>
                   <div className="small text-muted">
-                    {resourceLabel(allocation.resourceId)} · {allocation.startDate} – {allocation.endDate} · {allocation.status}
+                    <RecordLink module="resource" id={allocation.resourceId}>
+                      {resourceLabel(allocation.resourceId)}
+                    </RecordLink>{" "}
+                    · {allocation.startDate} – {allocation.endDate} · {allocation.status}
                   </div>
                   {canAllocate ? (
                     <div className="d-flex gap-2 mt-3">

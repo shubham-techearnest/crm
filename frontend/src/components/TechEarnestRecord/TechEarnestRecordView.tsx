@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useLocation } from "react-router-dom";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
+import { RecordLinkSource } from "@/components/RecordLink/RecordLinkSource";
+import { readRecordNavState } from "@/hooks/useUrlRecord";
 import { TechEarnestRecordAvatar } from "./TechEarnestRecordAvatar";
 
 export interface TechEarnestRecordRelatedLink {
@@ -61,6 +64,7 @@ export function TechEarnestRecordView({
   recordKey,
   className = "",
 }: TechEarnestRecordViewProps) {
+  const location = useLocation();
   const visibleTabs = tabs.filter((tab) => tab.visible !== false);
   const initialTab = useMemo(() => {
     if (defaultTab && visibleTabs.some((tab) => tab.id === defaultTab)) return defaultTab;
@@ -90,83 +94,99 @@ export function TechEarnestRecordView({
   }
 
   const displayTitle = subtitle ? `${title} - ${subtitle}` : title;
+  const cameFrom = readRecordNavState(location.state)?.from;
+  const backLabel = cameFrom ? `Back to ${cameFrom.label ?? "previous page"}` : "Back to list";
 
   return (
-    <div className={`techearnest-record-page ${className}`.trim()}>
-      <header className="techearnest-record-topbar">
-        <div className="techearnest-record-topbar-left">
-          {onBack ? (
-            <button type="button" className="btn btn-link techearnest-record-back" onClick={onBack} aria-label="Back to list">
-              <ToolbarIcon name="chevron-left" />
-            </button>
-          ) : null}
-          <TechEarnestRecordAvatar
-            label={avatarLabel ?? title}
-            imageUrl={avatarUrl}
-            variant={avatarVariant}
-          />
-          <div className="techearnest-record-identity min-w-0">
-            <h1 className="techearnest-record-title">{displayTitle}</h1>
-            {status ? <div className="techearnest-record-status">{status}</div> : null}
-            {meta ? <div className="techearnest-record-meta">{meta}</div> : null}
-          </div>
-        </div>
-
-        <div className="techearnest-record-topbar-right">
-          {primaryAction ? <div className="techearnest-record-primary-action">{primaryAction}</div> : null}
-          {secondaryActions ? <div className="techearnest-record-secondary-actions">{secondaryActions}</div> : null}
-          {(onPrev || onNext) ? (
-            <div className="techearnest-record-nav-arrows">
-              <button type="button" className="btn btn-light btn-sm" disabled={!hasPrev} onClick={onPrev} aria-label="Previous record">
+      <RecordLinkSource label={title}>
+      <div className={`techearnest-record-page ${className}`.trim()}>
+        {onBack && cameFrom ? (
+          <button type="button" className="btn btn-link techearnest-record-return" onClick={onBack}>
+            <ToolbarIcon name="chevron-left" />
+            <span className="text-truncate">{backLabel}</span>
+          </button>
+        ) : null}
+        <header className="techearnest-record-topbar">
+          <div className="techearnest-record-topbar-left">
+            {onBack ? (
+              <button
+                type="button"
+                className="btn btn-link techearnest-record-back"
+                onClick={onBack}
+                aria-label={backLabel}
+                title={backLabel}
+              >
                 <ToolbarIcon name="chevron-left" />
               </button>
-              <button type="button" className="btn btn-light btn-sm" disabled={!hasNext} onClick={onNext} aria-label="Next record">
-                <ToolbarIcon name="chevron-right" />
-              </button>
+            ) : null}
+            <TechEarnestRecordAvatar
+              label={avatarLabel ?? title}
+              imageUrl={avatarUrl}
+              variant={avatarVariant}
+            />
+            <div className="techearnest-record-identity min-w-0">
+              <h1 className="techearnest-record-title">{displayTitle}</h1>
+              {status ? <div className="techearnest-record-status">{status}</div> : null}
+              {meta ? <div className="techearnest-record-meta">{meta}</div> : null}
             </div>
-          ) : null}
-        </div>
-      </header>
-
-      <div className="techearnest-record-layout">
-        {relatedLinks.length > 0 ? (
-          <aside className="techearnest-record-related-sidebar" aria-label="Related List">
-            <div className="techearnest-record-related-sidebar-title">Related List</div>
-            <ul className="techearnest-record-related-links">
-              {relatedLinks.map((link) => (
-                <li key={link.id}>
-                  <button
-                    type="button"
-                    className={`techearnest-record-related-link${activeRelatedId === link.id ? " is-active" : ""}`}
-                    onClick={() => handleRelatedClick(link.id)}
-                  >
-                    {link.label}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </aside>
-        ) : null}
-
-        <div className="techearnest-record-main">
-          {visibleTabs.length > 1 ? (
-            <nav className="techearnest-record-tabs" aria-label="Record views">
-              {visibleTabs.map((tab) => (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`techearnest-record-tab${active?.id === tab.id ? " is-active" : ""}`}
-                  onClick={() => setActiveTab(tab.id)}
-                  aria-current={active?.id === tab.id ? "page" : undefined}
-                >
-                  {tab.label}
+          </div>
+  
+          <div className="techearnest-record-topbar-right">
+            {primaryAction ? <div className="techearnest-record-primary-action">{primaryAction}</div> : null}
+            {secondaryActions ? <div className="techearnest-record-secondary-actions">{secondaryActions}</div> : null}
+            {(onPrev || onNext) ? (
+              <div className="techearnest-record-nav-arrows">
+                <button type="button" className="btn btn-light btn-sm" disabled={!hasPrev} onClick={onPrev} aria-label="Previous record">
+                  <ToolbarIcon name="chevron-left" />
                 </button>
-              ))}
-            </nav>
+                <button type="button" className="btn btn-light btn-sm" disabled={!hasNext} onClick={onNext} aria-label="Next record">
+                  <ToolbarIcon name="chevron-right" />
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </header>
+  
+        <div className="techearnest-record-layout">
+          {relatedLinks.length > 0 ? (
+            <aside className="techearnest-record-related-sidebar" aria-label="Related List">
+              <div className="techearnest-record-related-sidebar-title">Related List</div>
+              <ul className="techearnest-record-related-links">
+                {relatedLinks.map((link) => (
+                  <li key={link.id}>
+                    <button
+                      type="button"
+                      className={`techearnest-record-related-link${activeRelatedId === link.id ? " is-active" : ""}`}
+                      onClick={() => handleRelatedClick(link.id)}
+                    >
+                      {link.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </aside>
           ) : null}
-          <div className="techearnest-record-body">{active?.content ?? null}</div>
+  
+          <div className="techearnest-record-main">
+            {visibleTabs.length > 1 ? (
+              <nav className="techearnest-record-tabs" aria-label="Record views">
+                {visibleTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    className={`techearnest-record-tab${active?.id === tab.id ? " is-active" : ""}`}
+                    onClick={() => setActiveTab(tab.id)}
+                    aria-current={active?.id === tab.id ? "page" : undefined}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </nav>
+            ) : null}
+            <div className="techearnest-record-body">{active?.content ?? null}</div>
+          </div>
         </div>
-      </div>
     </div>
+    </RecordLinkSource>
   );
 }

@@ -1,5 +1,7 @@
 package com.techearnest.crm.timesheet.domain;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,6 +29,54 @@ public interface TimeEntryRepository extends JpaRepository<TimeEntry, UUID> {
             order by e.workDate asc
             """)
     List<TimeEntry> findActiveByTimesheetIdIn(@Param("timesheetIds") List<UUID> timesheetIds);
+
+    @Query(
+            """
+            select coalesce(sum(e.hours), 0) from TimeEntry e, Timesheet t
+            where e.timesheetId = t.id
+              and e.projectId = :projectId
+              and e.deletedAt is null
+              and t.deletedAt is null
+              and t.status = 'APPROVED'
+            """)
+    BigDecimal sumApprovedHoursByProject(@Param("projectId") UUID projectId);
+
+    @Query(
+            """
+            select coalesce(sum(e.hours), 0) from TimeEntry e, Timesheet t
+            where e.timesheetId = t.id
+              and e.taskId = :taskId
+              and e.deletedAt is null
+              and t.deletedAt is null
+              and t.status = 'APPROVED'
+            """)
+    BigDecimal sumApprovedHoursByTask(@Param("taskId") UUID taskId);
+
+    @Query(
+            """
+            select e from TimeEntry e, Timesheet t
+            where e.timesheetId = t.id
+              and e.projectId = :projectId
+              and e.deletedAt is null
+              and t.deletedAt is null
+            order by e.workDate asc
+            """)
+    List<TimeEntry> findActiveByProjectId(@Param("projectId") UUID projectId);
+
+    @Query(
+            """
+            select e from TimeEntry e, Timesheet t
+            where e.timesheetId = t.id
+              and t.resourceId = :resourceId
+              and e.workDate between :fromDate and :toDate
+              and e.deletedAt is null
+              and t.deletedAt is null
+            order by e.workDate asc
+            """)
+    List<TimeEntry> findActiveByResourceBetween(
+            @Param("resourceId") UUID resourceId,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate);
 
     @Query(
             """

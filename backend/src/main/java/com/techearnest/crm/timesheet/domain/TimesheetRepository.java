@@ -18,6 +18,16 @@ public interface TimesheetRepository extends JpaRepository<Timesheet, UUID> {
 
     boolean existsByResourceIdAndWeekStartDateAndDeletedAtIsNull(UUID resourceId, LocalDate weekStartDate);
 
+    Optional<Timesheet> findByResourceIdAndWeekStartDateAndDeletedAtIsNull(UUID resourceId, LocalDate weekStartDate);
+
+    @Query(
+            """
+            select t from Timesheet t
+            where t.resourceId = :resourceId and t.deletedAt is null
+            order by t.weekStartDate desc
+            """)
+    List<Timesheet> findRecentByResourceId(@Param("resourceId") UUID resourceId, Pageable pageable);
+
     @Query(
             """
             select t from Timesheet t
@@ -25,7 +35,7 @@ public interface TimesheetRepository extends JpaRepository<Timesheet, UUID> {
               and t.deletedAt is null
               and (:status is null or t.status = :status)
               and (:resourceId is null or t.resourceId = :resourceId)
-              and (:weekStart is null or t.weekStartDate = :weekStart)
+              and (cast(:weekStart as LocalDate) is null or t.weekStartDate = :weekStart)
               and (:regionIds is null or t.regionId in :regionIds)
               and (:ownerId is null or exists (
                     select 1 from Resource r
@@ -40,6 +50,24 @@ public interface TimesheetRepository extends JpaRepository<Timesheet, UUID> {
                           and e.deletedAt is null
                           and e.billable = true
                    ))
+              and (:approverId is null or (
+                    t.status = 'SUBMITTED'
+                    and not exists (
+                        select 1 from Resource own
+                        where own.id = t.resourceId and own.userId = :approverId
+                    )
+                    and (exists (
+                            select 1 from Resource mr
+                            where mr.id = t.resourceId and mr.managerId = :approverId
+                         )
+                         or exists (
+                            select 1 from TimeEntry pe, Project p
+                            where pe.timesheetId = t.id
+                              and pe.deletedAt is null
+                              and p.id = pe.projectId
+                              and p.projectManagerId = :approverId
+                         ))
+                  ))
             """)
     Page<Timesheet> search(
             @Param("organizationId") UUID organizationId,
@@ -49,6 +77,7 @@ public interface TimesheetRepository extends JpaRepository<Timesheet, UUID> {
             @Param("billableOnly") boolean billableOnly,
             @Param("regionIds") Collection<UUID> regionIds,
             @Param("ownerId") UUID ownerId,
+            @Param("approverId") UUID approverId,
             Pageable pageable);
 
     @Query(

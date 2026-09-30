@@ -49,8 +49,13 @@ public class ResourceImporter implements ModuleImporter {
         return List.of(
                 ImportFieldSpec.text("employeeCode", "Employee code", 64)
                         .aliases("emp code", "employee id", "emp id", "employee number", "staff id"),
-                ImportFieldSpec.reference("userEmail", "User", "User's login email", "userId")
-                        .aliases("user email", "email", "login email"),
+                ImportFieldSpec.text("fullName", "Full name", 200).aliases("name", "employee name", "resource name"),
+                ImportFieldSpec.text("email", "Email", 255).aliases("contact email", "work email", "e-mail"),
+                ImportFieldSpec.text("phone", "Phone", 50).aliases("mobile", "phone number", "contact number"),
+                ImportFieldSpec.of("engagementEndDate", "Engagement end date", "DATE")
+                        .aliases("end date", "contract end", "engagement end"),
+                ImportFieldSpec.reference("userEmail", "User", "User's login email (required for employees)", "userId")
+                        .aliases("user email", "login email"),
                 ImportFieldSpec.text("designation", "Designation", 128).aliases("title", "job title", "role"),
                 ImportFieldSpec.enumeration("resourceType", "Resource type", TYPES.stream().sorted().toList(), "EMPLOYEE")
                         .aliases("type", "employment type"),
@@ -86,8 +91,13 @@ public class ResourceImporter implements ModuleImporter {
         ImportRow row = rows.get(0);
         String employeeCode = row.text("employeeCode");
         UUID userId = context.lookups().userByEmail(row.email("userEmail", "User email"));
-        if (employeeCode == null && userId == null) {
-            throw new RowRejected("Row needs an employee code or a user email");
+        String fullName = row.text("fullName");
+        String resourceType = row.code("resourceType", "Resource type", TYPES, "EMPLOYEE");
+        if ("EMPLOYEE".equals(resourceType) && userId == null) {
+            throw new RowRejected("Employees must be linked to an existing user; fill in the user email");
+        }
+        if (userId == null && fullName == null) {
+            throw new RowRejected("Row needs a full name or a user email");
         }
         if (employeeCode != null) {
             String key = employeeCode.toLowerCase(Locale.ROOT);
@@ -115,12 +125,16 @@ public class ResourceImporter implements ModuleImporter {
                 row.text("designation"),
                 null,
                 context.lookups().userByEmail(row.email("managerEmail", "Manager email")),
-                row.code("resourceType", "Resource type", TYPES, "EMPLOYEE"),
+                resourceType,
                 row.date("joiningDate", "Joining date"),
                 row.decimal("costRate", "Cost rate"),
                 row.decimal("billingRate", "Billing rate"),
                 capacity,
-                row.code("status", "Status", STATUSES, null))));
+                row.code("status", "Status", STATUSES, null),
+                fullName,
+                row.email("email", "Email"),
+                row.text("phone"),
+                row.date("engagementEndDate", "Engagement end date"))));
         return null;
     }
 }

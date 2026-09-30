@@ -26,6 +26,28 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @EntityListeners(AuditingEntityListener.class)
 public class Project implements SecuredRecord, Persistable<UUID> {
 
+    public static final String BILLING_STAFF_AUGMENTATION = "STAFF_AUGMENTATION";
+    public static final String BILLING_TIME_AND_MATERIAL = "TIME_AND_MATERIAL";
+    public static final String BILLING_FIXED_MONTHLY = "FIXED_MONTHLY";
+    public static final String BILLING_FIXED_BID = "FIXED_BID";
+    public static final java.util.List<String> BILLING_TYPES = java.util.List.of(
+            BILLING_STAFF_AUGMENTATION, BILLING_TIME_AND_MATERIAL, BILLING_FIXED_MONTHLY, BILLING_FIXED_BID);
+
+    /** Accepts the pre-V39 names so older API clients and import files keep working. */
+    public static String normalizeBillingType(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String code = value.trim().toUpperCase(java.util.Locale.ROOT);
+        return switch (code) {
+            case "FIXED_PRICE", "MILESTONE" -> BILLING_FIXED_BID;
+            case "HOURLY", "T_AND_M", "TIME_AND_MATERIALS" -> BILLING_TIME_AND_MATERIAL;
+            case "RETAINER" -> BILLING_FIXED_MONTHLY;
+            case "STAFF_AUG" -> BILLING_STAFF_AUGMENTATION;
+            default -> code;
+        };
+    }
+
     @Id
     private UUID id;
 
@@ -76,6 +98,15 @@ public class Project implements SecuredRecord, Persistable<UUID> {
 
     @Column(name = "billing_type", nullable = false)
     private String billingType;
+
+    @Column(name = "hourly_rate")
+    private BigDecimal hourlyRate;
+
+    @Column(name = "monthly_fee")
+    private BigDecimal monthlyFee;
+
+    @Column(name = "contract_value")
+    private BigDecimal contractValue;
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
@@ -133,8 +164,17 @@ public class Project implements SecuredRecord, Persistable<UUID> {
         project.budget = budget;
         project.estimatedHours = estimatedHours;
         project.actualHours = BigDecimal.ZERO;
-        project.billingType = billingType != null && !billingType.isBlank() ? billingType : "FIXED_PRICE";
+        project.billingType = billingType != null && !billingType.isBlank() ? billingType : BILLING_FIXED_BID;
         return project;
+    }
+
+    /** Only the amounts relevant to the billing type are kept; the others are cleared. */
+    public void applyBillingTerms(BigDecimal hourlyRate, BigDecimal monthlyFee, BigDecimal contractValue) {
+        this.hourlyRate = BILLING_TIME_AND_MATERIAL.equals(billingType) || BILLING_STAFF_AUGMENTATION.equals(billingType)
+                ? hourlyRate
+                : null;
+        this.monthlyFee = BILLING_FIXED_MONTHLY.equals(billingType) ? monthlyFee : null;
+        this.contractValue = BILLING_FIXED_BID.equals(billingType) ? contractValue : null;
     }
 
     public void update(
@@ -181,6 +221,10 @@ public class Project implements SecuredRecord, Persistable<UUID> {
             return;
         }
         this.actualHours = (this.actualHours == null ? BigDecimal.ZERO : this.actualHours).add(hours);
+    }
+
+    public void setActualHours(BigDecimal hours) {
+        this.actualHours = hours == null ? BigDecimal.ZERO : hours;
     }
 
     public void markDeleted() {
@@ -272,6 +316,18 @@ public class Project implements SecuredRecord, Persistable<UUID> {
 
     public String getBillingType() {
         return billingType;
+    }
+
+    public BigDecimal getHourlyRate() {
+        return hourlyRate;
+    }
+
+    public BigDecimal getMonthlyFee() {
+        return monthlyFee;
+    }
+
+    public BigDecimal getContractValue() {
+        return contractValue;
     }
 
     public Instant getDeletedAt() {

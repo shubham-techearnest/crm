@@ -72,6 +72,12 @@ public class Invoice {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "billing_period_start")
+    private LocalDate billingPeriodStart;
+
+    @Column(name = "billing_period_end")
+    private LocalDate billingPeriodEnd;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
@@ -111,6 +117,19 @@ public class Invoice {
         invoice.createdBy = createdBy;
         invoice.updatedBy = createdBy;
         return invoice;
+    }
+
+    public void setBillingPeriod(LocalDate start, LocalDate end) {
+        this.billingPeriodStart = start;
+        this.billingPeriodEnd = end;
+    }
+
+    public LocalDate getBillingPeriodStart() {
+        return billingPeriodStart;
+    }
+
+    public LocalDate getBillingPeriodEnd() {
+        return billingPeriodEnd;
     }
 
     public void recalculateTotals(BigDecimal subtotal, BigDecimal taxTotal) {

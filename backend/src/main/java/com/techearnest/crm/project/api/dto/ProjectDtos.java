@@ -7,6 +7,7 @@ import com.techearnest.crm.project.domain.TaskComment;
 import com.techearnest.crm.project.domain.TaskDependency;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -35,6 +36,9 @@ public final class ProjectDtos {
             BigDecimal estimatedHours,
             BigDecimal actualHours,
             String billingType,
+            BigDecimal hourlyRate,
+            BigDecimal monthlyFee,
+            BigDecimal contractValue,
             BigDecimal progressPercent,
             String health,
             Long version,
@@ -60,6 +64,9 @@ public final class ProjectDtos {
                     project.getEstimatedHours(),
                     project.getActualHours(),
                     project.getBillingType(),
+                    project.getHourlyRate(),
+                    project.getMonthlyFee(),
+                    project.getContractValue(),
                     progressPercent,
                     health,
                     project.getVersion(),
@@ -83,8 +90,12 @@ public final class ProjectDtos {
             LocalDate endDate,
             BigDecimal budget,
             BigDecimal estimatedHours,
-            @NotBlank @Size(max = 32) String billingType) {}
+            @NotBlank @Size(max = 32) String billingType,
+            @PositiveOrZero BigDecimal hourlyRate,
+            @PositiveOrZero BigDecimal monthlyFee,
+            @PositiveOrZero BigDecimal contractValue) {}
 
+    /** Billing amounts are left unchanged when the type is unchanged and none of them is sent. */
     public record UpdateProjectRequest(
             UUID regionId,
             UUID accountId,
@@ -97,7 +108,10 @@ public final class ProjectDtos {
             LocalDate endDate,
             BigDecimal budget,
             BigDecimal estimatedHours,
-            @Size(max = 32) String billingType) {}
+            @Size(max = 32) String billingType,
+            @PositiveOrZero BigDecimal hourlyRate,
+            @PositiveOrZero BigDecimal monthlyFee,
+            @PositiveOrZero BigDecimal contractValue) {}
 
     public record CreateProjectFromDealRequest(
             @Size(max = 255) String name,

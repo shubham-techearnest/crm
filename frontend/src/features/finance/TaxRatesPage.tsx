@@ -3,10 +3,12 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   useTechEarnestCreateFlow,
@@ -78,7 +80,6 @@ export function TaxRatesPage() {
 
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow({
@@ -120,36 +121,58 @@ export function TaxRatesPage() {
   const activeFilterCount = [search, taxTypeFilter].filter(Boolean).length;
 
   const taxRateFormFields = (
-    <FormSection title="Tax rate" description="GST-ready code, rate, and jurisdiction">
-      <div className="col-md-2">
-        <FormField label="Code" required error={errors.code} {...register("code")} />
-      </div>
-      <div className="col-md-3">
-        <FormField label="Name" required error={errors.name} {...register("name")} />
-      </div>
-      <div className="col-md-2">
-        <FormField
-          label="Rate %"
-          type="number"
-          required
-          error={errors.ratePercent}
-          {...register("ratePercent")}
-        />
-      </div>
-      <div className="col-md-2">
-        <label className="form-label">Type</label>
-        <TechEarnestFormSelect
-          control={control}
-          name="taxType"
-          options={taxTypeOptions}
-          searchPlaceholder="Search Types"
-          allowEmpty={false}
-        />
-      </div>
-      <div className="col-md-3">
-        <FormField label="Jurisdiction" error={errors.jurisdiction} {...register("jurisdiction")} />
-      </div>
-    </FormSection>
+    <>
+      <TechEarnestCreateSection title="Tax Rate Information">
+        <TechEarnestCreateGrid>
+          <TechEarnestCreateColumn>
+            <TechEarnestCreateField label="Tax Code" required error={errors.code?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.code ? " is-invalid" : ""}`}
+                {...register("code")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Tax Name" required error={errors.name?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
+                {...register("name")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Jurisdiction" error={errors.jurisdiction?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.jurisdiction ? " is-invalid" : ""}`}
+                {...register("jurisdiction")}
+              />
+            </TechEarnestCreateField>
+          </TechEarnestCreateColumn>
+          <TechEarnestCreateColumn>
+            <TechEarnestCreateField label="Rate %" required error={errors.ratePercent?.message}>
+              <input
+                type="number"
+                className={`form-control form-control-sm${errors.ratePercent ? " is-invalid" : ""}`}
+                {...register("ratePercent")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Tax Type" error={errors.taxType?.message}>
+              <TechEarnestFormSelect
+                control={control}
+                name="taxType"
+                options={taxTypeOptions}
+                searchPlaceholder="Search Types"
+                allowEmpty={false}
+              />
+            </TechEarnestCreateField>
+          </TechEarnestCreateColumn>
+        </TechEarnestCreateGrid>
+      </TechEarnestCreateSection>
+      <TechEarnestCreateSection title="Description Information">
+        <TechEarnestCreateField label="Description" wide error={errors.description?.message}>
+          <textarea rows={4} className="form-control form-control-sm" {...register("description")} />
+        </TechEarnestCreateField>
+      </TechEarnestCreateSection>
+    </>
   );
 
   return (
@@ -168,7 +191,7 @@ export function TaxRatesPage() {
             void handleSubmit(onCreateSubmit)();
           }}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
           {taxRateFormFields}
         </TechEarnestFormKitCreateView>
@@ -212,6 +235,12 @@ export function TaxRatesPage() {
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setTaxTypeFilter("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {query.isLoading ? <LoadingState label="Loading tax rates..." /> : null}

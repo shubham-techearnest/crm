@@ -153,7 +153,7 @@ public class ReportService {
         }
 
         List<Timesheet> timesheets = timesheetRepository
-                .search(orgId, null, null, null, false, regionIds, null, PageRequest.of(0, 5000))
+                .search(orgId, null, null, null, false, regionIds, null, null, PageRequest.of(0, 5000))
                 .getContent()
                 .stream()
                 .filter(ts -> inDateRange(ts.getWeekStartDate(), from, to))
@@ -356,7 +356,7 @@ public class ReportService {
     private BigDecimal estimateProjectCost(UUID organizationId, UUID projectId) {
         BigDecimal hours = BigDecimal.ZERO;
         List<Timesheet> timesheets = timesheetRepository
-                .search(organizationId, Timesheet.STATUS_APPROVED, null, null, false, null, null, PageRequest.of(0, 5000))
+                .search(organizationId, Timesheet.STATUS_APPROVED, null, null, false, null, null, null, PageRequest.of(0, 5000))
                 .getContent();
         for (Timesheet ts : timesheets) {
             for (TimeEntry entry : timeEntryRepository.findActiveByTimesheetId(ts.getId())) {

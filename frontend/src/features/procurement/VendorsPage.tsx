@@ -3,11 +3,14 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormActions, FormSection, UnsavedGuard } from "@/components/FormKit";
+import { FormActions, UnsavedGuard } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFilterSelect,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
@@ -22,7 +25,11 @@ import { useHasPermission } from "@/features/auth/AuthContext";
 import { listRegions } from "@/features/admin/adminApi";
 import { listAccounts } from "@/features/crm/crmApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { createVendor, deleteVendor, queryVendors, updateVendor } from "./vendorsApi";
+import { useLocation } from "react-router-dom";
+import { RecordLink, RelatedRecordList } from "@/components/RecordLink";
+import { readRecordNavState, useUrlRecordId } from "@/hooks/useUrlRecord";
+import { listPurchaseOrders } from "./purchaseOrdersApi";
+import { createVendor, deleteVendor, getVendor, queryVendors, updateVendor } from "./vendorsApi";
 
 const schema = z.object({
   regionId: z.string().min(1, "Region is required"),
@@ -84,6 +91,24 @@ export function VendorsPage() {
   });
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
   const accountsQuery = useQuery({ queryKey: ["crm", "accounts"], queryFn: () => listAccounts() });
+  const canViewPurchaseOrders = useHasPermission("PO_VIEW");
+  const [selectedId, setSelectedId] = useUrlRecordId();
+  const location = useLocation();
+  const cameFrom = readRecordNavState(location.state)?.from;
+  const selectedFromRows = (vendorsQuery.data ?? []).find((vendor) => vendor.id === selectedId) ?? null;
+  const selectedFetchQuery = useQuery({
+    queryKey: ["vendors", "record", selectedId],
+    queryFn: () => getVendor(selectedId!),
+    enabled: !!selectedId && !!vendorsQuery.data && !selectedFromRows,
+    retry: false,
+  });
+  const selected = selectedFromRows ?? (selectedFetchQuery.data?.id === selectedId ? selectedFetchQuery.data : null);
+  const vendorOrdersQuery = useQuery({
+    queryKey: ["purchase-orders", "vendor", selected?.id],
+    queryFn: () => listPurchaseOrders({ vendorId: selected!.id }),
+    enabled: !!selected && canViewPurchaseOrders,
+  });
+  const accountName = (id: string) => accountsQuery.data?.find((account) => account.id === id)?.name ?? "Open account";
 
   const {
     register,
@@ -106,6 +131,7 @@ export function VendorsPage() {
     reset,
     setShowForm,
     setFormError,
+    setSelected: (vendor) => setSelectedId(vendor.id),
   });
 
   const buildVendorBody = (values: FormValues) => ({
@@ -197,62 +223,79 @@ export function VendorsPage() {
   }
 
   const vendorFormFields = (
-    <FormSection title={editingId ? "Edit vendor" : "Vendor"} description="Procurement master; optional link to CRM account">
-      <div className="col-md-3">
-        <label className="form-label required">Region</label>
-        <TechEarnestFormSelect
-          control={control}
-          name="regionId"
-          options={regionOptions}
-          searchPlaceholder="Search Regions"
-          allowEmpty={false}
-          placeholder="Select"
-          invalid={!!errors.regionId}
-        />
-        {errors.regionId ? <div className="invalid-feedback d-block">{errors.regionId.message}</div> : null}
-      </div>
-      <div className="col-md-3">
-        <FormField label="Name" required error={errors.name} {...register("name")} />
-      </div>
-      <div className="col-md-2">
-        <FormField label="Tax number" error={errors.taxNumber} {...register("taxNumber")} />
-      </div>
-      <div className="col-md-2">
-        <FormField label="Email" error={errors.email} {...register("email")} />
-      </div>
-      <div className="col-md-2">
-        <FormField label="Phone" error={errors.phone} {...register("phone")} />
-      </div>
-      <div className="col-md-3">
-        <label className="form-label">CRM account</label>
-        <TechEarnestFormSelect
-          control={control}
-          name="accountId"
-          options={accountOptions}
-          searchPlaceholder="Search Accounts"
-          lookupIcon="building"
-          placeholder="Optional"
-        />
-      </div>
-      <div className="col-md-2">
-        <FormField
-          label="Payment terms (days)"
-          type="number"
-          error={errors.paymentTermsDays}
-          {...register("paymentTermsDays")}
-        />
-      </div>
-      <div className="col-md-2">
-        <label className="form-label">Status</label>
-        <TechEarnestFormSelect
-          control={control}
-          name="status"
-          options={vendorStatusOptions}
-          searchPlaceholder="Search Statuses"
-          allowEmpty={false}
-        />
-      </div>
-    </FormSection>
+    <TechEarnestCreateSection title="Vendor Information">
+      <TechEarnestCreateGrid>
+        <TechEarnestCreateColumn>
+          <TechEarnestCreateField label="Vendor Name" required error={errors.name?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
+              {...register("name")}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Region" required error={errors.regionId?.message}>
+            <TechEarnestFormSelect
+              control={control}
+              name="regionId"
+              options={regionOptions}
+              searchPlaceholder="Search Regions"
+              allowEmpty={false}
+              placeholder="Select region"
+              invalid={!!errors.regionId}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Tax Number" error={errors.taxNumber?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.taxNumber ? " is-invalid" : ""}`}
+              {...register("taxNumber")}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="CRM Account" error={errors.accountId?.message}>
+            <TechEarnestFormSelect
+              control={control}
+              name="accountId"
+              options={accountOptions}
+              searchPlaceholder="Search Accounts"
+              lookupIcon="building"
+              placeholder="Optional"
+            />
+          </TechEarnestCreateField>
+        </TechEarnestCreateColumn>
+        <TechEarnestCreateColumn>
+          <TechEarnestCreateField label="Email" error={errors.email?.message}>
+            <input
+              type="email"
+              className={`form-control form-control-sm${errors.email ? " is-invalid" : ""}`}
+              {...register("email")}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Phone" error={errors.phone?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.phone ? " is-invalid" : ""}`}
+              {...register("phone")}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Payment Terms (Days)" error={errors.paymentTermsDays?.message}>
+            <input
+              type="number"
+              className={`form-control form-control-sm${errors.paymentTermsDays ? " is-invalid" : ""}`}
+              {...register("paymentTermsDays")}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Status">
+            <TechEarnestFormSelect
+              control={control}
+              name="status"
+              options={vendorStatusOptions}
+              searchPlaceholder="Search Statuses"
+              allowEmpty={false}
+            />
+          </TechEarnestCreateField>
+        </TechEarnestCreateColumn>
+      </TechEarnestCreateGrid>
+    </TechEarnestCreateSection>
   );
 
   return (
@@ -311,13 +354,19 @@ export function VendorsPage() {
             />
           </div>
           <div className="module-filter-section">
+            <h3>Filter by fields</h3>
             <TechEarnestFilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={vendorStatusOptions} placeholder="All statuses" emptyLabel="All statuses" searchPlaceholder="Search vendor statuses" />
-          </div>
-          <div className="module-filter-section">
             <TechEarnestFilterSelect label="Region" value={regionFilter} onChange={setRegionFilter} options={regionOptions} placeholder="All regions" emptyLabel="All regions" searchPlaceholder="Search regions" />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+        setRegionFilter("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {showForm && editingId ? (
@@ -342,6 +391,64 @@ export function VendorsPage() {
         </form>
       ) : null}
 
+      {selected ? (
+        <div className="border-bottom bg-white p-3">
+          {cameFrom ? (
+            <button type="button" className="techearnest-record-return mb-2" onClick={() => setSelectedId(null)}>
+              <span aria-hidden="true">‹</span> Back to {cameFrom.label || "previous page"}
+            </button>
+          ) : null}
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-2">
+            <div>
+              <h2 className="h6 mb-1">{selected.name}</h2>
+              <div className="small text-muted d-flex flex-wrap gap-2 align-items-center">
+                <StatusBadge status={selected.status} />
+                {selected.accountId ? (
+                  <span>
+                    CRM account{" "}
+                    <RecordLink module="account" id={selected.accountId}>
+                      {accountName(selected.accountId)}
+                    </RecordLink>
+                  </span>
+                ) : null}
+                {selected.email ? <a href={`mailto:${selected.email}`}>{selected.email}</a> : null}
+                {selected.phone ? <span>{selected.phone}</span> : null}
+                {selected.paymentTermsDays != null ? <span>{selected.paymentTermsDays}-day terms</span> : null}
+                {selected.taxNumber ? <span>Tax no. {selected.taxNumber}</span> : null}
+              </div>
+            </div>
+            <div className="d-flex gap-2">
+              {canManage ? (
+                <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => openEdit(selected.id)}>
+                  Edit
+                </button>
+              ) : null}
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setSelectedId(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+          {canViewPurchaseOrders ? (
+            <div className="mt-3">
+              <div className="form-label mb-1">Purchase Orders ({vendorOrdersQuery.data?.length ?? 0})</div>
+              {vendorOrdersQuery.isLoading || vendorOrdersQuery.data?.length ? (
+                <RelatedRecordList
+                  module="purchaseOrder"
+                  loading={vendorOrdersQuery.isLoading}
+                  items={(vendorOrdersQuery.data ?? []).map((order) => ({
+                    id: order.id,
+                    label: order.poNumber ?? "Draft PO",
+                    secondary: `${order.currencyCode} ${order.total.toLocaleString()}${order.neededBy ? ` · needed by ${order.neededBy}` : ""}`,
+                    trailing: <StatusBadge status={order.status} />,
+                  }))}
+                />
+              ) : (
+                <div className="small text-muted">No purchase orders for this vendor</div>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       {vendorsQuery.isLoading ? <LoadingState label="Loading vendors..." /> : null}
       {vendorsQuery.error ? <ErrorState title="Unable to load vendors" message="Try again." /> : null}
       {!vendorsQuery.isLoading && !vendorsQuery.error ? (
@@ -351,12 +458,21 @@ export function VendorsPage() {
             { field: "name", label: "Name" },
             { field: "regionId", label: "Region" },
             { field: "email", label: "Email" },
+            { field: "accountId", label: "CRM Account" },
             { field: "paymentTermsDays", label: "Terms" },
             { field: "status", label: "Status" },
           ]}
           rows={rows}
           rowKey={(vendor) => vendor.id}
+          selectedRowKey={selectedId}
+          onRowClick={(vendor) => setSelectedId(vendor.id)}
           renderCell={(vendor, field) => {
+            if (field === "accountId")
+              return (
+                <RecordLink module="account" id={vendor.accountId}>
+                  {vendor.accountId ? accountName(vendor.accountId) : null}
+                </RecordLink>
+              );
             if (field === "regionId") return regionName(vendor.regionId);
             if (field === "paymentTermsDays") return vendor.paymentTermsDays != null ? `${vendor.paymentTermsDays} days` : "—";
             if (field === "status") return <StatusBadge status={vendor.status} />;

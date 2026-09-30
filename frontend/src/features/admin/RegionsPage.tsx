@@ -3,10 +3,12 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   useTechEarnestCreateFlow,
@@ -38,8 +40,6 @@ export function RegionsPage() {
     useModuleWorkspace();
   const [statusFilter, setStatusFilter] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
-
   const regionsQuery = useQuery({ queryKey: ["admin", "regions"], queryFn: listRegions });
 
   const {
@@ -55,7 +55,6 @@ export function RegionsPage() {
 
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow({
@@ -63,7 +62,6 @@ export function RegionsPage() {
     reset,
     setShowForm,
     setFormError,
-    onResetExtras: () => setShowMore(false),
   });
 
   const buildBody = (values: FormValues) => ({
@@ -115,19 +113,26 @@ export function RegionsPage() {
   );
 
   const regionFormFields = (
-    <>
-      <FormSection title="Primary details" description="Region identity">
-        <div className="col-md-5">
-          <FormField label="Name" required error={errors.name} {...register("name")} />
-        </div>
-        <div className="col-md-3">
-          <FormField label="Code" required error={errors.code} {...register("code")} />
-        </div>
-      </FormSection>
-      <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-        <FormSection title="Hierarchy">
-          <div className="col-md-4">
-            <label className="form-label">Parent region</label>
+    <TechEarnestCreateSection title="Region Information">
+      <TechEarnestCreateGrid>
+        <TechEarnestCreateColumn>
+          <TechEarnestCreateField label="Region Name" required error={errors.name?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
+              {...register("name")}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Region Code" required error={errors.code?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.code ? " is-invalid" : ""}`}
+              {...register("code")}
+            />
+          </TechEarnestCreateField>
+        </TechEarnestCreateColumn>
+        <TechEarnestCreateColumn>
+          <TechEarnestCreateField label="Parent Region" error={errors.parentId?.message}>
             <TechEarnestFormSelect
               control={control}
               name="parentId"
@@ -135,10 +140,10 @@ export function RegionsPage() {
               searchPlaceholder="Search Regions"
               placeholder="None"
             />
-          </div>
-        </FormSection>
-      </FormMoreDetails>
-    </>
+          </TechEarnestCreateField>
+        </TechEarnestCreateColumn>
+      </TechEarnestCreateGrid>
+    </TechEarnestCreateSection>
   );
 
   return (
@@ -157,7 +162,7 @@ export function RegionsPage() {
             void handleSubmit(onCreateSubmit)();
           }}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
           {regionFormFields}
         </TechEarnestFormKitCreateView>
@@ -201,6 +206,12 @@ export function RegionsPage() {
           </div>
         </>
       }
+      activeFilterCount={[search.trim(), statusFilter].filter(Boolean).length}
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {regionsQuery.isLoading ? <LoadingState label="Loading regions..." /> : null}

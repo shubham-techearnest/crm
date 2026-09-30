@@ -1,27 +1,34 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { Link, useSearchParams } from "react-router-dom";
-import { z } from "zod";
+import { useSearchParams } from "react-router-dom";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
-import { DynamicForm, FormActions, UnsavedGuard } from "@/components/FormKit";
 import { ContactCreateView } from "./ContactCreateView";
+import { ContactEditView } from "./ContactEditView";
 import { buildOwnerOptions, buildFilterOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilterSelect } from "@/components/TechEarnestCreate";
 import { EmptyState } from "@/components/EmptyState/EmptyState";
 import {
+  ModuleFilterField,
   ModuleListShell,
   countActiveFilters,
 } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
-import { buildTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
+import {
+  buildTimelineEntries,
+  recordLifecycleInfo,
+  TechEarnestRecordInfoSection,
+  TechEarnestRecordRelatedCard,
+  TechEarnestRecordSummaryStrip,
+  TechEarnestRecordTimeline,
+  useRecordNavigation,
+} from "@/components/TechEarnestRecord";
+import { RecordLink, RelatedRecordList } from "@/components/RecordLink";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
+import { useUrlSelection } from "@/hooks/useUrlRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
-import { getPublishedFormBundle, getPublishedRelatedLists } from "@/features/admin/studio/metadataApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
 import { useBulkImport } from "@/features/import/useBulkImport";
 import {
@@ -31,11 +38,11 @@ import {
   listAccounts,
   listActivities,
   listContacts,
-  updateContact,
   type Contact,
 } from "./crmApi";
 import {
   createNote,
+  deleteDocument,
   deleteNote,
   documentDownloadUrl,
   listDocuments,
@@ -43,40 +50,8 @@ import {
   uploadDocument,
 } from "./foundationApi";
 
-const editSchema = z.object({
-  firstName: z.string().min(1, "Required"),
-  lastName: z.string().min(1, "Required"),
-  email: z.string().email("Enter a valid email").or(z.literal("")).optional(),
-  phone: z.string().optional(),
-  mobile: z.string().optional(),
-  designation: z.string().optional(),
-  department: z.string().optional(),
-  linkedinUrl: z.string().optional(),
-  status: z.string().optional(),
-  notes: z.string().optional(),
-  ownerId: z.string().optional(),
-});
-
-type EditFormValues = z.infer<typeof editSchema>;
-
 function contactName(contact: Pick<Contact, "firstName" | "lastName">) {
   return `${contact.firstName} ${contact.lastName}`.trim();
-}
-
-function buildUpdateBody(values: EditFormValues) {
-  return {
-    ownerId: values.ownerId || undefined,
-    firstName: values.firstName,
-    lastName: values.lastName,
-    email: values.email || undefined,
-    phone: values.phone || undefined,
-    mobile: values.mobile || undefined,
-    designation: values.designation || undefined,
-    department: values.department || undefined,
-    linkedinUrl: values.linkedinUrl || undefined,
-    status: values.status || "ACTIVE",
-    notes: values.notes || undefined,
-  };
 }
 
 export function ContactsPage() {
@@ -91,6 +66,7 @@ export function ContactsPage() {
   const canDeleteNotes = useHasPermission("NOTE_DELETE");
   const canViewDocs = useHasPermission("DOCUMENT_VIEW");
   const canUploadDocs = useHasPermission("DOCUMENT_UPLOAD");
+  const canDeleteDocs = useHasPermission("DOCUMENT_DELETE");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
   const canViewAudit = useHasPermission("AUDIT_VIEW");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
@@ -100,9 +76,7 @@ export function ContactsPage() {
   const [ownerFilter, setOwnerFilter] = useState("");
   const [emailFilter, setEmailFilter] = useState("");
   const [designationFilter, setDesignationFilter] = useState("");
-  const [selected, setSelected] = useState<Contact | null>(null);
   const [showEdit, setShowEdit] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
   const [noteBody, setNoteBody] = useState("");
 
   useEffect(() => {
@@ -125,6 +99,7 @@ export function ContactsPage() {
     queryKey: ["crm", "contacts", listParams],
     queryFn: () => listContacts(listParams),
   });
+  const [selected, setSelected] = useUrlSelection(contactsQuery.data, { fetchById: getContact });
   const contactRecordQuery = useQuery({
     queryKey: ["crm", "contacts", "record", selected?.id],
     queryFn: () => getContact(selected!.id),
@@ -138,27 +113,15 @@ export function ContactsPage() {
     }
   }, [contactRecordQuery.data, selected?.id]);
   const accountsQuery = useQuery({ queryKey: ["crm", "accounts"], queryFn: () => listAccounts() });
-  const contactEditBundleQuery = useQuery({
-    queryKey: ["metadata", "runtime", "contact", "form-bundle", "CREATE", "edit"],
-    queryFn: () => getPublishedFormBundle("contact", "CREATE"),
-    enabled: !!selected && showEdit,
-    staleTime: 60_000,
-  });
   const usersQuery = useQuery({
     queryKey: ["admin", "users"],
     queryFn: () => listUsers(),
-    enabled: canViewUsers || (showForm && canCreate),
+    enabled: canViewUsers || (showForm && canCreate) || showEdit,
   });
   const regionsQuery = useQuery({
     queryKey: ["admin", "regions", "contact-account-quick-create"],
     queryFn: listRegions,
     enabled: showForm && canCreate,
-  });
-  const relatedListsQuery = useQuery({
-    queryKey: ["metadata", "runtime", "contact", "related-lists"],
-    queryFn: () => getPublishedRelatedLists("contact"),
-    enabled: !!selected,
-    staleTime: 60_000,
   });
   const accountQuery = useQuery({
     queryKey: ["crm", "accounts", selected?.accountId],
@@ -232,36 +195,18 @@ export function ContactsPage() {
     [dealsQuery.data, (selected as Contact | null)?.id],
   );
 
-  const {
-    register: registerEdit,
-    handleSubmit: handleEditSubmit,
-    reset: resetEdit,
-    control: controlEdit,
-    formState: { errors: editErrors, isSubmitting: isEditSubmitting, isDirty: isEditDirty },
-  } = useForm<EditFormValues>({
-    resolver: zodResolver(editSchema),
-  });
+  const openActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status !== "COMPLETED"),
+    [activitiesQuery.data],
+  );
+  const closedActivities = useMemo(
+    () => (activitiesQuery.data ?? []).filter((activity) => activity.status === "COMPLETED"),
+    [activitiesQuery.data],
+  );
 
   useEffect(() => {
-    if (!selected) {
-      setShowEdit(false);
-      return;
-    }
-    resetEdit({
-      firstName: selected.firstName,
-      lastName: selected.lastName,
-      email: selected.email ?? "",
-      phone: selected.phone ?? "",
-      mobile: selected.mobile ?? "",
-      designation: selected.designation ?? "",
-      department: selected.department ?? "",
-      linkedinUrl: selected.linkedinUrl ?? "",
-      status: selected.status,
-      notes: selected.notes ?? "",
-      ownerId: selected.ownerId ?? "",
-    });
-    setEditError(null);
-  }, [selected, resetEdit]);
+    if (!selected) setShowEdit(false);
+  }, [selected]);
 
   async function handleContactCreated(contact: Contact, mode: "save" | "saveAndNew") {
     await queryClient.invalidateQueries({ queryKey: ["crm", "contacts"] });
@@ -275,18 +220,6 @@ export function ContactsPage() {
     setSelected(null);
     setShowForm(true);
   }
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: ReturnType<typeof buildUpdateBody> }) =>
-      updateContact(id, body),
-    onSuccess: async (contact) => {
-      await queryClient.invalidateQueries({ queryKey: ["crm", "contacts"] });
-      setSelected(contact);
-      setShowEdit(false);
-      setEditError(null);
-    },
-    onError: () => setEditError("Could not update contact."),
-  });
 
   const noteMutation = useMutation({
     mutationFn: () => createNote("CONTACT", selected!.id, noteBody),
@@ -303,35 +236,32 @@ export function ContactsPage() {
     },
   });
 
-  const contactFieldConfig = {
-    accountId: {
-      options: (accountsQuery.data ?? []).map((account) => ({
-        value: account.id,
-        label: account.name,
-      })),
-      colClass: "col-md-4",
+  const uploadMutation = useMutation({
+    mutationFn: (file: File) => uploadDocument("CONTACT", selected!.id, file),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "CONTACT", selected?.id] });
     },
-    status: {
-      options: [
-        { value: "ACTIVE", label: "ACTIVE" },
-        { value: "INACTIVE", label: "INACTIVE" },
-      ],
-      colClass: "col-md-3",
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: deleteDocument,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "CONTACT", selected?.id] });
     },
-    email: { typeOverride: "email" as const, colClass: "col-md-4" },
-    firstName: { colClass: "col-md-4" },
-    lastName: { colClass: "col-md-4" },
-    ownerId: {
-      options: (usersQuery.data ?? []).map((user) => ({
-        value: user.id,
-        label: `${user.firstName} ${user.lastName}`.trim(),
-        subtitle: user.email,
-      })),
-      colClass: "col-md-4",
-      pickerMode: "user" as const,
-      searchPlaceholder: "Search Users",
-      lookupIcon: "users" as const,
-    },
+  });
+
+  const openDownload = async (id: string, fileName: string) => {
+    const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
+    const response = await fetch(documentDownloadUrl(id), {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    });
+    if (!response.ok) return;
+    const url = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   const ownerOptions = useMemo(
@@ -364,6 +294,18 @@ export function ContactsPage() {
           onCancel={() => setShowForm(false)}
           onCreated={(contact, mode) => void handleContactCreated(contact, mode)}
         />
+      ) : showEdit && selected && canUpdate ? (
+        <ContactEditView
+          contact={selected}
+          accountName={accountName(selected.accountId)}
+          users={ownerOptions}
+          onCancel={() => setShowEdit(false)}
+          onUpdated={(contact) => {
+            setSelected(contact);
+            setShowEdit(false);
+            void queryClient.invalidateQueries({ queryKey: ["crm", "contacts"] });
+          }}
+        />
       ) : selected ? (
         <RecordShell
           layout="page"
@@ -373,24 +315,34 @@ export function ContactsPage() {
           status={<StatusBadge status={selected.status} />}
           recordKey={selected.id}
           onBack={() => {
-            setSelected(null);
             setShowEdit(false);
+            recordNav.goBack();
           }}
           onPrev={recordNav.goPrev}
           onNext={recordNav.goNext}
           hasPrev={recordNav.hasPrev}
           hasNext={recordNav.hasNext}
-          relatedLinks={[...DEFAULT_RELATED_LINKS]}
+          relatedLinks={[{ id: "account", label: "Account" }, { id: "deals", label: "Deals" }, ...DEFAULT_RELATED_LINKS]}
           primaryAction={
-            canUpdate ? (
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => setShowEdit((value) => !value)}
-              >
-                {showEdit ? "Cancel edit" : "Edit"}
+            selected.email ? (
+              <a className="btn btn-primary btn-sm" href={`mailto:${selected.email}`}>
+                Send Email
+              </a>
+            ) : (
+              <button type="button" className="btn btn-primary btn-sm" disabled>
+                Send Email
               </button>
-            ) : null
+            )
+          }
+          secondaryActions={
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              disabled={!canUpdate}
+              onClick={() => setShowEdit(true)}
+            >
+              Edit
+            </button>
           }
           tabs={[
             {
@@ -398,272 +350,247 @@ export function ContactsPage() {
               label: "Overview",
               content: (
                 <>
-                  {editError ? <div className="alert alert-danger py-2">{editError}</div> : null}
-                  {showEdit && canUpdate ? (
-                    <form
-                      className="mb-3"
-                      onSubmit={handleEditSubmit((values) =>
-                        updateMutation.mutate({ id: selected.id, body: buildUpdateBody(values) }),
-                      )}
-                    >
-                      <UnsavedGuard when={isEditDirty && showEdit} />
-                      {contactEditBundleQuery.isLoading ? (
-                        <LoadingState label="Loading form layout..." workspace />
-                      ) : null}
-                      {contactEditBundleQuery.error ? (
-                        <ErrorState
-                          title="Form layout unavailable"
-                          message="Published Contact layout is required."
-                          workspace
-                        />
-                      ) : null}
-                      {contactEditBundleQuery.data ? (
-                        <DynamicForm
-                          layout={contactEditBundleQuery.data.layout.layout}
-                          fields={contactEditBundleQuery.data.fields.filter((field) => field.code !== "accountId")}
-                          register={registerEdit}
-                          control={controlEdit}
-                          errors={editErrors}
-                          fieldConfig={{
-                            ...contactFieldConfig,
-                            ownerId: canViewUsers ? contactFieldConfig.ownerId : undefined,
-                          }}
-                        />
-                      ) : null}
-                      <FormActions
-                        submitLabel="Update"
-                        submitting={isEditSubmitting || updateMutation.isPending}
-                        onCancel={() => {
-                          if (isEditDirty && !window.confirm("Discard unsaved changes?")) return;
-                          setShowEdit(false);
-                          resetEdit({
-                            firstName: selected.firstName,
-                            lastName: selected.lastName,
-                            email: selected.email ?? "",
-                            phone: selected.phone ?? "",
-                            mobile: selected.mobile ?? "",
-                            designation: selected.designation ?? "",
-                            department: selected.department ?? "",
-                            linkedinUrl: selected.linkedinUrl ?? "",
-                            status: selected.status,
-                            notes: selected.notes ?? "",
-                            ownerId: selected.ownerId ?? "",
-                          });
-                        }}
-                      />
-                    </form>
-                  ) : (
-                    <>
-                      <p className="small mb-1">Email: {selected.email ?? "—"}</p>
-                      <p className="small mb-1">Phone: {selected.phone ?? selected.mobile ?? "—"}</p>
-                      <p className="small mb-1">Designation: {selected.designation ?? "—"}</p>
-                      <p className="small mb-1">Department: {selected.department ?? "—"}</p>
-                      <p className="small mb-3">Owner: {userLabel(selected.ownerId)}</p>
-                      {selected.notes ? <p className="small text-muted mb-0">{selected.notes}</p> : null}
-                    </>
-                  )}
-                </>
-              ),
-            },
-            {
-              id: "related",
-              label: "Related",
-              content: (
-                <>
-                  <div className="mb-3">
-                    <h2 className="h6">Account</h2>
+                  <TechEarnestRecordSummaryStrip
+                    fields={[
+                      { label: "Contact Owner", value: userLabel(selected.ownerId) },
+                      { label: "Email", value: selected.email ?? "—" },
+                      { label: "Phone", value: selected.phone ?? "—" },
+                      { label: "Mobile", value: selected.mobile ?? "—" },
+                      { label: "Status", value: <StatusBadge status={selected.status} /> },
+                    ]}
+                  />
+
+                  <TechEarnestRecordInfoSection
+                    title="Contact Information"
+                    fields={[
+                      { label: "Contact Owner", value: userLabel(selected.ownerId) },
+                      { label: "Contact Name", value: contactName(selected) || "—" },
+                      {
+                        label: "Account Name",
+                        value: (
+                          <RecordLink module="account" id={selected.accountId}>
+                            {accountName(selected.accountId)}
+                          </RecordLink>
+                        ),
+                      },
+                      { label: "Title", value: selected.designation ?? "—" },
+                      { label: "Department", value: selected.department ?? "—" },
+                      { label: "Email", value: selected.email ?? "—" },
+                      { label: "Phone", value: selected.phone ?? "—" },
+                      { label: "Mobile", value: selected.mobile ?? "—" },
+                      {
+                        label: "LinkedIn",
+                        value: selected.linkedinUrl ? (
+                          <a href={selected.linkedinUrl} target="_blank" rel="noreferrer">
+                            {selected.linkedinUrl}
+                          </a>
+                        ) : (
+                          "—"
+                        ),
+                      },
+                      { label: "Status", value: selected.status },
+                      { label: "Created", value: new Date(selected.createdAt).toLocaleString() },
+                      { label: "Modified", value: new Date(selected.updatedAt).toLocaleString() },
+                    ]}
+                  />
+
+                  {selected.notes ? (
+                    <TechEarnestRecordInfoSection
+                      title="Description Information"
+                      collapsible={false}
+                      fields={[{ label: "Description", value: selected.notes }]}
+                    />
+                  ) : null}
+
+                  <TechEarnestRecordRelatedCard
+                    id="techearnest-record-section-account"
+                    title="Account"
+                    isEmpty={!accountQuery.isLoading && !accountQuery.data}
+                    emptyLabel={accountQuery.error ? "Unable to load account" : "No linked account"}
+                  >
                     {accountQuery.isLoading ? <LoadingState label="Loading account…" workspace /> : null}
-                    {accountQuery.error ? (
-                      <p className="small text-muted mb-0">Unable to load account.</p>
-                    ) : accountQuery.data ? (
+                    {accountQuery.data ? (
                       <div className="small">
-                        <div className="fw-semibold">{accountQuery.data.name}</div>
+                        <div className="fw-semibold">
+                          <RecordLink module="account" id={accountQuery.data.id}>
+                            {accountQuery.data.name}
+                          </RecordLink>
+                        </div>
                         <div className="text-muted">
                           {accountQuery.data.accountType} · {accountQuery.data.status}
                         </div>
                         <div>{accountQuery.data.email ?? "—"}</div>
-                        <Link className="small" to="/accounts">
-                          Open Accounts
-                        </Link>
                       </div>
-                    ) : (
-                      <p className="small text-muted mb-0">No linked account.</p>
-                    )}
-                  </div>
-                  <div className="mb-3">
-                    <h2 className="h6">Deals</h2>
-                    <ul className="small mb-0">
-                      {relatedDeals.map((deal) => (
-                        <li key={deal.id}>
-                          {deal.name} — <StatusBadge status={deal.stage} />
-                        </li>
-                      ))}
-                      {!relatedDeals.length ? <li className="text-muted">No linked deals</li> : null}
-                    </ul>
-                  </div>
-                  {(relatedListsQuery.data ?? []).map((relatedList) => {
-                    if (relatedList.childTableCode === "activity" && canViewActivities) {
-                      return (
-                        <div key={relatedList.id} className="mb-3">
-                          <h2 className="h6">{relatedList.label}</h2>
-                          <ul className="small mb-0">
-                            {(activitiesQuery.data ?? []).map((activity) => (
-                              <li key={activity.id}>
-                                {activity.subject} — <StatusBadge status={activity.status} />
-                              </li>
-                            ))}
-                            {!activitiesQuery.data?.length ? (
-                              <li className="text-muted">No activities</li>
-                            ) : null}
-                          </ul>
-                        </div>
-                      );
-                    }
-                    if (relatedList.childTableCode === "deal") {
-                      return (
-                        <div key={relatedList.id} className="mb-3">
-                          <h2 className="h6">{relatedList.label}</h2>
-                          <ul className="small mb-0">
-                            {relatedDeals.map((deal) => (
-                              <li key={deal.id}>
-                                {deal.name} — <StatusBadge status={deal.stage} />
-                              </li>
-                            ))}
-                            {!relatedDeals.length ? <li className="text-muted">No linked deals</li> : null}
-                          </ul>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })}
-                  {!relatedListsQuery.data?.length && !accountQuery.data && !relatedDeals.length ? (
-                    <p className="text-muted small mb-0">No related records.</p>
+                    ) : null}
+                  </TechEarnestRecordRelatedCard>
+
+                  <TechEarnestRecordRelatedCard
+                    id="techearnest-record-section-deals"
+                    title="Deals"
+                    isEmpty={!relatedDeals.length}
+                    emptyLabel="No records found"
+                  >
+                    <RelatedRecordList
+                      module="deal"
+                      items={relatedDeals.map((deal) => ({
+                        id: deal.id,
+                        label: deal.name,
+                        secondary: deal.value != null ? deal.value.toLocaleString() : undefined,
+                        trailing: <StatusBadge status={deal.stage} />,
+                      }))}
+                    />
+                  </TechEarnestRecordRelatedCard>
+
+                  {canViewNotes ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-notes"
+                      title="Notes"
+                      isEmpty={!(notesQuery.data ?? []).length && !canCreateNotes}
+                      emptyLabel="No notes yet"
+                      actions={
+                        canCreateNotes ? (
+                          <button
+                            type="button"
+                            className="btn btn-outline-secondary btn-sm"
+                            disabled={!noteBody.trim() || noteMutation.isPending}
+                            onClick={() => noteMutation.mutate()}
+                          >
+                            Save
+                          </button>
+                        ) : null
+                      }
+                    >
+                      {canCreateNotes ? (
+                        <textarea
+                          className="form-control form-control-sm mb-2"
+                          rows={2}
+                          value={noteBody}
+                          onChange={(e) => setNoteBody(e.target.value)}
+                          placeholder="Add a note"
+                        />
+                      ) : null}
+                      <ul className="list-unstyled small mb-0">
+                        {(notesQuery.data ?? []).map((note) => (
+                          <li key={note.id} className="mb-2 border-bottom pb-2">
+                            <div>{note.body}</div>
+                            <div className="text-muted d-flex justify-content-between">
+                              <span>{new Date(note.createdAt).toLocaleString()}</span>
+                              {canDeleteNotes ? (
+                                <button
+                                  type="button"
+                                  className="btn btn-link btn-sm p-0"
+                                  onClick={() => deleteNoteMutation.mutate(note.id)}
+                                >
+                                  Delete
+                                </button>
+                              ) : null}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </TechEarnestRecordRelatedCard>
                   ) : null}
+
+                  {canViewDocs ? (
+                    <TechEarnestRecordRelatedCard
+                      id="techearnest-record-section-attachments"
+                      title="Attachments"
+                      isEmpty={!(docsQuery.data ?? []).length}
+                      emptyLabel="No Attachment"
+                      actions={
+                        canUploadDocs ? (
+                          <label className="btn btn-outline-secondary btn-sm mb-0">
+                            Attach
+                            <input
+                              type="file"
+                              className="d-none"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                  uploadMutation.mutate(file);
+                                  e.target.value = "";
+                                }
+                              }}
+                            />
+                          </label>
+                        ) : null
+                      }
+                    >
+                      <ul className="list-unstyled small mb-0">
+                        {(docsQuery.data ?? []).map((doc) => (
+                          <li key={doc.id} className="mb-2 d-flex justify-content-between gap-2">
+                            <button
+                              type="button"
+                              className="btn btn-link btn-sm p-0 text-start"
+                              onClick={() => void openDownload(doc.id, doc.fileName)}
+                            >
+                              {doc.fileName}
+                            </button>
+                            {canDeleteDocs ? (
+                              <button
+                                type="button"
+                                className="btn btn-link btn-sm p-0 text-danger"
+                                onClick={() => deleteDocMutation.mutate(doc.id)}
+                              >
+                                Delete
+                              </button>
+                            ) : null}
+                          </li>
+                        ))}
+                      </ul>
+                    </TechEarnestRecordRelatedCard>
+                  ) : null}
+
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-emails" title="Emails" isEmpty emptyLabel="No records found" />
+                  {canViewActivities ? (
+                    <>
+                      <TechEarnestRecordRelatedCard
+                        id="techearnest-record-section-open-activities"
+                        title="Open Activities"
+                        isEmpty={!openActivities.length}
+                        emptyLabel="No records found"
+                      >
+                        <RelatedRecordList
+                          module="activity"
+                          items={openActivities.map((activity) => ({
+                            id: activity.id,
+                            label: activity.subject,
+                            trailing: <StatusBadge status={activity.status} />,
+                          }))}
+                        />
+                      </TechEarnestRecordRelatedCard>
+                      <TechEarnestRecordRelatedCard
+                        id="techearnest-record-section-closed-activities"
+                        title="Closed Activities"
+                        isEmpty={!closedActivities.length}
+                        emptyLabel="No records found"
+                      >
+                        <RelatedRecordList
+                          module="activity"
+                          items={closedActivities.map((activity) => ({
+                            id: activity.id,
+                            label: activity.subject,
+                            trailing: <StatusBadge status={activity.status} />,
+                          }))}
+                        />
+                      </TechEarnestRecordRelatedCard>
+                    </>
+                  ) : null}
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-meetings" title="Invited Meetings" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-campaigns" title="Campaigns" isEmpty emptyLabel="No records found" />
+                  <TechEarnestRecordRelatedCard id="techearnest-record-section-social" title="Social" isEmpty emptyLabel="No records found" />
                 </>
               ),
             },
             {
               id: "timeline",
               label: "Timeline",
-              visible: canViewActivities || canViewAudit,
-              content: <TechEarnestRecordTimeline entries={timelineEntries} />,
-            },
-            {
-              id: "notes",
-              label: "Notes",
-              visible: canViewNotes,
+              visible: true,
               content: (
-                <>
-                  {canCreateNotes ? (
-                    <div className="mb-3">
-                      <textarea
-                        className="form-control form-control-sm mb-2"
-                        rows={2}
-                        value={noteBody}
-                        onChange={(e) => setNoteBody(e.target.value)}
-                        placeholder="Add a note…"
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-outline-primary btn-sm"
-                        disabled={!noteBody.trim() || noteMutation.isPending}
-                        onClick={() => noteMutation.mutate()}
-                      >
-                        Add note
-                      </button>
-                    </div>
-                  ) : null}
-                  <ul className="small mb-0">
-                    {(notesQuery.data ?? []).map((note) => (
-                      <li key={note.id} className="mb-2">
-                        <div>{note.body}</div>
-                        <div className="text-muted d-flex justify-content-between">
-                          <span>{new Date(note.createdAt).toLocaleString()}</span>
-                          {canDeleteNotes ? (
-                            <button
-                              type="button"
-                              className="btn btn-link btn-sm p-0"
-                              onClick={() => deleteNoteMutation.mutate(note.id)}
-                            >
-                              Delete
-                            </button>
-                          ) : null}
-                        </div>
-                      </li>
-                    ))}
-                    {!notesQuery.data?.length ? <li className="text-muted">No notes</li> : null}
-                  </ul>
-                </>
-              ),
-            },
-            {
-              id: "documents",
-              label: "Documents",
-              visible: canViewDocs,
-              content: (
-                <>
-                  {canUploadDocs ? (
-                    <input
-                      className="form-control form-control-sm mb-2"
-                      type="file"
-                      onChange={async (event) => {
-                        const file = event.target.files?.[0];
-                        if (!file || !selected) return;
-                        try {
-                          await uploadDocument("CONTACT", selected.id, file);
-                          await queryClient.invalidateQueries({
-                            queryKey: ["crm", "documents", "CONTACT", selected.id],
-                          });
-                        } catch {
-                          /* ignore */
-                        }
-                        event.target.value = "";
-                      }}
-                    />
-                  ) : null}
-                  <ul className="small mb-0">
-                    {(docsQuery.data ?? []).map((doc) => (
-                      <li key={doc.id}>
-                        <button
-                          type="button"
-                          className="btn btn-link btn-sm px-0"
-                          onClick={async () => {
-                            const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
-                            const response = await fetch(documentDownloadUrl(doc.id), {
-                              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-                            });
-                            if (!response.ok) return;
-                            const blob = await response.blob();
-                            const url = URL.createObjectURL(blob);
-                            const anchor = document.createElement("a");
-                            anchor.href = url;
-                            anchor.download = doc.fileName;
-                            anchor.click();
-                            URL.revokeObjectURL(url);
-                          }}
-                        >
-                          {doc.fileName}
-                        </button>
-                      </li>
-                    ))}
-                    {!docsQuery.data?.length ? <li className="text-muted">No documents</li> : null}
-                  </ul>
-                </>
-              ),
-            },
-            {
-              id: "audit",
-              label: "Audit",
-              visible: canViewAudit,
-              content: (
-                <ul className="small mb-0">
-                  {(auditQuery.data ?? []).map((log) => (
-                    <li key={log.id}>
-                      {log.action} · {new Date(log.createdAt).toLocaleString()}
-                    </li>
-                  ))}
-                  {!auditQuery.data?.length ? <li className="text-muted">No audit events</li> : null}
-                </ul>
+                <TechEarnestRecordTimeline
+                  entries={timelineEntries}
+                  loading={auditQuery.isLoading || activitiesQuery.isLoading || notesQuery.isLoading}
+                />
               ),
             },
           ]}
@@ -723,23 +650,35 @@ export function ContactsPage() {
                 searchPlaceholder="Search Owners"
               />
             ) : null}
-            <label className="form-label small mb-1">Email contains</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              value={emailFilter}
-              onChange={(e) => setEmailFilter(e.target.value)}
-              placeholder="email@"
-            />
-            <label className="form-label small mb-1">Designation</label>
-            <input
-              className="form-control form-control-sm"
-              value={designationFilter}
-              onChange={(e) => setDesignationFilter(e.target.value)}
-              placeholder="e.g. Manager"
-            />
+            <ModuleFilterField label="Email contains" htmlFor="contactEmailFilter">
+              <input
+                id="contactEmailFilter"
+                className="form-control form-control-sm"
+                value={emailFilter}
+                onChange={(e) => setEmailFilter(e.target.value)}
+                placeholder="email@"
+              />
+            </ModuleFilterField>
+            <ModuleFilterField label="Designation" htmlFor="contactDesignationFilter">
+              <input
+                id="contactDesignationFilter"
+                className="form-control form-control-sm"
+                value={designationFilter}
+                onChange={(e) => setDesignationFilter(e.target.value)}
+                placeholder="e.g. Manager"
+              />
+            </ModuleFilterField>
           </div>
         </>
       }
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+        setAccountFilter("");
+        setOwnerFilter("");
+        setEmailFilter("");
+        setDesignationFilter("");
+      }}
       recordCount={rows.length}
     >
       {contactsQuery.isLoading ? <LoadingState label="Loading contacts..." workspace /> : null}
@@ -778,7 +717,12 @@ export function ContactsPage() {
                 }}
                 renderCell={(contact, field) => {
                   if (field === "firstName") return contactName(contact);
-                  if (field === "accountId") return accountName(contact.accountId);
+                  if (field === "accountId")
+                    return (
+                      <RecordLink module="account" id={contact.accountId}>
+                        {accountName(contact.accountId)}
+                      </RecordLink>
+                    );
                   if (field === "phone") return contact.phone ?? contact.mobile ?? "—";
                   if (field === "status") return <StatusBadge status={contact.status} />;
                   const value = (contact as unknown as Record<string, unknown>)[field];

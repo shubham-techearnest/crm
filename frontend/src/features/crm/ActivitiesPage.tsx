@@ -1,28 +1,36 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
+import { EntityRecordLink, useEntityNames } from "@/components/RecordLink";
+import { readRecordNavState, useUrlRecordId } from "@/hooks/useUrlRecord";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFilterSelect,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   useTechEarnestCreateFlow,
 } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import {
+  ModuleFilterDateRange,
+  ModuleFilterField,
+  ModuleListShell,
+} from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listUsers } from "@/features/admin/adminApi";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
-import { completeActivity, createActivity, listActivities, updateActivity } from "./crmApi";
+import { completeActivity, createActivity, getActivity, listActivities, updateActivity } from "./crmApi";
 
 const ENTITY_TYPES = ["LEAD", "ACCOUNT", "CONTACT", "DEAL"] as const;
 const ACTIVITY_TYPES = ["TASK", "CALL", "MEETING", "NOTE", "FOLLOW_UP"] as const;
@@ -99,8 +107,8 @@ export function ActivitiesPage() {
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useUrlRecordId();
+  const location = useLocation();
   const [editSubject, setEditSubject] = useState("");
   const [editPriority, setEditPriority] = useState("MEDIUM");
   const [editDueDate, setEditDueDate] = useState("");
@@ -150,6 +158,17 @@ export function ActivitiesPage() {
     queryFn: () => listUsers(),
     enabled: canViewUsers,
   });
+  const relatedRefs = useMemo(
+    () =>
+      (activitiesQuery.data ?? []).map((activity) => ({
+        entityType: activity.relatedEntityType,
+        entityId: activity.relatedEntityId,
+      })),
+    [activitiesQuery.data],
+  );
+  const entityName = useEntityNames(relatedRefs);
+  const relatedLabel = (activity: { relatedEntityType: string; relatedEntityId: string }) =>
+    entityName(activity.relatedEntityType, activity.relatedEntityId);
   const assigneeFilterOptions = useMemo(
     () => optionsFromPairs([
       ...(auth.userId ? [{ value: auth.userId, label: "Current user" }] : []),
@@ -188,7 +207,6 @@ export function ActivitiesPage() {
 
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow({
@@ -197,7 +215,6 @@ export function ActivitiesPage() {
     setShowForm,
     setFormError,
     setSelected: (entity) => setSelectedId(entity.id),
-    onResetExtras: () => setShowMore(false),
   });
 
   const watchedType = useWatch({ control, name: "type" });
@@ -240,10 +257,22 @@ export function ActivitiesPage() {
     },
   });
 
-  const selected = useMemo(
+  const selectedFromRows = useMemo(
     () => (activitiesQuery.data ?? []).find((activity) => activity.id === selectedId) ?? null,
     [activitiesQuery.data, selectedId],
   );
+  const selectedFetchQuery = useQuery({
+    queryKey: ["crm", "activities", "record", selectedId],
+    queryFn: () => getActivity(selectedId!),
+    enabled: !!selectedId && !!activitiesQuery.data && !selectedFromRows,
+    retry: false,
+  });
+  const selected = selectedFromRows ?? (selectedFetchQuery.data?.id === selectedId ? selectedFetchQuery.data : null);
+  const cameFrom = readRecordNavState(location.state)?.from;
+  const detailRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selected?.id) detailRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [selected?.id]);
 
   useEffect(() => {
     if (!selected) {
@@ -301,93 +330,117 @@ export function ActivitiesPage() {
             void handleSubmit(onCreateSubmit)();
           }}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
-          <FormSection title="Primary details">
-            <div className="col-md-2">
-              <label className="form-label">Type</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="type"
-                options={activityTypeOptions}
-                searchPlaceholder="Search Types"
-                allowEmpty={false}
-              />
-            </div>
-            <div className="col-md-4">
-              <FormField label="Subject" required error={errors.subject} {...register("subject")} />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Related to</label>
-              <TechEarnestFormSelect
-                control={control}
-                name="relatedEntityType"
-                options={entityTypeOptions}
-                searchPlaceholder="Search Entity Types"
-                allowEmpty={false}
-              />
-            </div>
-            <div className="col-md-4">
-              <FormField label="Related record ID" required error={errors.relatedEntityId} {...register("relatedEntityId")} />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Additional details">
-              <div className="col-md-3">
-                <label className="form-label">Priority</label>
-                <TechEarnestFormSelect
-                  control={control}
-                  name="priority"
-                  options={activityPriorityOptions}
-                  searchPlaceholder="Search Priorities"
-                  allowEmpty={false}
-                />
-              </div>
-              <div className="col-md-3">
-                <FormField label="Due date" type="date" error={errors.dueDate} {...register("dueDate")} />
-              </div>
-              <div className="col-12">
-                <FormField label="Description" error={errors.description} {...register("description")} />
-              </div>
-            </FormSection>
-            {watchedType === "MEETING" ? (
-              <FormSection title="Meeting details">
-                <div className="col-md-4">
-                  <FormField label="Location" error={errors.location} {...register("location")} />
-                </div>
-                <div className="col-md-4">
-                  <FormField label="Attendees" error={errors.attendees} {...register("attendees")} />
-                </div>
-                <div className="col-md-4">
-                  <FormField label="Outcome" error={errors.outcome} {...register("outcome")} />
-                </div>
-              </FormSection>
-            ) : null}
-            {watchedType === "CALL" ? (
-              <FormSection title="Call details">
-                <div className="col-md-3">
-                  <label className="form-label">Direction</label>
+          <TechEarnestCreateSection title={`${createLabel} Information`}>
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Subject" required error={errors.subject?.message}>
+                  <input
+                    type="text"
+                    className={`form-control form-control-sm${errors.subject ? " is-invalid" : ""}`}
+                    {...register("subject")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Type" required error={errors.type?.message}>
                   <TechEarnestFormSelect
                     control={control}
-                    name="callDirection"
-                    options={callDirectionOptions}
-                    searchPlaceholder="Search Directions"
+                    name="type"
+                    options={activityTypeOptions}
+                    searchPlaceholder="Search Types"
+                    allowEmpty={false}
                   />
-                </div>
-                <div className="col-md-3">
-                  <FormField
-                    label="Duration (seconds)"
-                    type="number"
-                    error={errors.durationSeconds}
-                    {...register("durationSeconds")}
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Related To" required error={errors.relatedEntityType?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="relatedEntityType"
+                    options={entityTypeOptions}
+                    searchPlaceholder="Search Entity Types"
+                    allowEmpty={false}
                   />
-                </div>
-                <div className="col-md-3">
-                  <FormField label="Outcome" error={errors.outcome} {...register("outcome")} />
-                </div>
-              </FormSection>
-            ) : null}
-          </FormMoreDetails>
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Related Record ID" required error={errors.relatedEntityId?.message}>
+                  <input
+                    type="text"
+                    className={`form-control form-control-sm${errors.relatedEntityId ? " is-invalid" : ""}`}
+                    {...register("relatedEntityId")}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Priority" error={errors.priority?.message}>
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="priority"
+                    options={activityPriorityOptions}
+                    searchPlaceholder="Search Priorities"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Due Date" error={errors.dueDate?.message}>
+                  <input
+                    type="date"
+                    className={`form-control form-control-sm${errors.dueDate ? " is-invalid" : ""}`}
+                    {...register("dueDate")}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          {watchedType === "MEETING" ? (
+            <TechEarnestCreateSection title="Meeting Details">
+              <TechEarnestCreateGrid>
+                <TechEarnestCreateColumn>
+                  <TechEarnestCreateField label="Location" error={errors.location?.message}>
+                    <input type="text" className="form-control form-control-sm" {...register("location")} />
+                  </TechEarnestCreateField>
+                  <TechEarnestCreateField label="Attendees" error={errors.attendees?.message}>
+                    <input type="text" className="form-control form-control-sm" {...register("attendees")} />
+                  </TechEarnestCreateField>
+                </TechEarnestCreateColumn>
+                <TechEarnestCreateColumn>
+                  <TechEarnestCreateField label="Outcome" error={errors.outcome?.message}>
+                    <input type="text" className="form-control form-control-sm" {...register("outcome")} />
+                  </TechEarnestCreateField>
+                </TechEarnestCreateColumn>
+              </TechEarnestCreateGrid>
+            </TechEarnestCreateSection>
+          ) : null}
+          {watchedType === "CALL" ? (
+            <TechEarnestCreateSection title="Call Details">
+              <TechEarnestCreateGrid>
+                <TechEarnestCreateColumn>
+                  <TechEarnestCreateField label="Call Direction" error={errors.callDirection?.message}>
+                    <TechEarnestFormSelect
+                      control={control}
+                      name="callDirection"
+                      options={callDirectionOptions.filter((option) => option.value)}
+                      searchPlaceholder="Search Directions"
+                    />
+                  </TechEarnestCreateField>
+                  <TechEarnestCreateField label="Outcome" error={errors.outcome?.message}>
+                    <input type="text" className="form-control form-control-sm" {...register("outcome")} />
+                  </TechEarnestCreateField>
+                </TechEarnestCreateColumn>
+                <TechEarnestCreateColumn>
+                  <TechEarnestCreateField label="Duration (Seconds)" error={errors.durationSeconds?.message}>
+                    <input
+                      type="number"
+                      min={0}
+                      className={`form-control form-control-sm${errors.durationSeconds ? " is-invalid" : ""}`}
+                      {...register("durationSeconds")}
+                    />
+                  </TechEarnestCreateField>
+                </TechEarnestCreateColumn>
+              </TechEarnestCreateGrid>
+            </TechEarnestCreateSection>
+          ) : null}
+          <TechEarnestCreateSection title="Description Information">
+            <TechEarnestCreateField label="Description" wide error={errors.description?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...register("description")} />
+            </TechEarnestCreateField>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
@@ -412,7 +465,6 @@ export function ActivitiesPage() {
             className="btn btn-primary btn-sm"
             onClick={() => {
               reset(activityDefaults(typeFilter));
-              setShowMore(false);
               setShowForm(true);
             }}
           >
@@ -440,31 +492,39 @@ export function ActivitiesPage() {
             {canViewUsers ? (
               <div className="mb-2"><TechEarnestFilterSelect label="Assignee" value={assigneeFilter} onChange={setAssigneeFilter} options={assigneeFilterOptions} placeholder="All assignees" emptyLabel="All assignees" searchPlaceholder="Search users" /></div>
             ) : null}
-            <label className="form-label small mb-1">Outcome</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              value={outcomeFilter}
-              onChange={(e) => setOutcomeFilter(e.target.value)}
-              placeholder="e.g. INTERESTED"
-            />
+            <ModuleFilterField label="Outcome" htmlFor="activityOutcomeFilter">
+              <input
+                id="activityOutcomeFilter"
+                className="form-control form-control-sm"
+                value={outcomeFilter}
+                onChange={(e) => setOutcomeFilter(e.target.value)}
+                placeholder="e.g. INTERESTED"
+              />
+            </ModuleFilterField>
             <div className="mb-2"><TechEarnestFilterSelect label="Call direction" value={directionFilter} onChange={setDirectionFilter} options={callDirectionOptions.filter((option) => option.value)} placeholder="All directions" emptyLabel="All directions" searchPlaceholder="Search directions" /></div>
-            <label className="form-label small mb-1">Due from</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              type="date"
-              value={dueFrom}
-              onChange={(e) => setDueFrom(e.target.value)}
-            />
-            <label className="form-label small mb-1">Due to</label>
-            <input
-              className="form-control form-control-sm"
-              type="date"
-              value={dueTo}
-              onChange={(e) => setDueTo(e.target.value)}
+            <ModuleFilterDateRange
+              label="Due"
+              from={dueFrom}
+              to={dueTo}
+              onFromChange={setDueFrom}
+              onToChange={setDueTo}
             />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setTypeFilter(typeFromUrl);
+        setStatusFilter("");
+        setRelatedTypeFilter("");
+        setAssigneeFilter("");
+        setOutcomeFilter("");
+        setDirectionFilter("");
+        setDueFrom("");
+        setDueTo("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {activitiesQuery.isLoading ? <LoadingState label="Loading..." /> : null}
@@ -480,7 +540,11 @@ export function ActivitiesPage() {
             onRowClick={(activity) => setSelectedId(activity.id)}
             renderCell={(activity, field) => {
               if (field === "relatedEntityId") {
-                return `${activity.relatedEntityType} · ${activity.relatedEntityId.slice(0, 8)}`;
+                return (
+                  <EntityRecordLink entityType={activity.relatedEntityType} id={activity.relatedEntityId}>
+                    {relatedLabel(activity)}
+                  </EntityRecordLink>
+                );
               }
               if (field === "status") return <StatusBadge status={activity.status} />;
               const value = (activity as unknown as Record<string, unknown>)[field];
@@ -505,9 +569,37 @@ export function ActivitiesPage() {
         />
       ) : null}
 
-      {selected && canUpdate ? (
-        <div className="border-top bg-white p-3">
-          <h2 className="h6 mb-3">Manage {selected.type.toLowerCase()}</h2>
+      {selected ? (
+        <div ref={detailRef} className="border-top bg-white p-3">
+          {cameFrom ? (
+            <button type="button" className="techearnest-record-return mb-2" onClick={() => setSelectedId(null)}>
+              <span aria-hidden="true">‹</span> Back to {cameFrom.label || "previous page"}
+            </button>
+          ) : null}
+          <div className="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <div>
+              <h2 className="h6 mb-1">{selected.subject}</h2>
+              <div className="small text-muted d-flex flex-wrap gap-2 align-items-center">
+                <span>{selected.type}</span>
+                <StatusBadge status={selected.status} />
+                <span>
+                  Related to{" "}
+                  <EntityRecordLink entityType={selected.relatedEntityType} id={selected.relatedEntityId}>
+                    {relatedLabel(selected)}
+                  </EntityRecordLink>
+                </span>
+                {selected.dueDate ? <span>Due {new Date(selected.dueDate).toLocaleDateString()}</span> : null}
+              </div>
+              {selected.description ? <p className="small mb-0 mt-2">{selected.description}</p> : null}
+            </div>
+            {!canUpdate ? (
+              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setSelectedId(null)}>
+                Close
+              </button>
+            ) : null}
+          </div>
+          {canUpdate ? (
+          <>
           {manageError ? <div className="alert alert-danger py-2">{manageError}</div> : null}
           <div className="row g-2 align-items-end">
             <div className="col-md-4">
@@ -579,13 +671,24 @@ export function ActivitiesPage() {
               </button>
             </div>
           </div>
+          </>
+          ) : null}
         </div>
       ) : null}
 
       {!activitiesQuery.isLoading && !activitiesQuery.error && viewMode === "tile" ? (
         <div className="module-tile-grid">
           {rows.map((activity) => (
-            <div key={activity.id} className="module-tile">
+            <div
+              key={activity.id}
+              role="button"
+              tabIndex={0}
+              className={`module-tile${activity.id === selectedId ? " is-selected" : ""}`}
+              onClick={() => setSelectedId(activity.id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") setSelectedId(activity.id);
+              }}
+            >
               <div className="tile-title">{activity.subject}</div>
               <div className="small text-muted">
                 {activity.type} · {activity.status}

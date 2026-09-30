@@ -141,7 +141,8 @@ public class ProjectService {
                 request.endDate(),
                 request.budget(),
                 request.estimatedHours(),
-                request.billingType().trim());
+                requireBillingType(request.billingType()));
+        applyBillingTerms(project, request.hourlyRate(), request.monthlyFee(), request.contractValue());
         projectRepository.save(project);
         auditService.record(orgId, user.userId(), "CREATE", "PROJECT", project.getId());
         return toResponse(project);
@@ -176,8 +177,8 @@ public class ProjectService {
                 ? request.projectManagerId()
                 : user.userId();
         String billingType = request != null && request.billingType() != null && !request.billingType().isBlank()
-                ? request.billingType().trim()
-                : "FIXED_PRICE";
+                ? requireBillingType(request.billingType())
+                : Project.BILLING_FIXED_BID;
 
         Project project = Project.create(
                 deal.getOrganizationId(),
@@ -195,6 +196,7 @@ public class ProjectService {
                 null,
                 null,
                 billingType);
+        project.applyBillingTerms(null, null, deal.getValue());
         projectRepository.save(project);
         auditService.record(deal.getOrganizationId(), user.userId(), "CREATE", "PROJECT", project.getId());
         return toResponse(project);
@@ -214,6 +216,7 @@ public class ProjectService {
                     .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
             tenantAccess.assertRecordVisible(account);
         }
+        String previousBillingType = project.getBillingType();
         project.update(
                 request.regionId(),
                 request.accountId(),
@@ -226,7 +229,14 @@ public class ProjectService {
                 request.endDate(),
                 request.budget(),
                 request.estimatedHours(),
-                blankToNull(request.billingType()));
+                request.billingType() == null || request.billingType().isBlank()
+                        ? null
+                        : requireBillingType(request.billingType()));
+        boolean typeChanged = !project.getBillingType().equals(previousBillingType);
+        boolean termsSent = request.hourlyRate() != null || request.monthlyFee() != null || request.contractValue() != null;
+        if (typeChanged || termsSent) {
+            applyBillingTerms(project, request.hourlyRate(), request.monthlyFee(), request.contractValue());
+        }
         auditService.record(project.getOrganizationId(), user.userId(), "UPDATE", "PROJECT", project.getId());
         return toResponse(project);
     }
@@ -320,6 +330,43 @@ public class ProjectService {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String requireBillingType(String value) {
+        String type = Project.normalizeBillingType(value);
+        if (type == null || !Project.BILLING_TYPES.contains(type)) {
+            throw new BusinessException(
+                    "INVALID_BILLING_TYPE", "Billing type must be one of " + String.join(", ", Project.BILLING_TYPES));
+        }
+        return type;
+    }
+
+    /** Each billing type needs the amount its invoices are generated from. */
+    private static void applyBillingTerms(
+            Project project, BigDecimal hourlyRate, BigDecimal monthlyFee, BigDecimal contractValue) {
+        switch (project.getBillingType()) {
+            case Project.BILLING_TIME_AND_MATERIAL -> requirePositive(hourlyRate, "HOURLY_RATE_REQUIRED",
+                    "Enter the hourly rate for a time & material project");
+            case Project.BILLING_FIXED_MONTHLY -> requirePositive(monthlyFee, "MONTHLY_FEE_REQUIRED",
+                    "Enter the monthly fee for a fixed monthly project");
+            case Project.BILLING_FIXED_BID -> {
+                if (contractValue == null) {
+                    contractValue = project.getBudget();
+                }
+                requirePositive(contractValue, "CONTRACT_VALUE_REQUIRED",
+                        "Enter the contract value for a fixed bid project");
+            }
+            default -> {
+                // Staff augmentation bills each resource's own rate; the project rate is only a fallback.
+            }
+        }
+        project.applyBillingTerms(hourlyRate, monthlyFee, contractValue);
+    }
+
+    private static void requirePositive(BigDecimal value, String code, String message) {
+        if (value == null || value.signum() <= 0) {
+            throw new BusinessException(code, message);
+        }
     }
 
     public record PageResult(List<ProjectResponse> data, PaginationMeta pagination) {}

@@ -1,20 +1,26 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
+import { useLocation } from "react-router-dom";
+import { RecordLink } from "@/components/RecordLink";
+import { readRecordNavState, useUrlSelection } from "@/hooks/useUrlRecord";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   enumPickerOptions,
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   TechEarnestFilterSelect,
   useTechEarnestCreateFlow,
 } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterDateRange, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
@@ -29,6 +35,7 @@ import {
   deleteTask,
   getTask,
   listComments,
+  listMilestones,
   listProjects,
   listTasks,
   updateTask,
@@ -105,13 +112,10 @@ export function TasksPage() {
   const [priorityFilter, setPriorityFilter] = useState("");
   const [dueFrom, setDueFrom] = useState("");
   const [dueTo, setDueTo] = useState("");
-  const [selected, setSelected] = useState<ProjectTask | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [panelError, setPanelError] = useState<string | null>(null);
   const [panelNotice, setPanelNotice] = useState<string | null>(null);
   const [confirmTaskDelete, setConfirmTaskDelete] = useState(false);
-  const [showMore, setShowMore] = useState(false);
-
   const listParams = useMemo(
     () => ({
       projectId: projectId || undefined,
@@ -145,6 +149,17 @@ export function TasksPage() {
     queryKey: ["tasks", listParams],
     queryFn: () => listTasks(listParams),
   });
+  const [selected, setSelected] = useUrlSelection(tasksQuery.data, { fetchById: getTask });
+  const location = useLocation();
+  const cameFrom = readRecordNavState(location.state)?.from;
+  useEffect(() => {
+    if (selected && !projectId) setProjectId(selected.projectId);
+  }, [selected, projectId]);
+  const milestonesQuery = useQuery({
+    queryKey: ["projects", selected?.projectId, "milestones"],
+    queryFn: () => listMilestones(selected!.projectId),
+    enabled: !!selected?.milestoneId,
+  });
   const taskDetailQuery = useQuery({
     queryKey: ["tasks", selected?.id, "detail"],
     queryFn: () => getTask(selected!.id),
@@ -168,9 +183,10 @@ export function TasksPage() {
     defaultValues: TASK_DEFAULTS,
   });
 
+  const createErrors = createForm.formState.errors;
+
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow<CreateFormValues, ProjectTask>({
@@ -179,7 +195,6 @@ export function TasksPage() {
     setShowForm,
     setFormError,
     setSelected,
-    onResetExtras: () => setShowMore(false),
   });
 
   const buildTaskBody = (values: CreateFormValues) => ({
@@ -338,69 +353,71 @@ export function TasksPage() {
             void createForm.handleSubmit(onCreateSubmit)();
           }}
           onSubmit={() => void createForm.handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
-          <FormSection title="Primary details" description="Task identity and status">
-            <div className="col-md-5">
-              <FormField
-                label="Name"
-                required
-                error={createForm.formState.errors.name}
-                {...createForm.register("name")}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Status</label>
-              <TechEarnestFormSelect
-                control={createForm.control}
-                name="status"
-                options={taskStatusOptions}
-                searchPlaceholder="Search Statuses"
-                allowEmpty={false}
-              />
-            </div>
-            <div className="col-md-2">
-              <label className="form-label">Priority</label>
-              <TechEarnestFormSelect
-                control={createForm.control}
-                name="priority"
-                options={taskPriorityOptions}
-                searchPlaceholder="Search Priorities"
-                allowEmpty={false}
-              />
-            </div>
-            <div className="col-md-3">
-              <FormField label="Due date" type="date" {...createForm.register("dueDate")} />
-            </div>
-          </FormSection>
-          <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-            <FormSection title="Assignment & effort">
-              <div className="col-md-3">
-                <FormField label="Start date" type="date" {...createForm.register("startDate")} />
-              </div>
-              <div className="col-md-3">
-                <FormField
-                  label="Estimated hours"
-                  type="number"
-                  {...createForm.register("estimatedHours")}
-                />
-              </div>
-              <div className="col-md-4">
-                <label className="form-label">Assigned resource</label>
-                <TechEarnestFormSelect
-                  control={createForm.control}
-                  name="assignedResourceId"
-                  options={resourceOptions}
-                  searchPlaceholder="Search resources"
-                  placeholder="Select a resource"
-                  allowEmpty
-                />
-              </div>
-              <div className="col-12">
-                <FormField label="Description" {...createForm.register("description")} />
-              </div>
-            </FormSection>
-          </FormMoreDetails>
+          <TechEarnestCreateSection title="Task Information">
+            <TechEarnestCreateGrid>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Task Name" required error={createErrors.name?.message}>
+                  <input
+                    type="text"
+                    className={`form-control form-control-sm${createErrors.name ? " is-invalid" : ""}`}
+                    {...createForm.register("name")}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Assigned Resource" error={createErrors.assignedResourceId?.message}>
+                  <TechEarnestFormSelect
+                    control={createForm.control}
+                    name="assignedResourceId"
+                    options={resourceOptions}
+                    searchPlaceholder="Search Resources"
+                    placeholder="Select a resource"
+                    allowEmpty
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Status" error={createErrors.status?.message}>
+                  <TechEarnestFormSelect
+                    control={createForm.control}
+                    name="status"
+                    options={taskStatusOptions}
+                    searchPlaceholder="Search Statuses"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Priority" error={createErrors.priority?.message}>
+                  <TechEarnestFormSelect
+                    control={createForm.control}
+                    name="priority"
+                    options={taskPriorityOptions}
+                    searchPlaceholder="Search Priorities"
+                    allowEmpty={false}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+              <TechEarnestCreateColumn>
+                <TechEarnestCreateField label="Start Date" error={createErrors.startDate?.message}>
+                  <input type="date" className="form-control form-control-sm" {...createForm.register("startDate")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Due Date" error={createErrors.dueDate?.message}>
+                  <input type="date" className="form-control form-control-sm" {...createForm.register("dueDate")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Estimated Hours" error={createErrors.estimatedHours?.message}>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.5"
+                    className={`form-control form-control-sm${createErrors.estimatedHours ? " is-invalid" : ""}`}
+                    {...createForm.register("estimatedHours")}
+                  />
+                </TechEarnestCreateField>
+              </TechEarnestCreateColumn>
+            </TechEarnestCreateGrid>
+          </TechEarnestCreateSection>
+          <TechEarnestCreateSection title="Description Information">
+            <TechEarnestCreateField label="Description" wide error={createErrors.description?.message}>
+              <textarea rows={4} className="form-control form-control-sm" {...createForm.register("description")} />
+            </TechEarnestCreateField>
+          </TechEarnestCreateSection>
         </TechEarnestFormKitCreateView>
       ) : (
     <ModuleListShell
@@ -495,23 +512,30 @@ export function TasksPage() {
                 searchPlaceholder="Search resources"
               />
             </div>
-            <label className="form-label small mb-1">Due from</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              type="date"
-              value={dueFrom}
-              onChange={(e) => setDueFrom(e.target.value)}
-            />
-            <label className="form-label small mb-1">Due to</label>
-            <input
-              className="form-control form-control-sm"
-              type="date"
-              value={dueTo}
-              onChange={(e) => setDueTo(e.target.value)}
+            <ModuleFilterDateRange
+              label="Due"
+              from={dueFrom}
+              to={dueTo}
+              onFromChange={setDueFrom}
+              onToChange={setDueTo}
             />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setProjectId("");
+        setSelected(null);
+        setShowForm(false);
+        setPanelError(null);
+        setStatusFilter("");
+        setPriorityFilter("");
+        setAssigneeFilter("");
+        setDueFrom("");
+        setDueTo("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {isLoading ? <LoadingState label="Loading tasks..." /> : null}
@@ -551,7 +575,11 @@ export function TasksPage() {
                 if (field === "assignedResourceId") {
                   if (!task.assignedResourceId) return "—";
                   const resource = resourcesQuery.data?.find((item) => item.id === task.assignedResourceId);
-                  return resource ? resourceLabel(resource) : task.assignedResourceId.slice(0, 8);
+                  return (
+                    <RecordLink module="resource" id={task.assignedResourceId}>
+                      {resource ? resourceLabel(resource) : task.assignedResourceId.slice(0, 8)}
+                    </RecordLink>
+                  );
                 }
                 const value = (task as unknown as Record<string, unknown>)[field];
                 return value == null || value === "" ? "—" : String(value);
@@ -587,6 +615,11 @@ export function TasksPage() {
 
           {selected ? (
             <aside className="module-detail-drawer">
+              {cameFrom ? (
+                <button type="button" className="techearnest-record-return mb-2" onClick={() => setSelected(null)}>
+                  <span aria-hidden="true">‹</span> Back to {cameFrom.label || "previous page"}
+                </button>
+              ) : null}
               <div className="d-flex justify-content-between align-items-start mb-2">
                 <div>
                   <div className="fw-semibold">{selectedTask?.name ?? selected.name}</div>
@@ -621,6 +654,43 @@ export function TasksPage() {
               ) : null}
               {selectedTask ? (
                 <dl className="row small mb-3 border-top border-bottom py-3">
+                  <dt className="col-5 text-muted">Project</dt>
+                  <dd className="col-7">
+                    <RecordLink module="project" id={selectedTask.projectId}>
+                      {projectsQuery.data?.find((project) => project.id === selectedTask.projectId)?.name ?? "Open project"}
+                    </RecordLink>
+                  </dd>
+                  {selectedTask.milestoneId ? (
+                    <>
+                      <dt className="col-5 text-muted">Milestone</dt>
+                      <dd className="col-7">
+                        <RecordLink module="milestone" id={selectedTask.milestoneId}>
+                          {milestonesQuery.data?.find((milestone) => milestone.id === selectedTask.milestoneId)?.name ??
+                            "Open milestone"}
+                        </RecordLink>
+                      </dd>
+                    </>
+                  ) : null}
+                  {selectedTask.parentTaskId ? (
+                    <>
+                      <dt className="col-5 text-muted">Parent task</dt>
+                      <dd className="col-7">
+                        <RecordLink module="task" id={selectedTask.parentTaskId}>
+                          {dependencyCandidatesQuery.data?.find((task) => task.id === selectedTask.parentTaskId)?.name ??
+                            "Open task"}
+                        </RecordLink>
+                      </dd>
+                    </>
+                  ) : null}
+                  <dt className="col-5 text-muted">Assignee</dt>
+                  <dd className="col-7">
+                    <RecordLink module="resource" id={selectedTask.assignedResourceId}>
+                      {(() => {
+                        const resource = resourcesQuery.data?.find((item) => item.id === selectedTask.assignedResourceId);
+                        return resource ? resourceLabel(resource) : "Open resource";
+                      })()}
+                    </RecordLink>
+                  </dd>
                   <dt className="col-5 text-muted">Description</dt>
                   <dd className="col-7">{selectedTask.description || "—"}</dd>
                   <dt className="col-5 text-muted">Start date</dt>

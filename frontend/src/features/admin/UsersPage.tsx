@@ -3,10 +3,12 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
-import { FormMoreDetails, FormSection } from "@/components/FormKit";
 import {
   optionsFromPairs,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestPicker,
   TechEarnestFormSelect,
@@ -66,7 +68,6 @@ export function UsersPage() {
   const [selected, setSelected] = useState<AdminUser | null>(null);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [showMore, setShowMore] = useState(false);
   const [assignRoleId, setAssignRoleId] = useState("");
   const [assignRegionId, setAssignRegionId] = useState("");
   const [confirmDeactivate, setConfirmDeactivate] = useState(false);
@@ -102,7 +103,6 @@ export function UsersPage() {
     setShowForm,
     setFormError,
     setSelected: (user: AdminUser) => setSelected(user),
-    onResetExtras: () => setShowMore(false),
   });
 
   const buildBody = (values: FormValues) => ({
@@ -306,42 +306,51 @@ export function UsersPage() {
   }, [usersQuery.data, search, statusFilter]);
 
   const userFormFields = (
-    <>
-      <FormSection title="Primary details" description="Identity and login">
-        <div className="col-md-3">
-          <FormField label="First name" required error={errors.firstName} {...register("firstName")} />
-        </div>
-        <div className="col-md-3">
-          <FormField label="Last name" required error={errors.lastName} {...register("lastName")} />
-        </div>
-        <div className="col-md-3">
-          <FormField
-            label="Email"
-            type="email"
-            required={!editingUser}
-            disabled={!!editingUser}
-            error={errors.email}
-            {...register("email")}
-          />
-          {editingUser ? <div className="form-text">Sign-in email cannot be changed here.</div> : null}
-        </div>
-        {!editingUser ? <div className="col-md-3">
-          <FormField
-            label="Password"
-            type="password"
-            required
-            error={errors.password}
-            {...register("password")}
-          />
-        </div> : null}
-      </FormSection>
-      <FormMoreDetails open={showMore} onToggle={() => setShowMore((v) => !v)}>
-        <FormSection title="Org placement">
-          <div className="col-md-3">
-            <FormField label="Phone" error={errors.phone} {...register("phone")} />
-          </div>
-          <div className="col-md-3">
-            <label className="form-label">Region</label>
+    <TechEarnestCreateSection title="User Information">
+      <TechEarnestCreateGrid>
+        <TechEarnestCreateColumn>
+          <TechEarnestCreateField label="First Name" required error={errors.firstName?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.firstName ? " is-invalid" : ""}`}
+              {...register("firstName")}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Last Name" required error={errors.lastName?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.lastName ? " is-invalid" : ""}`}
+              {...register("lastName")}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Email" required={!editingUser} error={errors.email?.message}>
+            <input
+              type="email"
+              disabled={!!editingUser}
+              className={`form-control form-control-sm${errors.email ? " is-invalid" : ""}`}
+              {...register("email")}
+            />
+            {editingUser ? <div className="form-text">Sign-in email cannot be changed here.</div> : null}
+          </TechEarnestCreateField>
+          {!editingUser ? (
+            <TechEarnestCreateField label="Password" required error={errors.password?.message}>
+              <input
+                type="password"
+                className={`form-control form-control-sm${errors.password ? " is-invalid" : ""}`}
+                {...register("password")}
+              />
+            </TechEarnestCreateField>
+          ) : null}
+        </TechEarnestCreateColumn>
+        <TechEarnestCreateColumn>
+          <TechEarnestCreateField label="Phone" error={errors.phone?.message}>
+            <input
+              type="text"
+              className={`form-control form-control-sm${errors.phone ? " is-invalid" : ""}`}
+              {...register("phone")}
+            />
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Region" error={errors.regionId?.message}>
             <TechEarnestFormSelect
               control={control}
               name="regionId"
@@ -349,9 +358,8 @@ export function UsersPage() {
               searchPlaceholder="Search Regions"
               placeholder="None"
             />
-          </div>
-          <div className="col-md-3">
-            <label className="form-label">Department</label>
+          </TechEarnestCreateField>
+          <TechEarnestCreateField label="Department" error={errors.departmentId?.message}>
             <TechEarnestFormSelect
               control={control}
               name="departmentId"
@@ -359,20 +367,21 @@ export function UsersPage() {
               searchPlaceholder="Search Departments"
               placeholder="None"
             />
-          </div>
-          {!editingUser ? <div className="col-md-3">
-            <label className="form-label">Initial role</label>
-            <TechEarnestFormSelect
-              control={control}
-              name="roleId"
-              options={roleOptions}
-              searchPlaceholder="Search Roles"
-              placeholder="None"
-            />
-          </div> : null}
-        </FormSection>
-      </FormMoreDetails>
-    </>
+          </TechEarnestCreateField>
+          {!editingUser ? (
+            <TechEarnestCreateField label="Initial Role" error={errors.roleId?.message}>
+              <TechEarnestFormSelect
+                control={control}
+                name="roleId"
+                options={roleOptions}
+                searchPlaceholder="Search Roles"
+                placeholder="None"
+              />
+            </TechEarnestCreateField>
+          ) : null}
+        </TechEarnestCreateColumn>
+      </TechEarnestCreateGrid>
+    </TechEarnestCreateSection>
   );
 
   return (
@@ -439,6 +448,12 @@ export function UsersPage() {
           </div>
         </>
       }
+      activeFilterCount={[search.trim(), statusFilter].filter(Boolean).length}
+      onClearFilters={() => {
+        setSearch("");
+        setStatusFilter("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {rows.length}</span>}
     >
       {usersQuery.isLoading ? <LoadingState label="Loading users..." /> : null}

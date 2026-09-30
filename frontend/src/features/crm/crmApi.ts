@@ -697,6 +697,11 @@ export async function listActivities(params?: {
   return unwrap(data);
 }
 
+export async function getActivity(id: string): Promise<Activity> {
+  const { data } = await api.get<ApiResponse<Activity>>(`/activities/${id}`);
+  return unwrap(data);
+}
+
 export async function createActivity(body: CreateActivityBody): Promise<Activity> {
   const { data } = await api.post<ApiResponse<Activity>>("/activities", body);
   return unwrap(data);

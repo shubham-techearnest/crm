@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterDateRange, ModuleFilterField, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { listRegions } from "@/features/admin/adminApi";
@@ -148,38 +148,39 @@ export function ReportsPage() {
         <>
           <p className="module-filter-heading">Report filters</p>
           <div className="module-filter-section">
-            <h3>Region</h3>
-            <select
-              className="form-select form-select-sm"
-              value={regionId}
-              onChange={(e) => setRegionId(e.target.value)}
-            >
-              <option value="">All</option>
-              {(regionsQuery.data ?? []).map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="module-filter-section">
-            <h3>From</h3>
-            <input
-              className="form-control form-control-sm"
-              type="date"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-            <h3 className="mt-2">To</h3>
-            <input
-              className="form-control form-control-sm"
-              type="date"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
+            <h3>Filter by fields</h3>
+            <ModuleFilterField label="Region" htmlFor="reportRegionFilter">
+              <select
+                id="reportRegionFilter"
+                className="form-select form-select-sm"
+                value={regionId}
+                onChange={(e) => setRegionId(e.target.value)}
+              >
+                <option value="">All</option>
+                {(regionsQuery.data ?? []).map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </ModuleFilterField>
+            <ModuleFilterDateRange
+              label="Date"
+              from={fromDate}
+              to={toDate}
+              onFromChange={setFromDate}
+              onToChange={setToDate}
             />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setRegionId("");
+        setFromDate("");
+        setToDate("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
     >
       {loading ? <LoadingState label="Loading report..." /> : null}
       {error ? <ErrorState title="Unable to load report" message="Try again." /> : null}

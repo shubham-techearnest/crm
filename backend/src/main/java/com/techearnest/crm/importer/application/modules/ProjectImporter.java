@@ -7,6 +7,7 @@ import com.techearnest.crm.importer.application.ModuleImporter;
 import com.techearnest.crm.importer.application.RowRejected;
 import com.techearnest.crm.project.api.dto.ProjectDtos.CreateProjectRequest;
 import com.techearnest.crm.project.application.ProjectService;
+import com.techearnest.crm.project.domain.Project;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Locale;
@@ -19,7 +20,11 @@ public class ProjectImporter implements ModuleImporter {
 
     private static final Set<String> STATUSES = Set.of("PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED");
     private static final Set<String> PRIORITIES = Set.of("LOW", "MEDIUM", "HIGH");
-    private static final Set<String> BILLING = Set.of("FIXED_PRICE", "HOURLY", "MILESTONE", "RETAINER");
+    private static final Set<String> BILLING = Set.copyOf(Project.BILLING_TYPES);
+    /** Older import files may still use the pre-V39 names; the service maps them. */
+    private static final Set<String> ACCEPTED_BILLING = Set.of(
+            "STAFF_AUGMENTATION", "TIME_AND_MATERIAL", "FIXED_MONTHLY", "FIXED_BID",
+            "FIXED_PRICE", "HOURLY", "MILESTONE", "RETAINER");
 
     private final ProjectService projectService;
     private final BulkImportService bulkImportService;
@@ -51,8 +56,12 @@ public class ProjectImporter implements ModuleImporter {
                 ImportFieldSpec.text("projectCode", "Project code", 64).mandatory().aliases("code", "project id", "project no"),
                 ImportFieldSpec.reference("accountName", "Account", "Account name", "accountId").mandatory()
                         .aliases("client", "customer", "company", "company name"),
-                ImportFieldSpec.enumeration("billingType", "Billing type", BILLING.stream().sorted().toList(), "FIXED_PRICE")
+                ImportFieldSpec.enumeration("billingType", "Billing type", BILLING.stream().sorted().toList(),
+                                Project.BILLING_FIXED_BID)
                         .aliases("billing", "billing model"),
+                ImportFieldSpec.of("hourlyRate", "Hourly rate", "DECIMAL").aliases("rate", "bill rate"),
+                ImportFieldSpec.of("monthlyFee", "Monthly fee", "DECIMAL").aliases("monthly amount", "retainer"),
+                ImportFieldSpec.of("contractValue", "Contract value", "DECIMAL").aliases("fixed bid", "contract amount"),
                 ImportFieldSpec.enumeration("status", "Status", STATUSES.stream().sorted().toList(), "ACTIVE")
                         .aliases("project status"),
                 ImportFieldSpec.enumeration("priority", "Priority", PRIORITIES.stream().sorted().toList(), null),
@@ -117,7 +126,10 @@ public class ProjectImporter implements ModuleImporter {
                 end,
                 row.decimal("budget", "Budget"),
                 row.decimal("estimatedHours", "Estimated hours"),
-                row.code("billingType", "Billing type", BILLING, "FIXED_PRICE"))));
+                row.code("billingType", "Billing type", ACCEPTED_BILLING, Project.BILLING_FIXED_BID),
+                row.decimal("hourlyRate", "Hourly rate"),
+                row.decimal("monthlyFee", "Monthly fee"),
+                row.decimal("contractValue", "Contract value"))));
         return null;
     }
 }

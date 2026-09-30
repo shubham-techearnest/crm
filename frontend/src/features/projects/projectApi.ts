@@ -32,6 +32,9 @@ export interface Project {
   estimatedHours: number | null;
   actualHours: number | null;
   billingType: string;
+  hourlyRate?: number | null;
+  monthlyFee?: number | null;
+  contractValue?: number | null;
   progressPercent: number | null;
   health?: string | null;
   version: number;
@@ -55,6 +58,69 @@ export interface CreateProjectBody {
   budget?: number | null;
   estimatedHours?: number | null;
   billingType: string;
+  hourlyRate?: number | null;
+  monthlyFee?: number | null;
+  contractValue?: number | null;
+}
+
+export const BILLING_TYPE_META: Record<string, { label: string; description: string }> = {
+  STAFF_AUGMENTATION: {
+    label: "Staff augmentation",
+    description: "Bill approved timesheet hours at each resource's billing rate.",
+  },
+  TIME_AND_MATERIAL: {
+    label: "Time & material (hourly)",
+    description: "Bill approved timesheet hours at one project hourly rate.",
+  },
+  FIXED_MONTHLY: {
+    label: "Fixed monthly",
+    description: "Bill the same fee every month, regardless of hours.",
+  },
+  FIXED_BID: {
+    label: "Fixed bid",
+    description: "Agreed contract value, invoiced in instalments or milestones.",
+  },
+};
+
+export function billingTypeLabel(type: string | null | undefined): string {
+  if (!type) return "—";
+  return BILLING_TYPE_META[type]?.label ?? type;
+}
+
+export interface ProjectInvoiceRequest {
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  amount?: number | null;
+  description?: string | null;
+  taxRateId?: string | null;
+  dueDate?: string | null;
+}
+
+export interface ProjectInvoicePreview {
+  projectId: string;
+  billingType: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+  lines: { description: string; quantity: number; unitPrice: number; amount: number; timeEntryId: string | null }[];
+  subtotal: number;
+  contractValue: number | null;
+  billedToDate: number | null;
+  remaining: number | null;
+  warnings: string[];
+  blockedReason: string | null;
+}
+
+export async function previewProjectInvoice(
+  projectId: string,
+  body: ProjectInvoiceRequest,
+): Promise<ProjectInvoicePreview> {
+  const { data } = await api.post<ApiResponse<ProjectInvoicePreview>>(`/projects/${projectId}/invoices/preview`, body);
+  return unwrap(data, "Unable to preview invoice");
+}
+
+export async function generateProjectInvoice(projectId: string, body: ProjectInvoiceRequest): Promise<{ id: string }> {
+  const { data } = await api.post<ApiResponse<{ id: string }>>(`/projects/${projectId}/invoices/generate`, body);
+  return unwrap(data, "Unable to generate invoice");
 }
 
 export interface UpdateProjectBody {
@@ -70,6 +136,9 @@ export interface UpdateProjectBody {
   budget?: number | null;
   estimatedHours?: number | null;
   billingType?: string;
+  hourlyRate?: number | null;
+  monthlyFee?: number | null;
+  contractValue?: number | null;
 }
 
 export interface CreateProjectFromDealBody {
@@ -246,6 +315,11 @@ export async function createProjectFromDeal(
 }
 
 // —— Milestones ——
+
+export async function getMilestone(id: string): Promise<Milestone> {
+  const { data } = await api.get<ApiResponse<Milestone>>(`/milestones/${id}`);
+  return unwrap(data);
+}
 
 export async function listMilestones(
   projectIdOrFilters?:

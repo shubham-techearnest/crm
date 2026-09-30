@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterField, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
@@ -46,20 +46,20 @@ export function PlatformOrganizationsPage() {
         </Link>
       }
       filterPanel={
-        <div className="d-flex flex-column gap-2">
-          <label className="small mb-0">
-            Name / slug
+        <div className="module-filter-section">
+          <ModuleFilterField label="Name / slug" htmlFor="platformOrgSearchFilter">
             <input
-              className="form-control form-control-sm mt-1"
+              id="platformOrgSearchFilter"
+              className="form-control form-control-sm"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search"
             />
-          </label>
-          <label className="small mb-0">
-            Status
+          </ModuleFilterField>
+          <ModuleFilterField label="Status" htmlFor="platformOrgStatusFilter">
             <select
-              className="form-select form-select-sm mt-1"
+              id="platformOrgStatusFilter"
+              className="form-select form-select-sm"
               value={status}
               onChange={(e) => setStatus(e.target.value)}
             >
@@ -67,10 +67,10 @@ export function PlatformOrganizationsPage() {
               <option value="ACTIVE">ACTIVE</option>
               <option value="SUSPENDED">SUSPENDED</option>
             </select>
-          </label>
+          </ModuleFilterField>
           <button
             type="button"
-            className="btn btn-primary btn-sm"
+            className="btn btn-primary btn-sm w-100"
             onClick={() => {
               setAppliedSearch(search.trim());
               setAppliedStatus(status);
@@ -80,6 +80,14 @@ export function PlatformOrganizationsPage() {
           </button>
         </div>
       }
+      activeFilterCount={[appliedSearch, appliedStatus].filter(Boolean).length}
+      onClearFilters={() => {
+        setSearch("");
+        setStatus("");
+        setAppliedSearch("");
+        setAppliedStatus("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span className="small text-muted">{total} organizations</span>}
     >
       {query.isLoading ? <LoadingState label="Loading organizations…" /> : null}

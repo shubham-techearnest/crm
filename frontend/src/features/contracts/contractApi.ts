@@ -48,6 +48,11 @@ export async function listContracts(params?: {
   return unwrap(data);
 }
 
+export async function getContract(id: string): Promise<Contract> {
+  const { data } = await api.get<ApiResponse<Contract>>(`/contracts/${id}`);
+  return unwrap(data);
+}
+
 export async function queryContracts(body: {
   filter?: { op: string; conditions: ContractFilterCondition[] };
   search?: string;

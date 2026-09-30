@@ -2,15 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
+import { recordHref, recordModuleForEntityType } from "@/components/RecordLink";
 import { globalSearch, type SearchHit } from "@/features/dashboards/dashboardApi";
 
-const TYPE_ROUTES: Record<string, string> = {
-  LEAD: "/leads",
-  CONTACT: "/contacts",
-  ACCOUNT: "/accounts",
-  DEAL: "/deals",
-  PROJECT: "/projects",
-};
+function hitHref(hit: SearchHit): string {
+  const module = recordModuleForEntityType(hit.type);
+  return module ? recordHref(module, hit.id) : "/";
+}
 
 export function GlobalSearch({ compact = false }: { compact?: boolean }) {
   const [query, setQuery] = useState("");
@@ -70,7 +68,7 @@ export function GlobalSearch({ compact = false }: { compact?: boolean }) {
           {results.map((hit) => (
             <Link
               key={`${hit.type}-${hit.id}`}
-              to={TYPE_ROUTES[hit.type] ?? "/"}
+              to={hitHref(hit)}
               className="global-search-hit"
               onClick={() => {
                 setOpen(false);

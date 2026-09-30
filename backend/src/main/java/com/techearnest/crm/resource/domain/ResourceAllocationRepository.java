@@ -76,6 +76,16 @@ public interface ResourceAllocationRepository extends JpaRepository<ResourceAllo
 
     @Query(
             """
+            select a from ResourceAllocation a
+            where a.resourceId = :resourceId
+              and a.deletedAt is null
+              and a.status in ('ACTIVE', 'PLANNED')
+            order by a.startDate asc
+            """)
+    List<ResourceAllocation> findActiveOrPlannedByResource(@Param("resourceId") UUID resourceId);
+
+    @Query(
+            """
             select case when count(a) > 0 then true else false end from ResourceAllocation a
             where a.resourceId = :resourceId
               and a.projectId = :projectId

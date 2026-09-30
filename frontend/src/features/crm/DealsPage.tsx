@@ -1,13 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import axios from "axios";
 import { DealCreateView } from "./DealCreateView";
 import { DealEditView } from "./DealEditView";
 import { DealRecordOverview, DEAL_STAGES } from "./DealRecordOverview";
 import { buildOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilterSelect } from "@/components/TechEarnestCreate";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import {
+  ModuleFilterDateRange,
+  ModuleFilterField,
+  ModuleListShell,
+} from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
 import { RecordShell, DEAL_RELATED_LINKS } from "@/components/RecordShell";
 import { buildDealTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
@@ -17,12 +21,15 @@ import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import type { ApiResponse } from "@/types/api";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
 import { getPublishedFormPolicies } from "@/features/admin/studio/metadataApi";
-import { createProjectFromDeal } from "@/features/projects/projectApi";
+import { createProjectFromDeal, listProjects } from "@/features/projects/projectApi";
+import { RecordLink, useOpenRecord } from "@/components/RecordLink";
 import { useModuleWorkspace } from "@/hooks/useModuleWorkspace";
+import { useUrlSelection } from "@/hooks/useUrlRecord";
 import { useBulkImport } from "@/features/import/useBulkImport";
 import {
   changeDealStage,
   getDeal,
+  getLead,
   getPipeline,
   listAccounts,
   listActivities,
@@ -31,7 +38,15 @@ import {
   listDeals,
   type Deal,
 } from "./crmApi";
-import { createNote, listDocuments, listNotes, uploadDocument, documentDownloadUrl } from "./foundationApi";
+import {
+  createNote,
+  deleteDocument,
+  deleteNote,
+  documentDownloadUrl,
+  listDocuments,
+  listNotes,
+  uploadDocument,
+} from "./foundationApi";
 import { ACCESS_TOKEN_KEY } from "@/api/client";
 
 function policyConditionMatches(policy: { when: { field: string; op: string; value?: string } }, values: Record<string, string>) {
@@ -76,7 +91,6 @@ function errorMessage(err: unknown, fallback: string): string {
 export function DealsPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const auth = useAuth();
   const canCreate = useHasPermission("DEAL_CREATE");
   const canUpdate = useHasPermission("DEAL_UPDATE");
@@ -84,13 +98,16 @@ export function DealsPage() {
   const canCreateProject = useHasPermission("PROJECT_CREATE");
   const canViewNotes = useHasPermission("NOTE_VIEW");
   const canCreateNotes = useHasPermission("NOTE_CREATE");
+  const canDeleteNotes = useHasPermission("NOTE_DELETE");
   const canViewDocs = useHasPermission("DOCUMENT_VIEW");
   const canUploadDocs = useHasPermission("DOCUMENT_UPLOAD");
+  const canDeleteDocs = useHasPermission("DOCUMENT_DELETE");
   const canViewActivities = useHasPermission("ACTIVITY_VIEW");
   const canViewAudit = useHasPermission("AUDIT_VIEW");
   const canViewUsers = useHasPermission("USER_VIEW");
+  const canViewProjects = useHasPermission("PROJECT_VIEW");
+  const canViewLeads = useHasPermission("LEAD_VIEW");
   const [view, setView] = useState<"list" | "pipeline">("list");
-  const [selected, setSelected] = useState<Deal | null>(null);
   const [stageError, setStageError] = useState<string | null>(null);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [projectSuccess, setProjectSuccess] = useState<string | null>(null);
@@ -129,6 +146,8 @@ export function DealsPage() {
     queryKey: ["crm", "deals", listParams],
     queryFn: () => listDeals(listParams),
   });
+  const [selected, setSelected] = useUrlSelection(dealsQuery.data, { fetchById: getDeal });
+  const openRecord = useOpenRecord();
   const stagePoliciesQuery = useQuery({
     queryKey: ["metadata", "runtime", "form-policies", "deal", "EDIT"],
     queryFn: () => getPublishedFormPolicies("deal", "EDIT"),
@@ -206,6 +225,20 @@ export function DealsPage() {
     queryFn: () => listContacts({ accountId: selected!.accountId }),
     enabled: !!selected,
   });
+  const dealProjectsQuery = useQuery({
+    queryKey: ["projects", "list", { accountId: selected?.accountId }],
+    queryFn: () => listProjects({ accountId: selected!.accountId }),
+    enabled: !!selected && canViewProjects,
+  });
+  const dealProjects = useMemo(
+    () => (dealProjectsQuery.data ?? []).filter((project) => project.dealId === selected?.id),
+    [dealProjectsQuery.data, selected?.id],
+  );
+  const leadQuery = useQuery({
+    queryKey: ["crm", "leads", "record", selected?.leadId],
+    queryFn: () => getLead(selected!.leadId!),
+    enabled: !!selected?.leadId && canViewLeads,
+  });
 
   const accountName = useMemo(() => {
     const map = new Map((accountsQuery.data ?? []).map((a) => [a.id, a.name]));
@@ -219,11 +252,15 @@ export function DealsPage() {
     return (id: string | null | undefined) => (id ? (map.get(id) ?? id.slice(0, 8)) : "—");
   }, [usersQuery.data]);
 
-  const contactName = useMemo(() => {
-    if (!selected?.contactId) return undefined;
-    const contact = (contactsQuery.data ?? []).find((item) => item.id === selected.contactId);
-    return contact ? `${contact.firstName} ${contact.lastName}`.trim() : selected.contactId.slice(0, 8);
-  }, [contactsQuery.data, selected?.contactId]);
+  const dealContact = useMemo(
+    () => (selected?.contactId ? (contactsQuery.data ?? []).find((item) => item.id === selected.contactId) : undefined),
+    [contactsQuery.data, selected?.contactId],
+  );
+  const contactName = selected?.contactId
+    ? dealContact
+      ? `${dealContact.firstName} ${dealContact.lastName}`.trim()
+      : selected.contactId.slice(0, 8)
+    : undefined;
 
   const accountOptions = useMemo(
     () => optionsFromPairs((accountsQuery.data ?? []).map((account) => ({ value: account.id, label: account.name }))),
@@ -289,7 +326,7 @@ export function DealsPage() {
       setProjectError(null);
       setProjectSuccess(`Project "${project.name}" created successfully.`);
       await queryClient.invalidateQueries({ queryKey: ["projects"] });
-      navigate("/projects");
+      openRecord("project", project.id, selected?.name);
     },
     onError: (err) => {
       setProjectSuccess(null);
@@ -302,6 +339,20 @@ export function DealsPage() {
     onSuccess: async () => {
       setNoteBody("");
       await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "DEAL", (selected as Deal | null)?.id] });
+    },
+  });
+
+  const deleteNoteMutation = useMutation({
+    mutationFn: deleteNote,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "notes", "DEAL", selected?.id] });
+    },
+  });
+
+  const deleteDocMutation = useMutation({
+    mutationFn: deleteDocument,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "DEAL", selected?.id] });
     },
   });
 
@@ -378,7 +429,7 @@ export function DealsPage() {
     });
   }
 
-  async function openDownload(id: string) {
+  async function openDownload(id: string, fileName: string) {
     const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
     const response = await fetch(documentDownloadUrl(id), {
       headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -388,7 +439,7 @@ export function DealsPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "document";
+    anchor.download = fileName;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -433,18 +484,29 @@ export function DealsPage() {
           onNext={recordNav.goNext}
           hasPrev={recordNav.hasPrev}
           hasNext={recordNav.hasNext}
-          relatedLinks={[...DEAL_RELATED_LINKS]}
+          relatedLinks={
+            canViewProjects ? [...DEAL_RELATED_LINKS, { id: "projects", label: "Projects" }] : [...DEAL_RELATED_LINKS]
+          }
           primaryAction={
-            <button type="button" className="btn btn-primary btn-sm" disabled>
-              Send Email
-            </button>
+            dealContact?.email ? (
+              <a className="btn btn-primary btn-sm" href={`mailto:${dealContact.email}`}>
+                Send Email
+              </a>
+            ) : (
+              <button type="button" className="btn btn-primary btn-sm" disabled title="The deal has no contact with an email">
+                Send Email
+              </button>
+            )
           }
           secondaryActions={
-            canUpdate ? (
-              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowEdit(true)}>
-                Edit
-              </button>
-            ) : null
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm"
+              disabled={!canUpdate}
+              onClick={() => setShowEdit(true)}
+            >
+              Edit
+            </button>
           }
           tabs={[
             {
@@ -456,12 +518,25 @@ export function DealsPage() {
                   ownerName={ownerName(selected.ownerId)}
                   accountName={accountName(selected.accountId)}
                   contactName={contactName}
+                  contactEmail={dealContact?.email}
+                  userName={(userId) => (userId === auth.userId ? auth.displayName : ownerName(userId))}
+                  stageHistory={stageHistoryQuery.data ?? []}
+                  activities={canViewActivities ? activitiesQuery.data ?? [] : null}
+                  projects={canViewProjects ? dealProjects : null}
+                  leadName={
+                    leadQuery.data
+                      ? [leadQuery.data.firstName, leadQuery.data.lastName].filter(Boolean).join(" ") ||
+                        leadQuery.data.companyName
+                      : null
+                  }
                   canStage={canStage}
                   canCreateProject={canCreateProject}
                   canViewNotes={canViewNotes}
                   canCreateNotes={canCreateNotes}
+                  canDeleteNotes={canDeleteNotes}
                   canViewDocs={canViewDocs}
                   canUploadDocs={canUploadDocs}
+                  canDeleteDocs={canDeleteDocs}
                   stageError={stageError}
                   projectError={projectError}
                   projectSuccess={projectSuccess}
@@ -478,11 +553,13 @@ export function DealsPage() {
                   onStageClick={handleStageClick}
                   onCreateProject={() => projectMutation.mutate(selected.id)}
                   onSaveNote={() => noteMutation.mutate()}
+                  onDeleteNote={(id) => deleteNoteMutation.mutate(id)}
+                  onDeleteDocument={(id) => deleteDocMutation.mutate(id)}
                   onUploadDocument={async (file) => {
                     await uploadDocument("DEAL", selected.id, file);
                     await queryClient.invalidateQueries({ queryKey: ["crm", "documents", "DEAL", selected.id] });
                   }}
-                  onDownloadDocument={openDownload}
+                  onDownloadDocument={(id, fileName) => void openDownload(id, fileName)}
                 />
               ),
             },
@@ -577,31 +654,37 @@ export function DealsPage() {
                 searchPlaceholder="Search Owners"
               />
             ) : null}
-            <label className="form-label">Min value</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              type="number"
-              value={minValueFilter}
-              onChange={(e) => setMinValueFilter(e.target.value)}
-              placeholder="0"
-            />
-            <label className="form-label">Close from</label>
-            <input
-              className="form-control form-control-sm mb-2"
-              type="date"
-              value={closeFrom}
-              onChange={(e) => setCloseFrom(e.target.value)}
-            />
-            <label className="form-label">Close to</label>
-            <input
-              className="form-control form-control-sm"
-              type="date"
-              value={closeTo}
-              onChange={(e) => setCloseTo(e.target.value)}
+            <ModuleFilterField label="Min value" htmlFor="dealMinValueFilter">
+              <input
+                id="dealMinValueFilter"
+                className="form-control form-control-sm"
+                type="number"
+                value={minValueFilter}
+                onChange={(e) => setMinValueFilter(e.target.value)}
+                placeholder="0"
+              />
+            </ModuleFilterField>
+            <ModuleFilterDateRange
+              label="Close date"
+              from={closeFrom}
+              to={closeTo}
+              onFromChange={setCloseFrom}
+              onToChange={setCloseTo}
             />
           </div>
         </>
       }
+      activeFilterCount={activeFilterCount}
+      onClearFilters={() => {
+        setSearch("");
+        setStageFilter("");
+        setAccountFilter("");
+        setOwnerFilter("");
+        setMinValueFilter("");
+        setCloseFrom("");
+        setCloseTo("");
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span>Total Records: {view === "list" ? deals.length : "—"}</span>}
     >
       {loading ? <LoadingState label="Loading deals..." /> : null}
@@ -627,7 +710,12 @@ export function DealsPage() {
                   setStageError(null);
                 }}
                 renderCell={(deal, field) => {
-                  if (field === "accountId") return accountName(deal.accountId);
+                  if (field === "accountId")
+                    return (
+                      <RecordLink module="account" id={deal.accountId}>
+                        {accountName(deal.accountId)}
+                      </RecordLink>
+                    );
                   if (field === "stage") return <StatusBadge status={deal.stage} />;
                   if (field === "value") return deal.value ?? "—";
                   const value = (deal as unknown as Record<string, unknown>)[field];

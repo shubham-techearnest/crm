@@ -17,6 +17,7 @@ export const MODULE_IMPORT_CONFIGS = {
   projects: { module: "projects", singular: "project", plural: "projects", permission: "PROJECT_IMPORT" },
   resources: { module: "resources", singular: "resource", plural: "resources", permission: "RESOURCE_IMPORT" },
   invoices: { module: "invoices", singular: "invoice", plural: "invoices", permission: "INVOICE_IMPORT" },
+  timesheets: { module: "timesheets", singular: "timesheet", plural: "timesheets", permission: "TIMESHEET_IMPORT" },
   "purchase-orders": {
     module: "purchase-orders",
     singular: "purchase order",

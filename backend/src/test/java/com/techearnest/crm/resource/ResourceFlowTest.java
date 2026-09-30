@@ -36,7 +36,7 @@ class ResourceFlowTest {
     void resourceListUtilizationRatesAndOverAllocation() throws Exception {
         String mgrToken = login("resource.mgr@example.com");
 
-        MvcResult listResult = mockMvc.perform(get("/api/v1/resources").header("Authorization", "Bearer " + mgrToken))
+        MvcResult listResult = mockMvc.perform(get("/api/v1/resources").param("search", "EMP-1001").header("Authorization", "Bearer " + mgrToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andReturn();

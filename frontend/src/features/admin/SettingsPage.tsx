@@ -122,6 +122,8 @@ export function SettingsPage() {
           </div>
         </>
       }
+      onCloseFilters={() => setFilterOpen(false)}
+      filterPanelTitle="About"
       footerLeft={<span>{orgQuery.data ? `Org: ${orgQuery.data.name}` : "No organization"}</span>}
     >
       {orgQuery.isLoading ? <LoadingState label="Loading settings..." /> : null}

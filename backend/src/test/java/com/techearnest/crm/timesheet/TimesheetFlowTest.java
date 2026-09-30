@@ -3,11 +3,13 @@ package com.techearnest.crm.timesheet;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.techearnest.crm.auth.api.dto.LoginRequest;
 import java.time.DayOfWeek;
@@ -214,6 +216,168 @@ class TimesheetFlowTest {
                         .header("Authorization", "Bearer " + employeeToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("SUBMITTED"));
+    }
+
+    @Test
+    void weeklyGridCopyWeekAndBulkApproveUpdateActuals() throws Exception {
+        String employeeToken = login("employee@example.com");
+        LocalDate monday = uniqueMonday();
+        String firstWeekId = createTimesheet(employeeToken, monday);
+
+        ArrayNode overLimit = objectMapper.createArrayNode();
+        overLimit.add(gridEntry(monday, 14, true));
+        overLimit.add(gridEntry(monday, 12, false));
+        mockMvc.perform(put("/api/v1/timesheets/" + firstWeekId + "/entries")
+                        .header("Authorization", "Bearer " + employeeToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(objectMapper.createObjectNode().set("entries", overLimit))))
+                .andExpect(status().isUnprocessableEntity());
+
+        ArrayNode grid = objectMapper.createArrayNode();
+        grid.add(gridEntry(monday, 6, true));
+        grid.add(gridEntry(monday.plusDays(1), 7, true));
+        grid.add(gridEntry(monday.plusDays(2), 2, false));
+        mockMvc.perform(put("/api/v1/timesheets/" + firstWeekId + "/entries")
+                        .header("Authorization", "Bearer " + employeeToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(objectMapper.createObjectNode().set("entries", grid))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.entries.length()").value(3))
+                .andExpect(jsonPath("$.data.totalHours").value(15));
+
+        String secondWeekId = createTimesheet(employeeToken, monday.plusWeeks(1));
+        mockMvc.perform(post("/api/v1/timesheets/" + secondWeekId + "/copy-previous-week")
+                        .header("Authorization", "Bearer " + employeeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.entries.length()").value(3))
+                .andExpect(jsonPath("$.data.entries[0].workDate").value(monday.plusWeeks(1).toString()));
+        mockMvc.perform(post("/api/v1/timesheets/" + secondWeekId + "/copy-previous-week")
+                        .header("Authorization", "Bearer " + employeeToken))
+                .andExpect(status().isUnprocessableEntity());
+
+        for (String id : new String[] {firstWeekId, secondWeekId}) {
+            mockMvc.perform(post("/api/v1/timesheets/" + id + "/submit")
+                            .header("Authorization", "Bearer " + employeeToken))
+                    .andExpect(status().isOk());
+        }
+
+        String pmToken = login("pm@example.com");
+        MvcResult awaiting = mockMvc.perform(get("/api/v1/timesheets")
+                        .param("awaitingMyApproval", "true")
+                        .param("size", "100")
+                        .param("weekStart", monday.toString())
+                        .header("Authorization", "Bearer " + pmToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode awaitingRows = objectMapper.readTree(awaiting.getResponse().getContentAsString()).at("/data");
+        assertThat(awaitingRows.findValuesAsText("id")).contains(firstWeekId);
+
+        ObjectNode bulkBody = objectMapper.createObjectNode();
+        bulkBody.putArray("ids").add(firstWeekId).add(secondWeekId);
+        mockMvc.perform(post("/api/v1/timesheets/bulk-approve")
+                        .header("Authorization", "Bearer " + pmToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(bulkBody)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].success").value(true))
+                .andExpect(jsonPath("$.data[1].success").value(true));
+
+        mockMvc.perform(get("/api/v1/timesheets/" + secondWeekId).header("Authorization", "Bearer " + pmToken))
+                .andExpect(jsonPath("$.data.status").value("APPROVED"));
+
+        MvcResult summary = mockMvc.perform(get("/api/v1/projects/" + SEED_PROJECT_ID + "/time-summary")
+                        .header("Authorization", "Bearer " + pmToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode summaryJson = objectMapper.readTree(summary.getResponse().getContentAsString()).at("/data");
+        assertThat(summaryJson.at("/approvedHours").decimalValue()).isGreaterThanOrEqualTo(new java.math.BigDecimal("30"));
+        assertThat(summaryJson.at("/byResource").size()).isGreaterThan(0);
+
+        MvcResult project = mockMvc.perform(get("/api/v1/projects/" + SEED_PROJECT_ID)
+                        .header("Authorization", "Bearer " + pmToken))
+                .andExpect(status().isOk())
+                .andReturn();
+        assertThat(objectMapper.readTree(project.getResponse().getContentAsString()).at("/data/actualHours").decimalValue())
+                .isEqualByComparingTo(summaryJson.at("/approvedHours").decimalValue());
+    }
+
+    @Test
+    void createWithQuickFillNotesAndSubmitThenCopyIntoNextWeek() throws Exception {
+        String employeeToken = login("employee@example.com");
+        LocalDate monday = uniqueMonday();
+
+        mockMvc.perform(get("/api/v1/timesheets/entry-projects").header("Authorization", "Bearer " + employeeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.projectId == '" + SEED_PROJECT_ID + "')]").exists());
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("weekStartDate", monday.toString());
+        body.put("notes", "Sprint 12");
+        body.put("startWith", "QUICK_FILL");
+        body.put("submitAfterCreate", true);
+        ObjectNode fill = body.putObject("quickFill");
+        fill.put("projectId", SEED_PROJECT_ID.toString());
+        fill.put("hoursPerDay", 8);
+        fill.putArray("days").add(1).add(2).add(3).add(4).add(5);
+        fill.put("billable", true);
+        fill.put("description", "Build");
+        mockMvc.perform(post("/api/v1/timesheets")
+                        .header("Authorization", "Bearer " + employeeToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("SUBMITTED"))
+                .andExpect(jsonPath("$.data.notes").value("Sprint 12"))
+                .andExpect(jsonPath("$.data.entries.length()").value(5))
+                .andExpect(jsonPath("$.data.totalHours").value(40));
+
+        ObjectNode next = objectMapper.createObjectNode();
+        next.put("weekStartDate", monday.plusWeeks(1).toString());
+        next.put("startWith", "COPY_PREVIOUS");
+        mockMvc.perform(post("/api/v1/timesheets")
+                        .header("Authorization", "Bearer " + employeeToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(next)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("DRAFT"))
+                .andExpect(jsonPath("$.data.entries.length()").value(5));
+
+        ObjectNode noPrevious = objectMapper.createObjectNode();
+        noPrevious.put("weekStartDate", monday.minusWeeks(1).toString());
+        noPrevious.put("startWith", "COPY_PREVIOUS");
+        mockMvc.perform(post("/api/v1/timesheets")
+                        .header("Authorization", "Bearer " + employeeToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(noPrevious)))
+                .andExpect(status().isUnprocessableEntity());
+        mockMvc.perform(get("/api/v1/timesheets")
+                        .param("weekStart", monday.minusWeeks(1).toString())
+                        .header("Authorization", "Bearer " + employeeToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    private String createTimesheet(String token, LocalDate monday) throws Exception {
+        ObjectNode createBody = objectMapper.createObjectNode();
+        createBody.put("weekStartDate", monday.toString());
+        MvcResult createResult = mockMvc.perform(post("/api/v1/timesheets")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(createBody)))
+                .andExpect(status().isOk())
+                .andReturn();
+        return objectMapper.readTree(createResult.getResponse().getContentAsString()).at("/data/id").asText();
+    }
+
+    private ObjectNode gridEntry(LocalDate date, int hours, boolean billable) {
+        ObjectNode entry = objectMapper.createObjectNode();
+        entry.put("projectId", SEED_PROJECT_ID.toString());
+        entry.put("workDate", date.toString());
+        entry.put("hours", hours);
+        entry.put("description", "Grid work");
+        entry.put("billable", billable);
+        return entry;
     }
 
     /** Tests share a persistent database, so each run needs a week no earlier run has used. */

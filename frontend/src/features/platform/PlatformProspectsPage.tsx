@@ -4,15 +4,18 @@ import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router-dom";
 import { z } from "zod";
-import { FormField } from "@/components/FormField/FormField";
 import { FormActions } from "@/components/FormKit";
 import {
   enumPickerOptions,
+  TechEarnestCreateColumn,
+  TechEarnestCreateField,
+  TechEarnestCreateGrid,
+  TechEarnestCreateSection,
   TechEarnestFormKitCreateView,
   TechEarnestFormSelect,
   useTechEarnestCreateFlow,
 } from "@/components/TechEarnestCreate";
-import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
+import { ModuleFilterField, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
@@ -263,39 +266,80 @@ export function PlatformProspectsPage() {
   }
 
   const prospectFormFields = (
-    <div className="row g-2">
-      <div className="col-md-4">
-        <FormField label="Company name" required error={errors.name} {...register("name")} />
-      </div>
-      <div className="col-md-4">
-        <FormField label="Legal name" error={errors.legalName} {...register("legalName")} />
-      </div>
-      <div className="col-md-4">
-        <label className="form-label">Stage</label>
-        <TechEarnestFormSelect
-          control={control}
-          name="stage"
-          options={stageOptions}
-          searchPlaceholder="Search Stages"
-          allowEmpty={false}
-        />
-      </div>
-      <div className="col-md-3">
-        <FormField label="Email" error={errors.email} {...register("email")} />
-      </div>
-      <div className="col-md-3">
-        <FormField label="Phone" error={errors.phone} {...register("phone")} />
-      </div>
-      <div className="col-md-3">
-        <FormField label="Source" error={errors.source} {...register("source")} />
-      </div>
-      <div className="col-md-3">
-        <FormField label="Est. ARR" type="number" error={errors.estimatedArr} {...register("estimatedArr")} />
-      </div>
-      <div className="col-12">
-        <FormField label="Notes" error={errors.notes} {...register("notes")} />
-      </div>
-    </div>
+    <>
+      <TechEarnestCreateSection title="Prospect Information">
+        <TechEarnestCreateGrid>
+          <TechEarnestCreateColumn>
+            <TechEarnestCreateField label="Company Name" required error={errors.name?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.name ? " is-invalid" : ""}`}
+                {...register("name")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Legal Name" error={errors.legalName?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.legalName ? " is-invalid" : ""}`}
+                {...register("legalName")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Website" error={errors.website?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.website ? " is-invalid" : ""}`}
+                {...register("website")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Email" error={errors.email?.message}>
+              <input
+                type="email"
+                className={`form-control form-control-sm${errors.email ? " is-invalid" : ""}`}
+                {...register("email")}
+              />
+            </TechEarnestCreateField>
+          </TechEarnestCreateColumn>
+          <TechEarnestCreateColumn>
+            <TechEarnestCreateField label="Stage" required error={errors.stage?.message}>
+              <TechEarnestFormSelect
+                control={control}
+                name="stage"
+                options={stageOptions}
+                searchPlaceholder="Search Stages"
+                allowEmpty={false}
+                invalid={!!errors.stage}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Phone" error={errors.phone?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.phone ? " is-invalid" : ""}`}
+                {...register("phone")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Source" error={errors.source?.message}>
+              <input
+                type="text"
+                className={`form-control form-control-sm${errors.source ? " is-invalid" : ""}`}
+                {...register("source")}
+              />
+            </TechEarnestCreateField>
+            <TechEarnestCreateField label="Est. ARR" error={errors.estimatedArr?.message}>
+              <input
+                type="number"
+                className={`form-control form-control-sm${errors.estimatedArr ? " is-invalid" : ""}`}
+                {...register("estimatedArr")}
+              />
+            </TechEarnestCreateField>
+          </TechEarnestCreateColumn>
+        </TechEarnestCreateGrid>
+      </TechEarnestCreateSection>
+      <TechEarnestCreateSection title="Description Information">
+        <TechEarnestCreateField label="Notes" wide error={errors.notes?.message}>
+          <textarea rows={4} className="form-control form-control-sm" {...register("notes")} />
+        </TechEarnestCreateField>
+      </TechEarnestCreateSection>
+    </>
   );
 
   return (
@@ -333,14 +377,22 @@ export function PlatformProspectsPage() {
         </button>
       }
       filterPanel={
-        <div className="d-flex flex-column gap-2">
-          <label className="small mb-0">
-            Search
-            <input className="form-control form-control-sm mt-1" value={search} onChange={(e) => setSearch(e.target.value)} />
-          </label>
-          <label className="small mb-0">
-            Stage
-            <select className="form-select form-select-sm mt-1" value={stage} onChange={(e) => setStage(e.target.value)}>
+        <div className="module-filter-section">
+          <ModuleFilterField label="Search" htmlFor="prospectSearchFilter">
+            <input
+              id="prospectSearchFilter"
+              className="form-control form-control-sm"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </ModuleFilterField>
+          <ModuleFilterField label="Stage" htmlFor="prospectStageFilter">
+            <select
+              id="prospectStageFilter"
+              className="form-select form-select-sm"
+              value={stage}
+              onChange={(e) => setStage(e.target.value)}
+            >
               <option value="">All</option>
               {STAGES.map((s) => (
                 <option key={s} value={s}>
@@ -348,15 +400,19 @@ export function PlatformProspectsPage() {
                 </option>
               ))}
             </select>
-          </label>
-          <label className="small mb-0">
-            Source
-            <input className="form-control form-control-sm mt-1" value={source} onChange={(e) => setSource(e.target.value)} />
-          </label>
-          <label className="small mb-0">
-            Min ARR (advanced)
+          </ModuleFilterField>
+          <ModuleFilterField label="Source" htmlFor="prospectSourceFilter">
             <input
-              className="form-control form-control-sm mt-1"
+              id="prospectSourceFilter"
+              className="form-control form-control-sm"
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+            />
+          </ModuleFilterField>
+          <ModuleFilterField label="Min ARR (advanced)" htmlFor="prospectArrMinFilter">
+            <input
+              id="prospectArrMinFilter"
+              className="form-control form-control-sm"
               type="number"
               value={arrMin}
               onChange={(e) => {
@@ -364,10 +420,10 @@ export function PlatformProspectsPage() {
                 setUseAdvanced(Boolean(e.target.value));
               }}
             />
-          </label>
+          </ModuleFilterField>
           <button
             type="button"
-            className="btn btn-primary btn-sm"
+            className="btn btn-primary btn-sm w-100"
             onClick={() =>
               setApplied({
                 search: search.trim(),
@@ -382,6 +438,16 @@ export function PlatformProspectsPage() {
           </button>
         </div>
       }
+      activeFilterCount={[applied.search, applied.stage, applied.source, applied.arrMin].filter(Boolean).length}
+      onClearFilters={() => {
+        setSearch("");
+        setStage("");
+        setSource("");
+        setArrMin("");
+        setUseAdvanced(false);
+        setApplied({ search: "", stage: "", source: "", arrMin: "", advanced: false });
+      }}
+      onCloseFilters={() => setFilterOpen(false)}
       footerLeft={<span className="small text-muted">{query.data?.total ?? 0} prospects · SaaS pipeline (not tenant Leads)</span>}
     >
       {showForm && editing ? (

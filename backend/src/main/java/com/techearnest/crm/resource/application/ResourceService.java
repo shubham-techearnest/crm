@@ -2,6 +2,7 @@ package com.techearnest.crm.resource.application;
 
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
+import com.techearnest.crm.common.exception.BusinessException;
 import com.techearnest.crm.common.exception.ConflictException;
 import com.techearnest.crm.common.exception.ForbiddenException;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
@@ -14,6 +15,7 @@ import com.techearnest.crm.resource.api.dto.ResourceDtos.CreateResourceRequest;
 import com.techearnest.crm.department.domain.Department;
 import com.techearnest.crm.department.domain.DepartmentRepository;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.ReplaceSkillsRequest;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.LoginInfo;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.ResourceNames;
 import com.techearnest.crm.user.domain.User;
 import com.techearnest.crm.user.domain.UserRepository;
@@ -30,11 +32,13 @@ import com.techearnest.crm.resource.domain.ResourceSkillRepository;
 import com.techearnest.crm.resource.domain.Skill;
 import com.techearnest.crm.resource.domain.SkillRepository;
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -56,6 +60,8 @@ public class ResourceService {
     private final FieldAclEvaluator fieldAclEvaluator;
     private final UserRepository userRepository;
     private final DepartmentRepository departmentRepository;
+    private final ResourcePortalService portalService;
+    private final ResourceCodeGenerator codeGenerator;
 
     public ResourceService(
             ResourceRepository resourceRepository,
@@ -67,7 +73,11 @@ public class ResourceService {
             AuditService auditService,
             FieldAclEvaluator fieldAclEvaluator,
             UserRepository userRepository,
-            DepartmentRepository departmentRepository) {
+            DepartmentRepository departmentRepository,
+            ResourcePortalService portalService,
+            ResourceCodeGenerator codeGenerator) {
+        this.portalService = portalService;
+        this.codeGenerator = codeGenerator;
         this.userRepository = userRepository;
         this.departmentRepository = departmentRepository;
         this.resourceRepository = resourceRepository;
@@ -125,10 +135,16 @@ public class ResourceService {
         Region region = requireRegionInOrg(request.regionId(), orgId);
         tenantAccess.assertRegionVisible(region.getId());
 
+        String resourceType = normalizeType(request.resourceType());
+        assertPersonDetails(resourceType, orgId, request.userId(), request.fullName(), null);
+
         String employeeCode = blankToNull(request.employeeCode());
         if (employeeCode != null
                 && resourceRepository.existsByOrganizationIdAndEmployeeCodeAndDeletedAtIsNull(orgId, employeeCode)) {
             throw new ConflictException("Employee code already exists");
+        }
+        if (employeeCode == null) {
+            employeeCode = codeGenerator.next(orgId, resourceType);
         }
 
         Resource resource = Resource.create(
@@ -139,12 +155,13 @@ public class ResourceService {
                 blankToNull(request.designation()),
                 request.departmentId(),
                 request.managerId(),
-                request.resourceType().trim(),
+                resourceType,
                 request.joiningDate(),
                 request.costRate(),
                 request.billingRate(),
                 request.capacityHoursPerWeek(),
                 blankToNull(request.status()));
+        resource.updateContact(request.fullName(), request.email(), request.phone(), request.engagementEndDate());
         resourceRepository.save(resource);
         refreshDerivedStatus(resource);
         auditService.record(orgId, user.userId(), "CREATE", "RESOURCE", resource.getId());
@@ -168,19 +185,40 @@ public class ResourceService {
                         resource.getOrganizationId(), request.employeeCode().trim())) {
             throw new ConflictException("Employee code already exists");
         }
+        String resourceType = request.resourceType() == null || request.resourceType().isBlank()
+                ? resource.getResourceType()
+                : normalizeType(request.resourceType());
+        UUID userId = request.userId() != null ? request.userId() : resource.getUserId();
+        String fullName = request.fullName() != null ? request.fullName() : resource.getFullName();
+        if (!resourceType.equals(resource.getResourceType()) || request.userId() != null) {
+            assertPersonDetails(resourceType, resource.getOrganizationId(), userId, fullName, resource.getId());
+        }
+        String employeeCode = request.employeeCode() != null ? request.employeeCode().trim() : null;
+        if (employeeCode != null && employeeCode.isEmpty()) {
+            employeeCode = resource.getEmployeeCode() != null
+                    ? resource.getEmployeeCode()
+                    : codeGenerator.next(resource.getOrganizationId(), resourceType);
+        }
         resource.update(
                 request.regionId(),
                 request.userId(),
-                request.employeeCode() != null ? request.employeeCode().trim() : null,
+                employeeCode,
                 request.designation(),
                 request.departmentId(),
                 request.managerId(),
-                blankToNull(request.resourceType()),
+                resourceType,
                 request.joiningDate(),
                 request.costRate(),
                 request.billingRate(),
                 request.capacityHoursPerWeek(),
                 blankToNull(request.status()));
+        resource.updateContact(request.fullName(), request.email(), request.phone(), request.engagementEndDate());
+        if (Boolean.TRUE.equals(request.clearEngagementEndDate())) {
+            resource.clearEngagementEndDate();
+        }
+        if (request.engagementEndDate() != null) {
+            portalService.syncEngagementEnd(resource);
+        }
         if (request.status() == null || request.status().isBlank()) {
             refreshDerivedStatus(resource);
         }
@@ -203,9 +241,15 @@ public class ResourceService {
             if (resource.getDepartmentId() != null) departmentIds.add(resource.getDepartmentId());
         }
         Map<UUID, String> users = new HashMap<>();
+        Map<UUID, LoginInfo> logins = new HashMap<>();
+        Instant now = Instant.now();
         if (!userIds.isEmpty()) {
             for (User user : userRepository.findAllById(userIds)) {
-                if (organizationId.equals(user.getOrganizationId())) users.put(user.getId(), user.getDisplayName());
+                if (organizationId.equals(user.getOrganizationId())) {
+                    users.put(user.getId(), user.getDisplayName());
+                    logins.put(user.getId(), new LoginInfo(
+                            ResourcePortalService.loginStatus(user, now), user.getAccessExpiresAt()));
+                }
             }
         }
         Map<UUID, String> departments = new HashMap<>();
@@ -216,7 +260,7 @@ public class ResourceService {
                 }
             }
         }
-        return new ResourceNames(users, departments);
+        return new ResourceNames(users, departments, logins);
     }
 
     @Transactional
@@ -309,6 +353,49 @@ public class ResourceService {
             throw new ResourceNotFoundException("Resource not found");
         }
         return region;
+    }
+
+    private static String normalizeType(String resourceType) {
+        String type = resourceType == null ? "" : resourceType.trim().toUpperCase(Locale.ROOT);
+        if (!Resource.TYPES.contains(type)) {
+            throw new BusinessException(
+                    "INVALID_RESOURCE_TYPE", "Resource type must be one of EMPLOYEE, CONTRACTOR, FREELANCER, CONSULTANT");
+        }
+        return type;
+    }
+
+    /**
+     * Employees are the company's own staff and must be linked to an internal user account; external resources
+     * (contractors, freelancers, consultants) need at least a name and get a login only through a portal invite.
+     */
+    private void assertPersonDetails(
+            String resourceType, UUID organizationId, UUID userId, String fullName, UUID currentResourceId) {
+        User user = null;
+        if (userId != null) {
+            user = userRepository
+                    .findActiveDetailsById(userId)
+                    .filter(found -> organizationId.equals(found.getOrganizationId()))
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+            resourceRepository.findActiveByUserId(userId)
+                    .filter(linked -> !linked.getId().equals(currentResourceId))
+                    .ifPresent(linked -> {
+                        throw new ConflictException("This user is already linked to resource "
+                                + (linked.getEmployeeCode() != null ? linked.getEmployeeCode() : linked.getId()));
+                    });
+        }
+        if (Resource.TYPE_EMPLOYEE.equals(resourceType)) {
+            if (user == null) {
+                throw new BusinessException(
+                        "USER_REQUIRED", "Employees must be linked to a user account; add the person under Users first");
+            }
+            if (ResourcePortalService.isContributorOnly(user)) {
+                throw new BusinessException(
+                        "EXTERNAL_LOGIN",
+                        "This user is an external contributor login; pick an internal user or choose an external type");
+            }
+        } else if (user == null && blankToNull(fullName) == null) {
+            throw new BusinessException("NAME_REQUIRED", "Enter the full name of the external resource");
+        }
     }
 
     private static String blankToNull(String value) {

@@ -9,6 +9,7 @@ import { PlatformGuard, TenantGuard } from "@/features/auth/ScopeGuards";
 import { RoutePermission } from "@/components/PermissionGuard/RoutePermission";
 import { PortalGuard } from "@/features/portal/PortalGuard";
 import { PortalShell } from "@/layouts/PortalShell";
+import { useHasPermission } from "@/features/auth/AuthContext";
 
 const DashboardsPage = lazy(() => import("@/features/dashboards/DashboardsPage").then((m) => ({ default: m.DashboardsPage })));
 const UsersPage = lazy(() => import("@/features/admin/UsersPage").then((m) => ({ default: m.UsersPage })));
@@ -53,6 +54,27 @@ const PlatformOrganizationsPage = lazy(() => import("@/features/platform/Platfor
 const PlatformOrganizationCreatePage = lazy(() => import("@/features/platform/PlatformOrganizationCreatePage").then((m) => ({ default: m.PlatformOrganizationCreatePage })));
 const PlatformOrganizationDetailPage = lazy(() => import("@/features/platform/PlatformOrganizationDetailPage").then((m) => ({ default: m.PlatformOrganizationDetailPage })));
 
+const AcceptInvitePage = lazy(() => import("@/features/selfservice/AcceptInvitePage").then((m) => ({ default: m.AcceptInvitePage })));
+const TimesheetLinkPage = lazy(() => import("@/features/selfservice/TimesheetLinkPage").then((m) => ({ default: m.TimesheetLinkPage })));
+
+const DASHBOARD_PERMISSIONS = [
+  "DASHBOARD_ORG",
+  "DASHBOARD_REGION",
+  "DASHBOARD_SALES",
+  "DASHBOARD_PROJECT",
+  "DASHBOARD_EMPLOYEE",
+];
+
+/** Portal contributors have no dashboard; send them to their timesheets instead of "Access restricted". */
+function HomeRoute() {
+  const hasDashboard = useHasPermission(DASHBOARD_PERMISSIONS);
+  const hasTimesheets = useHasPermission("TIMESHEET_VIEW");
+  if (!hasDashboard && hasTimesheets) {
+    return <Navigate to="/timesheets" replace />;
+  }
+  return guard(DASHBOARD_PERMISSIONS, <DashboardsPage />);
+}
+
 function suspend(element: ReactNode) {
   return <Suspense fallback={<div className="route-loading" role="status">Loading page…</div>}>{element}</Suspense>;
 }
@@ -67,6 +89,8 @@ export const router = createBrowserRouter([
     children: [
       { path: "/login", element: <GuestGuard /> },
       { path: "/portal/login", element: suspend(<PortalLoginPage />) },
+      { path: "/accept-invite/:token", element: suspend(<AcceptInvitePage />) },
+      { path: "/timesheet-link/:token", element: suspend(<TimesheetLinkPage />) },
     ],
   },
   {
@@ -129,19 +153,7 @@ export const router = createBrowserRouter([
           {
             element: <AppShell />,
             children: [
-              {
-                path: "/",
-                element: guard(
-                  [
-                    "DASHBOARD_ORG",
-                    "DASHBOARD_REGION",
-                    "DASHBOARD_SALES",
-                    "DASHBOARD_PROJECT",
-                    "DASHBOARD_EMPLOYEE",
-                  ],
-                  <DashboardsPage />,
-                ),
-              },
+              { path: "/", element: <HomeRoute /> },
               { path: "/leads", element: guard(["LEAD_VIEW"], <LeadsPage />) },
               { path: "/contacts", element: guard(["CONTACT_VIEW"], <ContactsPage />) },
               { path: "/accounts", element: guard(["ACCOUNT_VIEW"], <AccountsPage />) },

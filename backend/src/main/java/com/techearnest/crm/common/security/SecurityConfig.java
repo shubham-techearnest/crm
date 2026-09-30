@@ -59,6 +59,9 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/portal/auth/login")
                         .permitAll()
+                        // Token-authenticated links for people without a login (timesheet links, portal invites).
+                        .requestMatchers("/api/v1/public/**")
+                        .permitAll()
                         .requestMatchers("/api/**")
                         .authenticated()
                         .anyRequest()

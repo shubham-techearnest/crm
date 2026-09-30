@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { navIconForPath } from "@/constants/nav";
 import { NavIcon } from "@/components/NavIcon/NavIcon";
@@ -35,6 +35,7 @@ export type { ModulePaginationProps } from "./moduleWorkspaceUi";
 export { ModuleListTable, useModuleListColumns } from "./ModuleListTable";
 export type { ModuleListColumnsState, ModuleListTableProps } from "./ModuleListTable";
 export { ManageColumnsModal } from "./ManageColumnsModal";
+export { ModuleFilterCheckbox, ModuleFilterDateRange, ModuleFilterField } from "./ModuleFilterFields";
 
 interface ModuleListShellProps {
   title: string;
@@ -74,6 +75,93 @@ interface ModuleListShellProps {
   pagination?: ModulePaginationProps;
   /** Show standard sort button in toolbar (visual affordance; wire sort via toolbarActions). */
   showSortButton?: boolean;
+  /** Resets every filter; shows "Clear all" in the filter panel header while filters are active. */
+  onClearFilters?: () => void;
+  /** Closes the filter panel; defaults to `filterToggle.onToggle`. */
+  onCloseFilters?: () => void;
+  /** Filter panel header text; defaults to "Filter <title> by". */
+  filterPanelTitle?: string;
+}
+
+function sectionToggleTarget(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+  const heading = target.closest(".module-filter-section > h3");
+  return heading instanceof HTMLElement ? heading : null;
+}
+
+function toggleFilterSection(heading: HTMLElement) {
+  const section = heading.parentElement;
+  if (!section) return;
+  const collapsed = section.classList.toggle("is-collapsed");
+  heading.setAttribute("aria-expanded", String(!collapsed));
+}
+
+/**
+ * Filter panel frame: sticky header with active count, "Clear all" and close, a scrolling body, and collapsible
+ * `.module-filter-section` blocks (click or press Enter/Space on the section's h3).
+ */
+function ModuleFilterPanel({
+  title,
+  activeFilterCount,
+  onClearFilters,
+  onClose,
+  children,
+}: {
+  title: string;
+  activeFilterCount: number;
+  onClearFilters?: () => void;
+  onClose?: () => void;
+  children: ReactNode;
+}) {
+  const bodyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bodyRef.current?.querySelectorAll<HTMLElement>(".module-filter-section > h3").forEach((heading) => {
+      if (heading.getAttribute("role") === "button") return;
+      heading.setAttribute("role", "button");
+      heading.setAttribute("tabindex", "0");
+      heading.setAttribute("aria-expanded", String(!heading.parentElement?.classList.contains("is-collapsed")));
+    });
+  });
+
+  return (
+    <aside
+      className={`module-filter-panel${activeFilterCount > 0 ? " has-active-filters" : ""}`}
+      aria-label="Filters"
+    >
+      <div className="module-filter-panel-header">
+        <span className="module-filter-panel-title">
+          {title}
+          {activeFilterCount > 0 ? <span className="module-filter-panel-count">{activeFilterCount}</span> : null}
+        </span>
+        {onClearFilters && activeFilterCount > 0 ? (
+          <button type="button" className="btn btn-link btn-sm p-0 module-filter-clear" onClick={onClearFilters}>
+            Clear all
+          </button>
+        ) : null}
+        {onClose ? (
+          <button type="button" className="btn-close module-filter-close" aria-label="Close filters" onClick={onClose} />
+        ) : null}
+      </div>
+      <div
+        ref={bodyRef}
+        className="module-filter-panel-body"
+        onClick={(e) => {
+          const heading = sectionToggleTarget(e.target);
+          if (heading) toggleFilterSection(heading);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter" && e.key !== " ") return;
+          const heading = sectionToggleTarget(e.target);
+          if (!heading) return;
+          e.preventDefault();
+          toggleFilterSection(heading);
+        }}
+      >
+        {children}
+      </div>
+    </aside>
+  );
 }
 
 function resolveViewLabel(children: ReactNode): string | null {
@@ -133,6 +221,9 @@ export function ModuleListShell({
   recordCountLabel,
   pagination,
   showSortButton = true,
+  onClearFilters,
+  onCloseFilters,
+  filterPanelTitle,
 }: ModuleListShellProps) {
   const location = useLocation();
   const resolvedIcon = moduleIcon ?? navIconForPath(location.pathname);
@@ -227,12 +318,14 @@ export function ModuleListShell({
 
       <div className={`module-list-body${filterOpen ? " with-filter" : ""}`}>
         {filterOpen && filterPanel ? (
-          <aside
-            className={`module-filter-panel${activeFilterCount > 0 ? " has-active-filters" : ""}`}
-            aria-label="Filters"
+          <ModuleFilterPanel
+            title={filterPanelTitle ?? `Filter ${title} by`}
+            activeFilterCount={activeFilterCount}
+            onClearFilters={onClearFilters}
+            onClose={onCloseFilters ?? filterToggle?.onToggle}
           >
             {filterPanel}
-          </aside>
+          </ModuleFilterPanel>
         ) : null}
         <div className="module-list-canvas" role="region" aria-label={`${title} records`}>
           <div className="module-list-canvas-inner">{children}</div>

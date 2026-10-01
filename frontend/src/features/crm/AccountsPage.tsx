@@ -667,15 +667,7 @@ export function AccountsPage() {
       viewMode={viewMode}
       onViewModeChange={setViewMode}
       viewSelector={<span className="module-view-select">All Accounts</span>}
-      toolbarActions={
-        <button
-          type="button"
-          className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-          onClick={() => setFilterOpen((o) => !o)}
-        >
-          Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-        </button>
-      }
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       primaryAction={
         canCreate ? (
           <button type="button" className="btn btn-primary btn-sm" onClick={() => openCreate()}>

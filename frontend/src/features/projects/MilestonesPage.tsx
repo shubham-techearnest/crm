@@ -280,15 +280,7 @@ export function MilestonesPage() {
       viewMode={viewMode}
       onViewModeChange={setViewMode}
       viewSelector={<span className="module-view-select">All Milestones</span>}
-      toolbarActions={
-        <button
-          type="button"
-          className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-          onClick={() => setFilterOpen((o) => !o)}
-        >
-          Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-        </button>
-      }
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       primaryAction={
         canManage && projectId ? (
           <button

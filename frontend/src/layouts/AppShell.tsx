@@ -1,7 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { NAV_SECTIONS, QUICK_CREATE_ITEMS, type NavItem } from "@/constants/nav";
+import {
+  NAV_SECTIONS,
+  QUICK_CREATE_ITEMS,
+  navItemForLocation,
+  pageTitleForLocation,
+  type NavItem,
+} from "@/constants/nav";
 import { NavIcon } from "@/components/NavIcon/NavIcon";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import { PermissionGuard } from "@/components/PermissionGuard/PermissionGuard";
@@ -46,11 +52,50 @@ function filterNavItems(
   });
 }
 
+const DESKTOP_SIDEBAR_QUERY = "(min-width: 992px)";
+
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== "undefined" && (window.matchMedia?.(DESKTOP_SIDEBAR_QUERY).matches ?? true),
+  );
+  useEffect(() => {
+    const query = window.matchMedia?.(DESKTOP_SIDEBAR_QUERY);
+    if (!query) return;
+    const update = () => setIsDesktop(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return isDesktop;
+}
+
+/** Panel icon (rounded window with a left rail), the same open/close sidebar glyph ChatGPT uses. */
+function SidebarPanelIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="2.75" y="3.5" width="14.5" height="13" rx="3" />
+      <path d="M7.75 3.5v13" />
+    </svg>
+  );
+}
+
 function SidebarNavItem({
   item,
+  collapsed,
   onNavigate,
 }: {
   item: NavItem;
+  collapsed: boolean;
   onNavigate: () => void;
 }) {
   const location = useLocation();
@@ -62,6 +107,8 @@ function SidebarNavItem({
         const active = isNavActive(location.pathname, location.search, item.to);
         return `nav-link${active ? " active" : ""}${item.comingSoon ? " coming-soon" : ""}`;
       }}
+      data-tooltip={collapsed ? item.label : undefined}
+      aria-label={collapsed ? item.label : undefined}
       onClick={onNavigate}
     >
       <NavIcon name={item.icon} colored />
@@ -95,6 +142,11 @@ export function AppShell() {
   const [quickOpen, setQuickOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const topbarRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const { pathname, search } = useLocation();
+  const pageTitle = pageTitleForLocation(pathname, search);
+  const pageIcon = navItemForLocation(pathname, search)?.icon;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuth();
@@ -131,6 +183,40 @@ export function AppShell() {
     });
   }
 
+  const isDesktop = useIsDesktop();
+  const railMode = isDesktop && sidebarCollapsed;
+  const [sidebarTip, setSidebarTip] = useState<{ label: string; top: number; left: number } | null>(null);
+
+  // One styled tooltip for every sidebar control with `data-tooltip`; it is fixed-positioned outside the
+  // sidebar so the scrolling menu never clips it.
+  function showSidebarTip(target: EventTarget) {
+    const el = target instanceof Element ? target.closest<HTMLElement>("[data-tooltip]") : null;
+    const label = el?.dataset.tooltip;
+    if (!el || !label) {
+      setSidebarTip(null);
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    const next = { label, top: rect.top + rect.height / 2, left: rect.right + 10 };
+    setSidebarTip((prev) =>
+      prev && prev.label === next.label && prev.top === next.top && prev.left === next.left ? prev : next,
+    );
+  }
+
+  useEffect(() => {
+    setSidebarTip(null);
+  }, [pathname, railMode]);
+
+  function closeSidebarPanel() {
+    if (isDesktop) toggleSidebarCollapsed();
+    else closeSidebar();
+  }
+
+  useEffect(() => {
+    contentRef.current?.scrollTo?.({ top: 0 });
+    navRef.current?.querySelector<HTMLElement>(".nav-link.active")?.scrollIntoView?.({ block: "nearest" });
+  }, [pathname]);
+
   const userInitials = user.displayName
     .split(/\s+/)
     .slice(0, 2)
@@ -160,22 +246,47 @@ export function AppShell() {
         />
       ) : null}
 
-      <aside className={`app-sidebar${sidebarOpen ? " open" : ""}${sidebarCollapsed ? " collapsed" : ""}`}>
+      <aside
+        id="app-sidebar"
+        className={`app-sidebar${sidebarOpen ? " open" : ""}${sidebarCollapsed ? " collapsed" : ""}`}
+        onMouseOver={(e) => showSidebarTip(e.target)}
+        onMouseLeave={() => setSidebarTip(null)}
+        onFocus={(e) => showSidebarTip(e.target)}
+        onBlur={() => setSidebarTip(null)}
+      >
         <div className="app-brand">
-          <span className="app-brand-mark">TE</span>
-          <span className="app-brand-name">TechEarnest CRM</span>
-          <button
-            type="button"
-            className={`app-sidebar-collapse d-none d-lg-inline-flex${sidebarCollapsed ? " is-collapsed" : ""}`}
-            aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-pressed={sidebarCollapsed}
-            title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            onClick={toggleSidebarCollapsed}
-          >
-            <ToolbarIcon name="sidebar" />
-          </button>
+          {railMode ? (
+            <button
+              type="button"
+              className="app-brand-toggle"
+              aria-label="Open sidebar"
+              aria-controls="app-sidebar"
+              aria-expanded={false}
+              data-tooltip="Open sidebar"
+              onClick={toggleSidebarCollapsed}
+            >
+              <span className="app-brand-mark">TE</span>
+              <SidebarPanelIcon className="app-brand-toggle-icon" />
+            </button>
+          ) : (
+            <>
+              <span className="app-brand-mark">TE</span>
+              <span className="app-brand-name">TechEarnest CRM</span>
+              <button
+                type="button"
+                className="app-sidebar-close"
+                aria-label="Close sidebar"
+                aria-controls="app-sidebar"
+                aria-expanded
+                data-tooltip={isDesktop ? "Close sidebar" : undefined}
+                onClick={closeSidebarPanel}
+              >
+                <SidebarPanelIcon />
+              </button>
+            </>
+          )}
         </div>
-        <nav className="app-sidebar-nav" aria-label="Primary">
+        <nav className="app-sidebar-nav" aria-label="Primary" ref={navRef} onScroll={() => setSidebarTip(null)}>
           {NAV_SECTIONS.map((section) => {
             const visibleItems = filterNavItems(section.items, moduleQuery, tableAcls, section.primary);
             if (visibleItems.length === 0) {
@@ -199,7 +310,7 @@ export function AppShell() {
                   </div>
                 ) : null}
                 {visibleItems.map((item) => (
-                  <SidebarNavItem key={item.to} item={item} onNavigate={closeSidebar} />
+                  <SidebarNavItem key={item.to} item={item} collapsed={railMode} onNavigate={closeSidebar} />
                 ))}
               </div>
             );
@@ -207,18 +318,39 @@ export function AppShell() {
         </nav>
       </aside>
 
+      {sidebarTip ? (
+        <div
+          key={sidebarTip.label}
+          className="app-sidebar-tooltip"
+          role="tooltip"
+          style={{ top: sidebarTip.top, left: sidebarTip.left }}
+        >
+          {sidebarTip.label}
+        </div>
+      ) : null}
+
       <div className="app-main d-flex flex-column">
         <header className="app-topbar" ref={topbarRef}>
           <div className="app-topbar-left">
-            <button
-              type="button"
-              className="app-topbar-icon-btn d-lg-none"
-              aria-label="Open navigation"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <ToolbarIcon name="menu" />
-            </button>
-            <span className="app-topbar-scope d-none d-md-inline">{user.dataScope.replaceAll("_", " ")}</span>
+            {!isDesktop ? (
+              <button
+                type="button"
+                className="app-topbar-icon-btn app-sidebar-toggle"
+                aria-label="Open sidebar"
+                aria-controls="app-sidebar"
+                aria-expanded={sidebarOpen}
+                title="Open sidebar"
+                onClick={() => setSidebarOpen(true)}
+              >
+                <SidebarPanelIcon className="toolbar-icon" />
+              </button>
+            ) : null}
+            <div className="app-topbar-page">
+              {pageIcon ? <NavIcon name={pageIcon} colored /> : null}
+              <span className="app-topbar-title" title={pageTitle}>
+                {pageTitle}
+              </span>
+            </div>
           </div>
 
           <div className="app-topbar-center d-none d-md-flex">
@@ -330,7 +462,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="app-content">
+        <main className="app-content" ref={contentRef}>
           <Outlet />
         </main>
       </div>

@@ -135,15 +135,7 @@ export function ReportsPage() {
           <option value="spend">Procurement & expense spend</option>
         </select>
       }
-      toolbarActions={
-        <button
-          type="button"
-          className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-          onClick={() => setFilterOpen((o) => !o)}
-        >
-          Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-        </button>
-      }
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       filterPanel={
         <>
           <p className="module-filter-heading">Report filters</p>

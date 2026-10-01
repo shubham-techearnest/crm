@@ -66,7 +66,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Documents", to: "/documents", icon: "documents", permissions: ["DOCUMENT_VIEW"], tableCode: "document" },
       { label: "Project Tasks", to: "/tasks", icon: "ptasks", permissions: ["TASK_VIEW"], tableCode: "project_task" },
       { label: "Milestones", to: "/milestones", icon: "milestones", permissions: ["MILESTONE_VIEW"], tableCode: "milestone" },
-      { label: "Resource Board", to: "/resource-board", icon: "allocation", permissions: ["RESOURCE_BOARD_VIEW"] },
+      { label: "Resource Board", to: "/resource-board", icon: "board", permissions: ["RESOURCE_BOARD_VIEW"] },
       { label: "Allocation", to: "/allocations", icon: "allocation", permissions: ["ALLOCATION_VIEW"], tableCode: "allocation" },
       { label: "Skills", to: "/skills", icon: "skills", permissions: ["SKILL_VIEW"], tableCode: "skill" },
       {
@@ -82,8 +82,8 @@ export const NAV_SECTIONS: NavSection[] = [
   {
     title: "Finance",
     items: [
-      { label: "Tax Rates", to: "/tax-rates", icon: "invoices", permissions: ["TAX_VIEW"], tableCode: "tax_rate" },
-      { label: "Vendors", to: "/vendors", icon: "accounts", permissions: ["VENDOR_VIEW"], tableCode: "vendor" },
+      { label: "Tax Rates", to: "/tax-rates", icon: "tax", permissions: ["TAX_VIEW"], tableCode: "tax_rate" },
+      { label: "Vendors", to: "/vendors", icon: "vendors", permissions: ["VENDOR_VIEW"], tableCode: "vendor" },
       { label: "Expenses", to: "/expenses", icon: "expenses", permissions: ["EXPENSE_VIEW"], tableCode: "expense" },
     ],
   },
@@ -94,12 +94,12 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Roles", to: "/admin/roles", icon: "roles", permissions: ["ROLE_VIEW"], tableCode: "role" },
       { label: "Regions", to: "/admin/regions", icon: "regions", permissions: ["REGION_VIEW"], tableCode: "region" },
       { label: "Departments", to: "/admin/departments", icon: "departments", permissions: ["DEPARTMENT_VIEW"], tableCode: "department" },
-      { label: "Teams", to: "/admin/teams", icon: "users", permissions: ["TEAM_VIEW"] },
+      { label: "Teams", to: "/admin/teams", icon: "teams", permissions: ["TEAM_VIEW"] },
       { label: "Settings", to: "/admin/settings", icon: "settings", permissions: ["ORG_VIEW"] },
       { label: "Metadata Studio", to: "/admin/studio", icon: "studio", permissions: ["METADATA_VIEW"] },
       { label: "Workflows", to: "/admin/workflows", icon: "workflows", permissions: ["WORKFLOW_VIEW"] },
       { label: "Table ACL", to: "/admin/acl-matrix", icon: "acl", permissions: ["ACL_VIEW"] },
-      { label: "Field ACL", to: "/admin/field-acl", icon: "acl", permissions: ["FIELD_ACL_VIEW"] },
+      { label: "Field ACL", to: "/admin/field-acl", icon: "fieldAcl", permissions: ["FIELD_ACL_VIEW"] },
       { label: "Audit Logs", to: "/admin/audit-logs", icon: "audit", permissions: ["AUDIT_VIEW"] },
     ],
   },
@@ -116,6 +116,39 @@ export function navIconForPath(pathname: string): string | undefined {
     })
     .sort((a, b) => b.to.length - a.to.length);
   return matches[0]?.icon;
+}
+
+/**
+ * Nav item for the current location: the longest matching path, preferring an item whose query
+ * (e.g. `?type=TASK`) is present in `search` so Tasks/Meetings/Calls resolve to their own entry.
+ */
+export function navItemForLocation(
+  pathname: string,
+  search = "",
+  sections: NavSection[] = NAV_SECTIONS,
+): NavItem | undefined {
+  const candidates = sections
+    .flatMap((section) => section.items)
+    .filter((item) => {
+      const [itemPath, itemSearch] = item.to.split("?");
+      const pathMatches =
+        itemPath === "/" ? pathname === "/" : pathname === itemPath || pathname.startsWith(`${itemPath}/`);
+      return pathMatches && (!itemSearch || search.includes(itemSearch));
+    })
+    .sort((a, b) => b.to.length - a.to.length);
+  return candidates[0];
+}
+
+/** Page title for the top bar: the matching nav label, else the first path segment in title case. */
+export function pageTitleForLocation(pathname: string, search = "", sections: NavSection[] = NAV_SECTIONS): string {
+  const item = navItemForLocation(pathname, search, sections);
+  if (item) return item.label;
+  const segment = pathname.split("/").filter(Boolean)[0];
+  if (!segment) return "Home";
+  return segment
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 export const QUICK_CREATE_ITEMS: { label: string; to: string; permissions: string[] }[] = [

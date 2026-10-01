@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { ToolbarIcon, type ToolbarIconName } from "@/components/ToolbarIcon/ToolbarIcon";
+
+const PANEL_GAP = 4;
+const VIEWPORT_MARGIN = 8;
 
 export interface ModuleMenuItem {
   id: string;
@@ -28,19 +32,65 @@ export function ModuleMenuDropdown({
   triggerClassName = "module-menu-trigger",
 }: ModuleMenuDropdownProps) {
   const [open, setOpen] = useState(false);
+  const [panelStyle, setPanelStyle] = useState<CSSProperties>({ visibility: "hidden" });
   const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const visibleItems = items.filter((item) => item.visible !== false);
+
+  // The panel lives in document.body so scrolling/clipping containers (e.g. the records table) never cut it
+  // off; it is placed next to the trigger and flips above it when there is no room below.
+  const positionPanel = useCallback(() => {
+    const trigger = triggerRef.current;
+    const panel = panelRef.current;
+    if (!trigger || !panel) return;
+    const rect = trigger.getBoundingClientRect();
+    const height = panel.offsetHeight;
+    const width = panel.offsetWidth;
+    const spaceBelow = window.innerHeight - rect.bottom - VIEWPORT_MARGIN;
+    const openUp = spaceBelow < height + PANEL_GAP && rect.top - VIEWPORT_MARGIN > spaceBelow;
+    const top = openUp ? Math.max(VIEWPORT_MARGIN, rect.top - PANEL_GAP - height) : rect.bottom + PANEL_GAP;
+    const preferredLeft = align === "end" ? rect.right - width : rect.left;
+    const left = Math.min(Math.max(VIEWPORT_MARGIN, preferredLeft), window.innerWidth - width - VIEWPORT_MARGIN);
+    setPanelStyle({
+      top,
+      left,
+      maxHeight: `calc(100vh - ${VIEWPORT_MARGIN * 2}px)`,
+    });
+  }, [align]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setPanelStyle({ visibility: "hidden" });
+      return;
+    }
+    positionPanel();
+  }, [open, positionPanel]);
 
   useEffect(() => {
     if (!open) return;
     function onDocClick(event: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (wrapRef.current?.contains(target) || panelRef.current?.contains(target)) return;
+      setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
         setOpen(false);
+        triggerRef.current?.focus();
       }
     }
     document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [open]);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", positionPanel);
+    window.addEventListener("scroll", positionPanel, true);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", positionPanel);
+      window.removeEventListener("scroll", positionPanel, true);
+    };
+  }, [open, positionPanel]);
 
   if (!visibleItems.length) {
     return null;
@@ -49,6 +99,7 @@ export function ModuleMenuDropdown({
   return (
     <div className={`module-menu-dropdown${open ? " is-open" : ""}`} ref={wrapRef}>
       <button
+        ref={triggerRef}
         type="button"
         className={triggerClassName}
         aria-expanded={open}
@@ -58,8 +109,13 @@ export function ModuleMenuDropdown({
       >
         {trigger}
       </button>
-      {open ? (
-        <div className={`module-menu-panel module-menu-panel--${align}`} role="menu">
+      {open ? createPortal(
+        <div
+          ref={panelRef}
+          className={`module-menu-panel module-menu-panel--${align} is-floating`}
+          style={panelStyle}
+          role="menu"
+        >
           {visibleItems.map((item) =>
             item.separator ? (
               <div key={item.id} className="module-menu-separator" role="separator" />
@@ -80,7 +136,8 @@ export function ModuleMenuDropdown({
               </button>
             ),
           )}
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

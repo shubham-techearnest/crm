@@ -85,15 +85,7 @@ export function ApprovalsPage() {
       viewMode={viewMode}
       onViewModeChange={setViewMode}
       viewSelector={<span className="module-view-select">Inbox</span>}
-      toolbarActions={
-        <button
-          type="button"
-          className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-          onClick={() => setFilterOpen((o) => !o)}
-        >
-          Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-        </button>
-      }
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       filterPanel={
         <>
           <p className="module-filter-heading">Filter Approvals by</p>

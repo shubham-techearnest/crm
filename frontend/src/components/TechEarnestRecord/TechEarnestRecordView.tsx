@@ -93,6 +93,12 @@ export function TechEarnestRecordView({
     }
   }
 
+  const [relatedQuery, setRelatedQuery] = useState("");
+  const visibleRelatedLinks = useMemo(() => {
+    const q = relatedQuery.trim().toLowerCase();
+    return q ? relatedLinks.filter((link) => link.label.toLowerCase().includes(q)) : relatedLinks;
+  }, [relatedLinks, relatedQuery]);
+
   const displayTitle = subtitle ? `${title} - ${subtitle}` : title;
   const cameFrom = readRecordNavState(location.state)?.from;
   const backLabel = cameFrom ? `Back to ${cameFrom.label ?? "previous page"}` : "Back to list";
@@ -151,8 +157,24 @@ export function TechEarnestRecordView({
           {relatedLinks.length > 0 ? (
             <aside className="techearnest-record-related-sidebar" aria-label="Related List">
               <div className="techearnest-record-related-sidebar-title">Related List</div>
+              {relatedLinks.length > 6 ? (
+                <div className="techearnest-record-related-search">
+                  <ToolbarIcon name="search" className="techearnest-record-related-search-icon" />
+                  <input
+                    type="search"
+                    className="form-control form-control-sm"
+                    placeholder="Search"
+                    aria-label="Search related lists"
+                    value={relatedQuery}
+                    onChange={(event) => setRelatedQuery(event.target.value)}
+                  />
+                </div>
+              ) : null}
               <ul className="techearnest-record-related-links">
-                {relatedLinks.map((link) => (
+                {!visibleRelatedLinks.length ? (
+                  <li className="techearnest-record-related-empty">No matching lists</li>
+                ) : null}
+                {visibleRelatedLinks.map((link) => (
                   <li key={link.id}>
                     <button
                       type="button"

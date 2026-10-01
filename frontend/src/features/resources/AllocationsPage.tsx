@@ -526,15 +526,7 @@ export function AllocationsPage() {
       viewMode={viewMode}
       onViewModeChange={setViewMode}
       viewSelector={<span className="module-view-select">All Allocations</span>}
-      toolbarActions={
-        <button
-          type="button"
-          className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-          onClick={() => setFilterOpen((o) => !o)}
-        >
-          Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-        </button>
-      }
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       primaryAction={
         canAllocate ? (
           <button type="button" className="btn btn-primary btn-sm" onClick={() => { setEditingAllocation(null); setFormError(null); reset(ALLOCATION_DEFAULTS); setShowForm(true); }}>

@@ -1155,15 +1155,9 @@ export function TimesheetsPage() {
           ) : null}
         </select>
       }
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       toolbarActions={
         <>
-          <button
-            type="button"
-            className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-            onClick={() => setFilterOpen((o) => !o)}
-          >
-            Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-          </button>
           {canManageViews ? (
             <button
               type="button"

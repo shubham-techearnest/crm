@@ -586,26 +586,22 @@ export function DealsPage() {
       title="Deals"
       filterOpen={filterOpen}
       viewSelector={<span className="module-view-select">All Deals</span>}
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       toolbarActions={
         <>
-          <button
-            type="button"
-            className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-            onClick={() => setFilterOpen((o) => !o)}
-          >
-            Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-          </button>
-          <div className="btn-group btn-group-sm" role="group">
+          <div className="module-view-toggle module-view-toggle--labeled" role="group" aria-label="Deals layout">
             <button
               type="button"
-              className={`btn ${view === "list" ? "btn-primary" : "btn-outline-secondary"}`}
+              className={`module-view-toggle-btn${view === "list" ? " is-active" : ""}`}
+              aria-pressed={view === "list"}
               onClick={() => setView("list")}
             >
               List
             </button>
             <button
               type="button"
-              className={`btn ${view === "pipeline" ? "btn-primary" : "btn-outline-secondary"}`}
+              className={`module-view-toggle-btn${view === "pipeline" ? " is-active" : ""}`}
+              aria-pressed={view === "pipeline"}
               onClick={() => setView("pipeline")}
             >
               Pipeline

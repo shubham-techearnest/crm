@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { PLATFORM_NAV_SECTIONS } from "@/constants/nav";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { PLATFORM_NAV_SECTIONS, navItemForLocation, pageTitleForLocation } from "@/constants/nav";
 import { NavIcon } from "@/components/NavIcon/NavIcon";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import { logout } from "@/features/auth/authApi";
@@ -13,6 +13,9 @@ export function PlatformShell() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuth();
+  const { pathname, search } = useLocation();
+  const pageTitle = pageTitleForLocation(pathname, search, PLATFORM_NAV_SECTIONS);
+  const pageIcon = navItemForLocation(pathname, search, PLATFORM_NAV_SECTIONS)?.icon;
 
   async function signOut() {
     setSigningOut(true);
@@ -75,7 +78,12 @@ export function PlatformShell() {
             >
               <ToolbarIcon name="menu" />
             </button>
-            <span className="app-topbar-scope d-none d-md-inline">PLATFORM</span>
+            <div className="app-topbar-page">
+              {pageIcon ? <NavIcon name={pageIcon} colored /> : null}
+              <span className="app-topbar-title" title={pageTitle}>
+                {pageTitle}
+              </span>
+            </div>
           </div>
           <div className="app-topbar-right">
             <div className="app-topbar-account">

@@ -24,7 +24,11 @@ export type ToolbarIconName =
   | "eye"
   | "users"
   | "building"
-  | "trash";
+  | "trash"
+  | "check"
+  | "arrow-up"
+  | "arrow-down"
+  | "views";
 
 interface ToolbarIconProps {
   name: ToolbarIconName;
@@ -49,6 +53,15 @@ function Svg({ children, className }: { children: ReactNode; className?: string 
 }
 
 const ICONS: Record<ToolbarIconName, ReactNode> = {
+  check: <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />,
+  "arrow-up": <path d="M8 13V3M8 3 4.5 6.5M8 3l3.5 3.5" />,
+  "arrow-down": <path d="M8 3v10M8 13l-3.5-3.5M8 13l3.5-3.5" />,
+  views: (
+    <>
+      <rect x="2.5" y="3" width="11" height="3.5" rx="0.75" />
+      <rect x="2.5" y="9.5" width="11" height="3.5" rx="0.75" />
+    </>
+  ),
   filter: (
     <>
       <path d="M2.5 3.5h11" />

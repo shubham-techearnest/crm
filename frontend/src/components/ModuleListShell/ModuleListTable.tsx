@@ -15,6 +15,8 @@ import { ManageColumnsModal } from "./ManageColumnsModal";
 import { TableViewOptionsMenu } from "./TableViewOptionsMenu";
 import type { ModuleMenuItem } from "./ModuleMenuDropdown";
 import { useRegisterBulkMenu } from "./moduleBulkMenu";
+import { compareSortValues, useModuleSort, useRegisterSortFields } from "./moduleSort";
+import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 
 export interface ModuleListColumnsState {
   availableColumns: ListLayoutColumn[];
@@ -136,6 +138,44 @@ export function ModuleListTable<T>({
     return formatCustomFieldValue(definition, value) || "—";
   };
 
+  const sortContext = useModuleSort();
+  useRegisterSortFields(
+    useMemo(() => availableColumns.map(({ field, label }) => ({ field, label })), [availableColumns]),
+  );
+  const sortableFields = useMemo(
+    () => new Set((sortContext?.fields ?? []).map((field) => field.field)),
+    [sortContext?.fields],
+  );
+  const activeSort = sortContext?.sort ?? null;
+  // Numbers and ISO dates sort by their raw value; everything else (ids shown as names, enum labels) by the
+  // text the cell displays.
+  const sortValue = (row: T, field: string): unknown => {
+    const raw = customFieldsByCode.has(field)
+      ? customValuesQuery.data?.[rowKey(row)]?.[field]
+      : (row as Record<string, unknown>)[field];
+    if (typeof raw === "number" || typeof raw === "boolean") return raw;
+    if (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}/.test(raw)) return raw;
+    const text = nodeText(cell(row, field)).trim();
+    return text === "—" ? "" : text;
+  };
+  const sortedRows = useMemo(() => {
+    if (!activeSort || sortContext?.controlled || !availableColumns.some((c) => c.field === activeSort.field)) {
+      return rows;
+    }
+    return rows
+      .map((row, index) => ({ row, index, value: sortValue(row, activeSort.field) }))
+      .sort((a, b) => compareSortValues(a.value, b.value, activeSort.direction) || a.index - b.index)
+      .map((entry) => entry.row);
+    // sortValue reads the latest cells; re-sorting only when rows, sort or custom values change is intended.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, activeSort, sortContext?.controlled, availableColumns, customValuesQuery.data]);
+  const toggleColumnSort = (field: string) => {
+    if (!sortContext) return;
+    if (activeSort?.field !== field) sortContext.setSort({ field, direction: "asc" });
+    else if (activeSort.direction === "asc") sortContext.setSort({ field, direction: "desc" });
+    else sortContext.setSort(null);
+  };
+
   const [rowsPerPage, setRowsPerPage] = useState(() => {
     try {
       const saved = Number(localStorage.getItem(`techearnest:list-view:${tableCode}:page-size`));
@@ -156,7 +196,7 @@ export function ModuleListTable<T>({
   const rowSignature = rows.map(rowKey).join("\u001f");
   useEffect(() => {
     setPage(0);
-  }, [rowSignature, rowsPerPage]);
+  }, [rowSignature, rowsPerPage, activeSort?.field, activeSort?.direction]);
   useEffect(() => {
     if (!bulk || !selectedIds.length) return;
     const present = new Set(rows.map(rowKey));
@@ -206,7 +246,7 @@ export function ModuleListTable<T>({
     selectAll: () => onSelectedIdsChange(rows.map(rowKey)),
     clear: () => onSelectedIdsChange([]),
     exportSelected,
-    exportAll: () => exportRows(rows, "all"),
+    exportAll: () => exportRows(sortedRows, "all"),
   };
   const selectedCount = selectedRows.length;
   const bulkNoun = bulk?.noun ?? "records";
@@ -279,11 +319,11 @@ export function ModuleListTable<T>({
     }
   }, [tableCode, rowsPerPage, wrapText]);
 
-  const pageCount = Math.max(1, Math.ceil(rows.length / rowsPerPage));
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / rowsPerPage));
   const currentPage = Math.min(page, pageCount - 1);
   const pageRows = useMemo(
-    () => rows.slice(currentPage * rowsPerPage, (currentPage + 1) * rowsPerPage),
-    [rows, currentPage, rowsPerPage],
+    () => sortedRows.slice(currentPage * rowsPerPage, (currentPage + 1) * rowsPerPage),
+    [sortedRows, currentPage, rowsPerPage],
   );
   const pageRowIds = pageRows.map(rowKey);
   const allSelected = pageRowIds.length > 0 && pageRowIds.every((id) => selectedIds.includes(id));
@@ -321,9 +361,29 @@ export function ModuleListTable<T>({
                   />
                 </th>
               ) : null}
-              {visibleColumns.map((column) => (
-                <th key={column.field}>{column.label}</th>
-              ))}
+              {visibleColumns.map((column) => {
+                if (!sortableFields.has(column.field)) return <th key={column.field}>{column.label}</th>;
+                const direction = activeSort?.field === column.field ? activeSort.direction : null;
+                return (
+                  <th
+                    key={column.field}
+                    aria-sort={direction === "asc" ? "ascending" : direction === "desc" ? "descending" : "none"}
+                  >
+                    <button
+                      type="button"
+                      className={`module-list-sort-header${direction ? " is-sorted" : ""}`}
+                      onClick={() => toggleColumnSort(column.field)}
+                      title={`Sort by ${column.label}`}
+                    >
+                      <span>{column.label}</span>
+                      <ToolbarIcon
+                        name={direction === "desc" ? "arrow-down" : "arrow-up"}
+                        className="module-list-sort-icon"
+                      />
+                    </button>
+                  </th>
+                );
+              })}
               {trailingColumn ? <th>{trailingColumn.header ?? ""}</th> : null}
               <th className="module-list-table-settings-cell">
                 <TableViewOptionsMenu
@@ -391,14 +451,16 @@ export function ModuleListTable<T>({
           </tbody>
         </table>
       </div>
-      <div className="module-list-table-pagination" aria-label="Table pagination">
-        <span>{rangeStart}–{rangeEnd} of {rows.length}{rows.length >= 100 ? " loaded records" : " records"}</span>
-        <div className="module-list-table-pagination-actions">
-          <button type="button" className="btn btn-sm btn-light" disabled={currentPage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))} aria-label="Previous page">‹</button>
-          <span>Page {currentPage + 1} of {pageCount}</span>
-          <button type="button" className="btn btn-sm btn-light" disabled={currentPage + 1 >= pageCount} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} aria-label="Next page">›</button>
+      {pageCount > 1 ? (
+        <div className="module-list-table-pagination" aria-label="Table pagination">
+          <span>{rangeStart}–{rangeEnd} of {rows.length}{rows.length >= 100 ? " loaded records" : " records"}</span>
+          <div className="module-list-table-pagination-actions">
+            <button type="button" className="btn btn-sm btn-light" disabled={currentPage === 0} onClick={() => setPage((value) => Math.max(0, value - 1))} aria-label="Previous page">‹</button>
+            <span>Page {currentPage + 1} of {pageCount}</span>
+            <button type="button" className="btn btn-sm btn-light" disabled={currentPage + 1 >= pageCount} onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} aria-label="Next page">›</button>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <ManageColumnsModal
         open={columnChooserOpen}

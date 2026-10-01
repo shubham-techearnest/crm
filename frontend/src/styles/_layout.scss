@@ -1,81 +1,243 @@
 @use "tokens" as *;
 
+$te-scrollbar-thumb: rgba(100, 116, 139, 0.42);
+$te-scrollbar-thumb-hover: rgba(71, 85, 105, 0.68);
+
+// Capsule thumb: the transparent border insets the fill (background-clip) so the visible bar is a
+// slim pill whose ends are half discs (radius 999px). Chrome 121+ ignores ::-webkit-scrollbar when
+// scrollbar-color/width are set, so the standard properties are only used where WebKit ones aren't.
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}
+
+::-webkit-scrollbar-thumb {
+  min-height: 2rem;
+  min-width: 2rem;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-color: $te-scrollbar-thumb;
+  background-clip: padding-box;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    border-width: 2px;
+    background-color: $te-scrollbar-thumb-hover;
+  }
+
+  &:active {
+    border-width: 2px;
+    background-color: rgba(51, 65, 85, 0.8);
+  }
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: $te-scrollbar-thumb transparent;
+  }
+}
+
+// Same capsule thumb, but invisible until the pointer is over (or focus is inside) the region.
+@mixin te-hover-scrollbar($thumb: $te-scrollbar-thumb, $thumb-hover: $te-scrollbar-thumb-hover) {
+  &::-webkit-scrollbar-thumb {
+    background-color: transparent;
+  }
+
+  &:hover::-webkit-scrollbar-thumb,
+  &:focus-within::-webkit-scrollbar-thumb {
+    background-color: $thumb;
+  }
+
+  &::-webkit-scrollbar-thumb:hover,
+  &::-webkit-scrollbar-thumb:active {
+    background-color: $thumb-hover;
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-color: transparent transparent;
+
+    &:hover,
+    &:focus-within {
+      scrollbar-color: $thumb transparent;
+    }
+  }
+}
+
+// The shell is a fixed viewport frame: the top bar and sidebar never scroll away and `.app-content`
+// is the single scrolling workspace, so sticky elements inside pages use `top: 0`.
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background: $te-page-bg;
 }
 
+// The sidebar uses the same surface, border, text and accent tokens as the workspace so the brand
+// bar and the top bar read as one header band.
 .app-sidebar {
   width: $te-sidebar-width;
-  background: $te-sidebar;
-  color: rgba(255, 255, 255, 0.88);
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow-y: auto;
-  overflow-x: hidden;
+  background: $te-surface;
+  color: $te-text;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   flex-shrink: 0;
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+  border-right: 1px solid $te-border;
   transition: width 0.2s ease;
-}
-
-.app-sidebar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.app-sidebar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.18);
-  border-radius: 999px;
 }
 
 .app-brand {
   height: $te-topbar-height;
   display: flex;
   align-items: center;
-  gap: $te-space-3;
-  padding: 0 $te-space-4;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  color: #fff;
+  gap: $te-space-2;
+  padding: 0 $te-space-3;
+  border-bottom: 1px solid $te-border;
+  color: $te-text;
   font-weight: 650;
   letter-spacing: 0.01em;
   flex-shrink: 0;
-}
-
-.app-sidebar-collapse {
-  margin-left: auto;
-  width: 1.75rem;
-  height: 1.75rem;
-  border: none;
-  border-radius: 0.35rem;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.75);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-
-  &:hover {
-    background: rgba(255, 255, 255, 0.14);
-    color: #fff;
-  }
-
-  .toolbar-icon {
-    width: 0.95rem;
-    height: 0.95rem;
-  }
-
-  &.is-collapsed .toolbar-icon {
-    transform: scaleX(-1);
-  }
+  background: $te-surface;
 }
 
 .app-brand-name {
   font-size: 0.92rem;
   line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+// ChatGPT-style sidebar toggle: a panel icon closes the open sidebar; when collapsed the logo turns into
+// the same icon on hover/focus and reopens it.
+.app-sidebar-close,
+.app-brand-toggle {
+  border: 1px solid transparent;
+  background: transparent;
+  color: $te-text-secondary;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  svg {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  &:hover,
+  &:focus-visible {
+    background: $te-page-bg;
+    border-color: $te-border-light;
+    color: $te-text;
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba($te-primary, 0.4);
+    outline-offset: 1px;
+  }
+}
+
+.app-sidebar-tooltip {
+  position: fixed;
+  z-index: 1070;
+  transform: translateY(-50%);
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 0.45rem;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 0.78rem;
+  font-weight: 550;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.28);
+  animation: app-sidebar-tooltip-in 0.12s ease-out;
+
+  &::before {
+    content: "";
+    position: absolute;
+    left: -4px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    background: inherit;
+    border-radius: 1px;
+    transform: translateY(-50%) rotate(45deg);
+  }
+}
+
+@keyframes app-sidebar-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translate(-4px, -50%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(0, -50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-sidebar-tooltip {
+    animation: none;
+  }
+}
+
+.app-sidebar-close {
+  margin-left: auto;
+  cursor: w-resize;
+}
+
+.app-brand-toggle {
+  position: relative;
+  cursor: e-resize;
+
+  .app-brand-mark,
+  .app-brand-toggle-icon {
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+
+  .app-brand-toggle-icon {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    opacity: 0;
+    transform: scale(0.85);
+  }
+
+  &:hover,
+  &:focus-visible {
+    .app-brand-mark {
+      opacity: 0;
+      transform: scale(0.85);
+    }
+
+    .app-brand-toggle-icon {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
 }
 
 .app-brand-mark {
@@ -83,31 +245,55 @@
   height: 1.75rem;
   border-radius: 0.4rem;
   background: $te-primary;
+  color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   font-size: 0.75rem;
   font-weight: 700;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  letter-spacing: 0.02em;
 }
 
+// Only the menu scrolls (the brand stays put). The capsule scrollbar appears on hover; soft
+// top/bottom shadows show when there are more items above or below.
 .app-sidebar-nav {
-  padding: $te-space-2 0 $te-space-5;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: $te-space-1 0 $te-space-3;
+  @include te-hover-scrollbar;
+  background:
+    linear-gradient($te-surface 30%, rgba($te-surface, 0)) top / 100% 24px no-repeat local,
+    linear-gradient(rgba($te-surface, 0), $te-surface 70%) bottom / 100% 24px no-repeat local,
+    linear-gradient(rgba(15, 23, 42, 0.08), rgba(15, 23, 42, 0)) top / 100% 8px no-repeat scroll,
+    linear-gradient(rgba(15, 23, 42, 0), rgba(15, 23, 42, 0.08)) bottom / 100% 8px no-repeat scroll,
+    $te-surface;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    border-width: 2px;
+  }
 }
 
 .nav-section-label {
   font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.45);
-  padding: $te-space-4 $te-space-5 $te-space-1;
+  letter-spacing: 0.06em;
+  color: $te-muted;
+  padding: $te-space-3 $te-space-4 $te-space-1;
   font-weight: 600;
 }
 
 .nav-primary-block {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  margin-bottom: $te-space-2;
-  padding-bottom: $te-space-2;
+  border-bottom: 1px solid $te-border-light;
+  margin-bottom: $te-space-1;
+  padding-bottom: $te-space-1;
 }
 
 .nav-primary-block .nav-link {
@@ -121,53 +307,113 @@
   opacity: 0.95;
 }
 
+// Module-coloured icon on a soft tint of the same colour; the tint deepens on hover and the tile turns
+// solid (white glyph) for the active module.
 .nav-link-icon-tile {
-  width: 1.625rem;
-  height: 1.625rem;
-  border-radius: 0.35rem;
-  background: var(--nav-icon-accent, rgba(255, 255, 255, 0.15));
+  --nav-icon-accent-fallback: #{$te-text-secondary};
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  color: var(--nav-icon-accent, var(--nav-icon-accent-fallback));
+  background: rgba($te-text-secondary, 0.1);
+  background: color-mix(in srgb, currentColor 11%, transparent);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 
   .nav-link-icon {
-    width: 0.875rem;
-    height: 0.875rem;
-    color: #fff;
+    width: 1.125rem;
+    height: 1.125rem;
+    color: inherit;
     opacity: 1;
+    shape-rendering: geometricPrecision;
+    transition: transform 0.15s ease;
+  }
+}
+
+.app-sidebar .nav-link:hover .nav-link-icon-tile,
+.app-sidebar .nav-link:focus-visible .nav-link-icon-tile {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+
+  .nav-link-icon {
+    transform: scale(1.1);
+  }
+}
+
+.app-sidebar .nav-link.active .nav-link-icon-tile {
+  background: var(--nav-icon-accent, $te-primary);
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--nav-icon-accent, #{$te-primary}) 35%, transparent);
+
+  .nav-link-icon {
+    color: #fff;
+    transform: none;
+  }
+}
+
+.app-sidebar .nav-link:active .nav-link-icon-tile {
+  transform: scale(0.94);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-link-icon-tile,
+  .nav-link-icon-tile .nav-link-icon {
+    transition: none;
+  }
+
+  .app-sidebar .nav-link:hover .nav-link-icon-tile .nav-link-icon,
+  .app-sidebar .nav-link:active .nav-link-icon-tile {
+    transform: none;
   }
 }
 
 .app-sidebar .nav-link {
-  color: rgba(255, 255, 255, 0.78);
-  border-radius: 0.35rem;
+  color: $te-text-secondary;
+  border-radius: 0.5rem;
   margin: 1px $te-space-2;
-  padding: $te-space-2 $te-space-3;
-  font-size: 0.875rem;
+  padding: 3px $te-space-2;
+  font-size: 0.84rem;
   font-weight: 500;
+  letter-spacing: 0.005em;
   line-height: 1.25;
   border-left: none;
   display: flex;
   align-items: center;
-  gap: $te-space-3;
+  gap: 10px;
+  white-space: nowrap;
+  -webkit-font-smoothing: antialiased;
   transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+
+  > span:not(.nav-link-icon-tile):not(.nav-badge) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .app-sidebar .nav-link:hover {
-  background: $te-sidebar-hover;
-  color: #fff;
+  background: $te-surface-subtle;
+  color: $te-text;
 }
 
+.app-sidebar .nav-link:focus-visible {
+  outline: 2px solid rgba($te-primary, 0.4);
+  outline-offset: -2px;
+}
+
+// Same active treatment as tabs and filter chips. Bold via text-shadow so the label keeps its width.
 .app-sidebar .nav-link.active {
-  background: $te-sidebar-active;
-  color: #fff;
-  box-shadow: inset 3px 0 0 $te-primary;
+  background: $te-primary-light;
+  color: $te-primary-dark;
+  text-shadow: 0 0 0.35px currentColor;
 }
 
 .app-sidebar .nav-link.coming-soon {
-  opacity: 0.72;
+  opacity: 0.6;
 }
 
 .app-sidebar .nav-link .nav-badge {
@@ -175,31 +421,29 @@
   font-size: 0.62rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: rgba(255, 255, 255, 0.55);
+  color: $te-muted;
 }
 
 .module-search {
-  margin: $te-space-1 $te-space-3 $te-space-3;
+  margin: $te-space-1 $te-space-2 $te-space-2;
 }
 
 .module-search input {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #fff;
+  background: $te-surface;
+  border: 1px solid $te-border;
+  color: $te-text;
   font-size: 0.8125rem;
-  border-radius: 0.35rem;
-  padding: $te-space-2 $te-space-3;
+  border-radius: 0.4rem;
+  padding: 0.3125rem $te-space-3;
 }
 
 .module-search input::placeholder {
-  color: rgba(255, 255, 255, 0.45);
+  color: $te-muted;
 }
 
 .module-search input:focus {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.28);
-  color: #fff;
-  box-shadow: 0 0 0 2px rgba($te-primary, 0.25);
+  border-color: rgba($te-primary, 0.45);
+  box-shadow: 0 0 0 3px rgba($te-primary, 0.1);
 }
 
 .quick-create-menu {
@@ -209,23 +453,23 @@
 
 .app-main {
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   flex: 1;
   background: $te-page-bg;
-  min-height: 100vh;
 }
 
 .app-topbar {
   height: $te-topbar-height;
   min-height: $te-topbar-height;
+  flex-shrink: 0;
   background: $te-surface;
   border-bottom: 1px solid $te-border;
-  box-shadow: 0 1px 0 $te-border-light;
   display: flex;
   align-items: center;
   gap: $te-space-3;
-  padding: 0 $te-space-4;
-  position: sticky;
-  top: 0;
+  padding: 0 $te-space-3;
+  position: relative;
   z-index: 20;
   overflow: visible;
 }
@@ -395,16 +639,33 @@
   }
 }
 
-.app-topbar-scope {
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: $te-text-secondary;
-  padding: $te-space-1 $te-space-3;
-  border-radius: 999px;
-  background: $te-page-bg;
-  border: 1px solid $te-border-light;
+.app-topbar-page {
+  display: flex;
+  align-items: center;
+  gap: $te-space-2;
+  min-width: 0;
+
+  .nav-link-icon-tile {
+    background: var(--nav-icon-accent, $te-primary);
+    box-shadow: 0 2px 6px color-mix(in srgb, var(--nav-icon-accent, #{$te-primary}) 30%, transparent);
+
+    .nav-link-icon {
+      color: #fff;
+    }
+  }
+}
+
+.app-topbar-title {
+  margin: 0;
+  max-width: 16rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: $te-text;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .app-topbar-user {
@@ -568,16 +829,145 @@
 }
 
 .app-content {
-  padding: $te-space-4 $te-space-5 $te-space-6;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: $te-space-3 $te-space-4;
+  scrollbar-gutter: stable;
+
+  > * {
+    flex-shrink: 0;
+  }
 }
 
-@media (max-width: 1439.98px) {
-  .app-topbar {
-    padding: 0 $te-space-4;
+// Workspace pages (lists, create/edit forms, record views) fill the workspace edge to edge.
+.app-content:has(> .module-list-shell, > .techearnest-create-page, > .techearnest-record-page) {
+  padding: 0;
+}
+
+.app-content > .module-list-shell {
+  flex: 1 0 auto;
+}
+
+// On desktop each workspace page is a fixed-height frame: its header bars stay put and every region
+// (filter panel, records, form, related list, record body) scrolls on its own, like the sidebar.
+// Narrower screens stack these regions, so there the workspace scrolls as one page instead.
+@media (min-width: 992px) {
+  .app-content:has(> .module-list-shell, > .techearnest-create-page, > .techearnest-record-page) {
+    overflow: hidden;
+    scrollbar-gutter: auto;
   }
 
-  .app-content {
-    padding: $te-space-5;
+  .app-content > .module-list-shell,
+  .app-content > .techearnest-create-page,
+  .app-content > .techearnest-record-page {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .app-content > .module-list-shell {
+    > .module-list-toolbar,
+    > .module-list-footer {
+      flex-shrink: 0;
+    }
+
+    > .module-list-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      grid-template-rows: minmax(0, 1fr);
+
+      &.with-filter {
+        grid-template-columns: 240px minmax(0, 1fr);
+      }
+    }
+
+    .module-filter-panel {
+      position: static;
+      align-self: stretch;
+      max-height: none;
+      min-height: 0;
+    }
+
+    .module-filter-panel-body {
+      overflow-x: hidden;
+      padding-bottom: $te-space-4;
+      @include te-hover-scrollbar;
+    }
+
+    .module-list-canvas {
+      min-height: 0;
+      overflow-y: auto;
+      @include te-hover-scrollbar;
+    }
+
+    .module-list-canvas-inner {
+      padding-bottom: $te-space-2;
+    }
+
+    // The records table takes the remaining height and scrolls both ways inside it, keeping its
+    // column headers visible; page wrappers around the table are allowed to shrink so this works.
+    .module-list-canvas-inner > :has(.module-list-table-wrap) {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .module-list-table-wrap {
+      min-height: 0;
+      overflow: auto;
+      @include te-hover-scrollbar;
+    }
+  }
+
+  .app-content > .techearnest-create-page {
+    > .techearnest-create-topbar {
+      flex-shrink: 0;
+      position: static;
+    }
+
+    > .techearnest-create-form {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+    }
+  }
+
+  .app-content > .techearnest-record-page {
+    > .techearnest-record-return,
+    > .techearnest-record-topbar {
+      flex-shrink: 0;
+      position: static;
+    }
+
+    .techearnest-record-layout {
+      flex: 1 1 auto;
+      min-height: 0;
+      grid-template-rows: minmax(0, 1fr);
+    }
+
+    .techearnest-record-related-sidebar,
+    .techearnest-record-main {
+      min-height: 0;
+    }
+
+    .techearnest-record-related-sidebar {
+      overflow-x: hidden;
+      padding-bottom: $te-space-4;
+      @include te-hover-scrollbar;
+    }
+
+    .techearnest-record-tabs {
+      flex-shrink: 0;
+    }
+
+    .techearnest-record-body {
+      min-height: 0;
+      overflow-y: auto;
+    }
   }
 }
 
@@ -608,27 +998,20 @@
   }
 
   .app-content {
-    padding: $te-space-4;
+    padding: $te-space-3;
   }
 
   .global-search {
     min-width: 0;
   }
 
-  .module-list-toolbar-row--title,
-  .module-list-toolbar-row--actions {
-    padding-inline: $te-space-4;
-  }
+  .module-list-toolbar-row--single {
+    padding-inline: $te-space-3;
 
-  .module-list-toolbar-row--actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .module-list-toolbar-left,
-  .module-list-toolbar-right {
-    width: 100%;
-    justify-content: space-between;
+    > .module-list-toolbar-left {
+      padding-left: 0;
+      border-left: none;
+    }
   }
 }
 
@@ -745,8 +1128,14 @@
   overflow: clip;
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 7.5rem);
+  min-height: 100%;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.app-content > .module-list-shell {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .module-list-shell.has-active-filters .module-filter-panel {
@@ -771,14 +1160,12 @@
   width: 100%;
 }
 
-.module-list-toolbar-row--title {
-  padding: $te-space-4 $te-space-5 $te-space-2;
-}
-
-.module-list-toolbar-row--actions {
-  padding: $te-space-2 $te-space-5 $te-space-4;
-  border-top: 1px solid $te-border-light;
-  background: $te-surface-muted;
+// One bar: icon, title and view picker, then the list tools, with menu and create pushed right.
+.module-list-toolbar-row--single {
+  justify-content: flex-start;
+  gap: $te-space-2 $te-space-3;
+  padding: 6px $te-space-4;
+  min-height: 48px;
 }
 
 .module-list-toolbar-left,
@@ -790,47 +1177,53 @@
   min-width: 0;
 }
 
-.module-list-heading {
-  display: flex;
-  align-items: flex-start;
-  gap: $te-space-3;
-  min-width: 0;
-}
+.module-list-toolbar-row--single {
+  > .module-list-toolbar-left {
+    flex: 1 1 auto;
+  }
 
-.module-list-icon {
-  flex-shrink: 0;
-  margin-top: 2px;
-
-  .nav-link-icon-tile {
-    width: 2rem;
-    height: 2rem;
-    border-radius: 0.45rem;
+  > .module-list-toolbar-right {
+    margin-left: auto;
   }
 }
 
-.module-list-icon-svg {
-  width: 1rem;
-  height: 1rem;
-}
-
-.module-list-heading-text {
-  display: flex;
-  flex-direction: column;
-  gap: $te-space-2;
-  min-width: 0;
-}
-
-.module-list-title {
-  margin: 0;
-  font-size: 1.375rem;
-  font-weight: 650;
-  color: $te-text;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
-}
-
 .module-list-view {
+  position: relative;
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
+
+  .module-view-select {
+    height: 2rem;
+    max-width: 15rem;
+    padding: 0 2rem 0 1.9rem;
+    border: 1px solid $te-border;
+    border-radius: 0.4rem;
+    background-color: $te-surface;
+    color: $te-text;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover {
+      background-color: $te-page-bg;
+    }
+
+    &:focus {
+      border-color: rgba($te-primary, 0.45);
+      box-shadow: 0 0 0 3px rgba($te-primary, 0.1);
+    }
+  }
+}
+
+.module-list-view-icon {
+  position: absolute;
+  left: 0.65rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  color: $te-text-secondary;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .module-list-primary-action {
@@ -843,19 +1236,22 @@
   flex-shrink: 0;
 }
 
+// Filter, Sort, the List/Tile toggle and the Views control share one height, border and active treatment.
 .module-toolbar-btn,
 .module-filter-btn {
   display: inline-flex;
   align-items: center;
-  gap: $te-space-2;
+  gap: 0.375rem;
+  height: 2rem;
   font-weight: 600;
   border: 1px solid $te-border;
   background: $te-surface;
   color: $te-text-secondary;
   border-radius: 0.4rem;
-  padding: $te-space-2 $te-space-3;
+  padding: 0 0.7rem;
   font-size: 0.8125rem;
   line-height: 1;
+  white-space: nowrap;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 
   &:hover {
@@ -863,28 +1259,227 @@
     color: $te-text;
     border-color: $te-border;
   }
+
+  &:focus-visible {
+    outline: 2px solid rgba($te-primary, 0.4);
+    outline-offset: 1px;
+  }
 }
 
-.module-filter-btn {
+.module-filter-btn,
+.module-sort-btn {
   &.is-open {
     background: $te-primary-light;
     border-color: rgba($te-primary, 0.35);
     color: $te-primary-dark;
   }
+}
 
-  &.has-active-filters:not(.is-open) {
-    border-color: rgba($te-primary, 0.45);
+.module-filter-btn.has-active-filters:not(.is-open),
+.module-sort-btn.is-active:not(.is-open) {
+  border-color: rgba($te-primary, 0.45);
+  color: $te-primary-dark;
+}
+
+.module-sort-btn-dir {
+  width: 0.8rem;
+  height: 0.8rem;
+  stroke-width: 1.8;
+}
+
+.module-sort-panel {
+  position: fixed;
+  z-index: 1060;
+  width: 17rem;
+  display: flex;
+  flex-direction: column;
+  background: $te-surface;
+  border: 1px solid $te-border;
+  border-radius: 0.6rem;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.06);
+  padding: $te-space-3;
+  gap: $te-space-2;
+}
+
+.module-sort-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.module-sort-panel-title {
+  font-size: 0.875rem;
+  font-weight: 650;
+  color: $te-text;
+}
+
+.module-sort-reset {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: $te-primary;
+
+  &:hover {
     color: $te-primary-dark;
+    text-decoration: underline;
   }
 }
 
-.module-toolbar-sort {
-  width: auto;
-  min-width: 9rem;
-  border-color: $te-border;
+.module-sort-search {
+  position: relative;
+
+  .form-control {
+    padding-left: 1.85rem;
+    font-size: 0.8125rem;
+    border-color: $te-border;
+    border-radius: 0.4rem;
+
+    &:focus {
+      border-color: rgba($te-primary, 0.45);
+      box-shadow: 0 0 0 3px rgba($te-primary, 0.1);
+    }
+  }
+}
+
+.module-sort-search-icon {
+  position: absolute;
+  left: 0.6rem;
+  top: 50%;
+  width: 0.875rem;
+  height: 0.875rem;
+  transform: translateY(-50%);
+  color: $te-muted;
+  pointer-events: none;
+}
+
+.module-sort-options {
+  list-style: none;
+  margin: 0 (-$te-space-1);
+  padding: 0;
+  max-height: 15rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.module-sort-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $te-space-2;
+  border: none;
+  background: transparent;
+  padding: 0.4rem $te-space-2;
+  border-radius: 0.4rem;
+  font-size: 0.8125rem;
+  color: $te-text;
+  text-align: left;
+
+  &:hover,
+  &:focus-visible {
+    background: $te-surface-subtle;
+    outline: none;
+  }
+
+  &.is-selected {
+    background: $te-primary-light;
+    color: $te-primary-dark;
+    font-weight: 600;
+  }
+}
+
+.module-sort-check {
+  width: 0.875rem;
+  height: 0.875rem;
+  flex-shrink: 0;
+  stroke-width: 1.8;
+}
+
+.module-sort-empty {
+  padding: $te-space-2;
+  font-size: 0.8125rem;
+  color: $te-muted;
+}
+
+.module-sort-direction {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid $te-border;
+  border-radius: 0.4rem;
+  overflow: hidden;
+}
+
+.module-sort-direction-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  height: 2rem;
+  border: none;
   background: $te-surface;
   font-size: 0.8125rem;
-  border-radius: 0.4rem;
+  font-weight: 600;
+  color: $te-text-secondary;
+
+  & + & {
+    border-left: 1px solid $te-border;
+  }
+
+  &:hover:not(:disabled) {
+    background: $te-page-bg;
+    color: $te-text;
+  }
+
+  &.is-active:not(:disabled) {
+    background: $te-primary-light;
+    color: $te-primary-dark;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+  }
+}
+
+.module-list-sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: none;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  white-space: nowrap;
+
+  &:hover {
+    color: $te-text;
+  }
+
+  &.is-sorted {
+    color: $te-primary-dark;
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba($te-primary, 0.4);
+    outline-offset: 2px;
+    border-radius: 0.2rem;
+  }
+}
+
+.module-list-sort-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  stroke-width: 1.8;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+
+  .module-list-sort-header:hover &,
+  .module-list-sort-header:focus-visible &,
+  .module-list-sort-header.is-sorted & {
+    opacity: 1;
+  }
 }
 
 .module-toolbar-divider {
@@ -929,6 +1524,13 @@
   & + & {
     border-left: 1px solid $te-border;
   }
+}
+
+.module-view-toggle--labeled .module-view-toggle-btn {
+  width: auto;
+  padding: 0 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
 }
 
 .module-more-btn {
@@ -1043,6 +1645,13 @@
 
   &--end {
     right: 0;
+  }
+
+  &.is-floating {
+    position: fixed;
+    right: auto;
+    z-index: 1060;
+    overflow-y: auto;
   }
 
   &--start {
@@ -1206,25 +1815,6 @@
   }
 }
 
-.module-view-select {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  max-width: 16rem;
-  border: none;
-  background: $te-primary-light;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: $te-primary-dark;
-  padding: $te-space-1 $te-space-3;
-  border-radius: 999px;
-  box-shadow: none;
-
-  &:focus {
-    box-shadow: 0 0 0 2px rgba($te-primary, 0.2);
-  }
-}
-
 .module-search-field {
   min-width: 12rem;
   max-width: 18rem;
@@ -1294,24 +1884,21 @@
 }
 
 .module-list-body.with-filter {
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 240px minmax(0, 1fr);
 }
 
 .module-filter-panel {
   border-right: 1px solid $te-border;
-  background: $te-surface-muted;
+  background: $te-surface;
   position: sticky;
-  top: $te-topbar-height;
+  top: 0;
   align-self: start;
   max-height: calc(100vh - #{$te-topbar-height});
+  max-height: calc(100dvh - #{$te-topbar-height});
   display: flex;
   flex-direction: column;
   min-height: 0;
   z-index: 2;
-}
-
-.module-filter-panel.has-active-filters {
-  background: linear-gradient(90deg, rgba($te-primary, 0.04), $te-surface-muted 12%);
 }
 
 .module-filter-panel-header {
@@ -1329,14 +1916,26 @@
   display: inline-flex;
   align-items: center;
   gap: $te-space-2;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: $te-muted;
+  font-size: 0.875rem;
+  font-weight: 650;
+  color: $te-text;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.module-filter-panel > .module-filter-find {
+  margin: $te-space-2 $te-space-3 0;
+  flex-shrink: 0;
+}
+
+.module-filter-panel .is-find-hidden {
+  display: none !important;
+}
+
+// While searching, collapsed sections open so matching fields are visible.
+.module-filter-section.is-find-active.is-collapsed > :not(h3):not(.is-find-hidden) {
+  display: revert !important;
 }
 
 .module-filter-panel-count {
@@ -1402,7 +2001,7 @@
   > h3 {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 0.45rem;
     font-size: 0.8125rem;
     font-weight: 650;
     margin: 0 0 $te-space-2;
@@ -1411,14 +2010,19 @@
     user-select: none;
     border-radius: 0.25rem;
 
-    &::after {
+    &::before {
       content: "";
-      width: 0.45rem;
-      height: 0.45rem;
-      border-right: 1.5px solid $te-muted;
-      border-bottom: 1.5px solid $te-muted;
-      transform: rotate(45deg) translate(-2px, -2px);
+      flex-shrink: 0;
+      width: 0;
+      height: 0;
+      border-left: 4px solid transparent;
+      border-right: 4px solid transparent;
+      border-top: 5px solid $te-text-secondary;
       transition: transform 0.15s ease;
+    }
+
+    &:hover {
+      color: $te-primary-dark;
     }
 
     &:focus-visible {
@@ -1431,8 +2035,8 @@
     > h3 {
       margin-bottom: 0;
 
-      &::after {
-        transform: rotate(-45deg);
+      &::before {
+        transform: rotate(-90deg);
       }
     }
 
@@ -1499,7 +2103,7 @@
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  padding: $te-space-4;
+  padding: $te-space-3;
 }
 
 .module-create-form {
@@ -1520,20 +2124,18 @@
 }
 
 .techearnest-create-page {
-  flex: 1;
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
-  min-height: 0;
   background: #fff;
-  overflow: auto;
 }
 
 .techearnest-create-topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: $te-space-4;
-  padding: $te-space-3 $te-space-5;
+  gap: $te-space-3;
+  padding: $te-space-2 $te-space-4;
   border-bottom: 1px solid #e5e7eb;
   background: #fff;
   position: sticky;
@@ -1549,7 +2151,7 @@
 }
 
 .techearnest-create-title {
-  font-size: 1.125rem;
+  font-size: 1.05rem;
   font-weight: 600;
   margin: 0;
   color: #111827;
@@ -1589,17 +2191,16 @@
 }
 
 .techearnest-create-form {
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
 }
 
 .techearnest-create-layout {
-  padding: $te-space-4 $te-space-5 $te-space-5;
+  padding: $te-space-3 $te-space-4 $te-space-4;
 }
 
 .techearnest-create-fields {
   min-width: 0;
-  max-width: 56rem;
+  max-width: 76rem;
 }
 
 .techearnest-create-section--lead-image {
@@ -1671,7 +2272,7 @@
 }
 
 .techearnest-create-section {
-  margin-bottom: $te-space-5;
+  margin-bottom: $te-space-4;
 
   &:last-child {
     margin-bottom: 0;
@@ -1681,7 +2282,7 @@
 .techearnest-create-section-title {
   font-size: 0.9375rem;
   font-weight: 650;
-  margin: 0 0 $te-space-3;
+  margin: 0 0 $te-space-2;
   color: #111827;
 }
 
@@ -1708,13 +2309,13 @@
 .techearnest-create-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: $te-space-4 $te-space-6;
+  gap: $te-space-2 $te-space-5;
 }
 
 .techearnest-create-col {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: $te-space-2;
   min-width: 0;
 }
 
@@ -1747,15 +2348,15 @@
 
 .techearnest-field {
   display: grid;
-  grid-template-columns: 11rem minmax(0, 1fr);
+  grid-template-columns: 9.5rem minmax(0, 1fr);
   gap: $te-space-3;
   align-items: center;
   min-height: 2rem;
 }
 
 .techearnest-field--wide {
-  grid-template-columns: 11rem minmax(0, 1fr);
-  max-width: 42rem;
+  grid-template-columns: 9.5rem minmax(0, 1fr);
+  max-width: 48rem;
 }
 
 .techearnest-field-label {
@@ -2057,7 +2658,7 @@
   align-items: center;
   justify-content: space-between;
   gap: $te-space-3;
-  margin-bottom: $te-space-3;
+  margin-bottom: $te-space-2;
 }
 
 .techearnest-address-dual-grid {
@@ -2290,9 +2891,11 @@
   align-items: center;
   justify-content: space-between;
   gap: $te-space-3;
-  padding: $te-space-2 $te-space-3;
+  flex-shrink: 0;
+  padding: $te-space-1 $te-space-1 0;
   color: $te-text-secondary;
   font-size: 0.75rem;
+  line-height: 1;
 }
 
 .module-list-table-pagination-actions {
@@ -2301,8 +2904,10 @@
   gap: $te-space-2;
 
   .btn {
-    min-width: 2rem;
-    padding: 0.15rem $te-space-2;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0 $te-space-1;
+    line-height: 1;
   }
 }
 
@@ -2814,11 +3419,18 @@
   align-items: center;
   flex-wrap: wrap;
   gap: $te-space-3;
-  padding: $te-space-3 $te-space-5;
+  padding: 6px $te-space-4;
   border-top: 1px solid $te-border;
   background: $te-surface-muted;
   font-size: 0.8125rem;
   color: $te-text-secondary;
+}
+
+// Keep record count and paging visible at the bottom of the workspace on long lists.
+.app-content > .module-list-shell > .module-list-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 4;
 }
 
 .module-list-footer-left,
@@ -2981,13 +3593,8 @@
 }
 
 @media (max-width: 1279.98px) {
-  .module-list-toolbar,
-  .module-list-footer {
-    padding-inline: $te-space-4;
-  }
-
   .module-list-canvas-inner {
-    padding: $te-space-3;
+    padding: $te-space-2;
   }
 }
 
@@ -3009,9 +3616,8 @@
 .module-detail-drawer {
   border-left: 1px solid $te-border;
   background: $te-surface;
-  padding: 1rem;
+  padding: $te-space-3;
   overflow-y: auto;
-  max-height: calc(100vh - 14rem);
 }
 
 .record-shell-header {
@@ -3218,9 +3824,7 @@
 
     .app-brand {
       justify-content: center;
-      flex-wrap: wrap;
       padding-inline: $te-space-2;
-      gap: $te-space-2;
     }
 
     .app-brand-name,
@@ -3230,8 +3834,20 @@
       display: none;
     }
 
-    .app-sidebar-collapse {
-      margin-left: 0;
+    .nav-primary-block,
+    .app-sidebar-nav > div + div {
+      border-top: 1px solid $te-border-light;
+    }
+
+    .nav-link-icon-tile {
+      width: 2.125rem;
+      height: 2.125rem;
+      border-radius: 0.6rem;
+
+      .nav-link-icon {
+        width: 1.25rem;
+        height: 1.25rem;
+      }
     }
 
     .nav-link {
@@ -3243,16 +3859,16 @@
         display: none;
       }
     }
-
-    .nav-link.active {
-      box-shadow: inset 2px 0 0 $te-primary;
-    }
   }
 }
 
 @media (max-width: 991.98px) {
   .app-sidebar {
     position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    height: auto;
     z-index: 40;
     transform: translateX(-100%);
     transition: transform 0.2s ease;
@@ -3275,7 +3891,7 @@
 .techearnest-record-page {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 3.5rem);
+  flex: 1 0 auto;
   background: #f3f4f6;
 }
 
@@ -3283,11 +3899,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: $te-space-4;
-  padding: $te-space-3 $te-space-4;
+  gap: $te-space-3;
+  padding: $te-space-2 $te-space-4;
   background: #fff;
   border-bottom: 1px solid #e5e7eb;
   flex-wrap: wrap;
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
 .techearnest-record-topbar-left {
@@ -3314,8 +3933,9 @@
   align-items: center;
   gap: 0.25rem;
   max-width: 100%;
+  align-self: flex-start;
   padding: 0;
-  margin-bottom: $te-space-2;
+  margin: $te-space-1 $te-space-4;
   font-size: 0.8125rem;
   text-decoration: none;
 
@@ -3451,18 +4071,56 @@
   min-height: 0;
 }
 
+// Related list and filter panel share one side-panel look: white surface, a plain-case title, optional
+// search, and nav-style items (subtle hover, light-blue active) like the app sidebar.
 .techearnest-record-related-sidebar {
-  background: #fff;
-  border-right: 1px solid #e5e7eb;
-  padding: $te-space-4 $te-space-3;
+  background: $te-surface;
+  border-right: 1px solid $te-border;
+  padding: 0 $te-space-2 $te-space-3;
   overflow-y: auto;
 }
 
 .techearnest-record-related-sidebar-title {
-  font-size: 0.8125rem;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 (-$te-space-2) $te-space-2;
+  padding: $te-space-3 $te-space-3 $te-space-2;
+  background: $te-surface;
+  border-bottom: 1px solid $te-border-light;
+  font-size: 0.875rem;
   font-weight: 650;
-  color: #374151;
-  margin-bottom: $te-space-3;
+  color: $te-text;
+}
+
+.techearnest-record-related-search,
+.module-filter-find {
+  position: relative;
+  margin-bottom: $te-space-2;
+
+  .form-control {
+    padding-left: 1.85rem;
+    font-size: 0.8125rem;
+    border-color: $te-border;
+    border-radius: 0.4rem;
+
+    &:focus {
+      border-color: rgba($te-primary, 0.45);
+      box-shadow: 0 0 0 3px rgba($te-primary, 0.1);
+    }
+  }
+}
+
+.techearnest-record-related-search-icon,
+.module-filter-find-icon {
+  position: absolute;
+  left: 0.6rem;
+  top: 50%;
+  width: 0.875rem;
+  height: 0.875rem;
+  transform: translateY(-50%);
+  color: $te-muted;
+  pointer-events: none;
 }
 
 .techearnest-record-related-links {
@@ -3471,7 +4129,13 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 1px;
+}
+
+.techearnest-record-related-empty {
+  padding: $te-space-2;
+  font-size: 0.8125rem;
+  color: $te-muted;
 }
 
 .techearnest-record-related-link {
@@ -3479,16 +4143,28 @@
   border: none;
   background: transparent;
   text-align: left;
-  padding: $te-space-2 $te-space-2;
+  padding: 0.4rem $te-space-2;
   font-size: 0.8125rem;
-  color: #4b5563;
-  border-radius: 0.25rem;
+  font-weight: 500;
+  color: $te-text-secondary;
+  border-radius: 0.5rem;
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 
-  &:hover,
+  &:hover {
+    background: $te-surface-subtle;
+    color: $te-text;
+  }
+
   &.is-active {
-    background: #eef4ff;
-    color: #111827;
+    background: $te-primary-light;
+    color: $te-primary-dark;
+    text-shadow: 0 0 0.35px currentColor;
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba($te-primary, 0.4);
+    outline-offset: -2px;
   }
 }
 
@@ -3533,8 +4209,7 @@
 
 .techearnest-record-body {
   flex: 1;
-  overflow-y: auto;
-  padding: $te-space-4;
+  padding: $te-space-3 $te-space-4;
   background: #fff;
   border-top: 1px solid #e5e7eb;
 }

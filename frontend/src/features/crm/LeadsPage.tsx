@@ -85,6 +85,17 @@ type ConvertFormValues = z.infer<typeof convertSchema>;
 const LEAD_STATUSES = ["NEW", "CONTACTED", "QUALIFIED", "PROPOSAL", "NEGOTIATION"] as const;
 const LEAD_STATUS_FILTER_OPTIONS = enumPickerOptions([...LEAD_STATUSES, "CONVERTED"]);
 const PRIORITY_FILTER_OPTIONS = enumPickerOptions(["LOW", "MEDIUM", "HIGH"]);
+/** Fields the leads API can sort by (LeadController whitelist); leads are newest first otherwise. */
+const LEAD_SORT_FIELDS = [
+  { field: "companyName", label: "Company" },
+  { field: "createdAt", label: "Created Time" },
+  { field: "estimatedValue", label: "Estimated Value" },
+  { field: "expectedCloseDate", label: "Expected Close Date" },
+  { field: "priority", label: "Priority" },
+  { field: "source", label: "Source" },
+  { field: "status", label: "Status" },
+];
+const DEFAULT_LEAD_SORT = { field: "createdAt", dir: "DESC" };
 
 export function LeadsPage() {
   const queryClient = useQueryClient();
@@ -1125,25 +1136,16 @@ export function LeadsPage() {
             ))}
           </select>
         }
-        toolbarActions={
-          <select
-            className="form-select form-select-sm module-toolbar-sort"
-            value={`${sortBy}:${sortDir}`}
-            onChange={(event) => {
-              const [field, dir] = event.target.value.split(":");
-              setSortBy(field);
-              setSortDir(dir);
-            }}
-            aria-label="Sort leads"
-          >
-            <option value="createdAt:DESC">Sort: Newest</option>
-            <option value="createdAt:ASC">Sort: Oldest</option>
-            <option value="companyName:ASC">Sort: Company</option>
-            <option value="estimatedValue:DESC">Sort: Value</option>
-            <option value="status:ASC">Sort: Status</option>
-          </select>
-        }
-        showSortButton={false}
+        sort={{
+          fields: LEAD_SORT_FIELDS,
+          value: sortBy === DEFAULT_LEAD_SORT.field && sortDir === DEFAULT_LEAD_SORT.dir
+            ? null
+            : { field: sortBy, direction: sortDir === "ASC" ? "asc" : "desc" },
+          onChange: (value) => {
+            setSortBy(value?.field ?? DEFAULT_LEAD_SORT.field);
+            setSortDir(value ? (value.direction === "asc" ? "ASC" : "DESC") : DEFAULT_LEAD_SORT.dir);
+          },
+        }}
         filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
         activeFilterCount={activeFilterCount}
         createMenuItems={createMenuItems}

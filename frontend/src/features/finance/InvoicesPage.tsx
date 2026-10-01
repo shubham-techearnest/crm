@@ -782,19 +782,11 @@ export function InvoicesPage() {
       viewMode={viewMode}
       onViewModeChange={setViewMode}
       viewSelector={<span className="module-view-select">All Invoices</span>}
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       toolbarActions={
-        <>
-          <button type="button" className="btn btn-sm btn-outline-secondary me-1" onClick={() => void downloadCsv()}>
-            Export CSV
-          </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${filterOpen ? "btn-primary" : "btn-outline-secondary"}`}
-            onClick={() => setFilterOpen((o) => !o)}
-          >
-            Filter{activeFilterCount ? ` (${activeFilterCount})` : ""}
-          </button>
-        </>
+        <button type="button" className="btn btn-sm btn-outline-secondary" onClick={() => void downloadCsv()}>
+          Export CSV
+        </button>
       }
       primaryAction={
         canCreate ? (

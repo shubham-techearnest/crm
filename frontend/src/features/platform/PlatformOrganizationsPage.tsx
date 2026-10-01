@@ -31,15 +31,7 @@ export function PlatformOrganizationsPage() {
     <ModuleListShell
       title="Organizations"
       filterOpen={filterOpen}
-      toolbarActions={
-        <button
-          type="button"
-          className="btn btn-outline-secondary btn-sm"
-          onClick={() => setFilterOpen((v) => !v)}
-        >
-          {filterOpen ? "Hide filters" : "Filters"}
-        </button>
-      }
+      filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       primaryAction={
         <Link to="/platform/organizations/new" className="btn btn-primary btn-sm">
           Create organization

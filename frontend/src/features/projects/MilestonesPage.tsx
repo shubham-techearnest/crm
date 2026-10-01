@@ -34,6 +34,7 @@ import {
   updateMilestone,
   type Milestone,
 } from "./projectApi";
+import { enumOptions } from "@/components/BulkActions/useBulkOptions";
 
 const MILESTONE_STATUSES = ["PLANNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"] as const;
 
@@ -364,6 +365,31 @@ export function MilestonesPage() {
               ]}
               rows={rows}
               rowKey={(milestone) => milestone.id}
+              bulk={{
+                noun: "milestones",
+                exportFileName: "milestones",
+                onComplete: () => {
+                  void queryClient.invalidateQueries({ queryKey: ["milestones"] });
+                  void queryClient.invalidateQueries({ queryKey: ["projects"] });
+                },
+                actions: [
+                  {
+                    id: "change-status",
+                    label: "Change status",
+                    visible: canManage,
+                    doneLabel: "updated",
+                    input: { kind: "select", label: "New status", options: enumOptions(MILESTONE_STATUSES) },
+                    run: (milestone, status) =>
+                      updateMilestone(milestone.id, {
+                        name: milestone.name,
+                        description: milestone.description ?? undefined,
+                        dueDate: milestone.dueDate,
+                        sortOrder: milestone.sortOrder,
+                        status,
+                      }),
+                  },
+                ],
+              }}
               selectedRowKey={selected?.id}
               onRowClick={(milestone) => {
                 setSelected(milestone);

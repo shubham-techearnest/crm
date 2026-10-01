@@ -18,6 +18,7 @@ import {
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleFilterDateRange, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { deleteRecord, postRecordAction, statusIn } from "@/components/BulkActions/bulkActions";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import { useRecordNavigation } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -80,6 +81,7 @@ export function ExpensesPage() {
   const canCreate = useHasPermission("EXPENSE_CREATE");
   const canUpdate = useHasPermission("EXPENSE_UPDATE");
   const canApprove = useHasPermission("EXPENSE_APPROVE");
+  const canDelete = useHasPermission("EXPENSE_DELETE");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
   const [statusFilter, setStatusFilter] = useState("");
@@ -329,6 +331,7 @@ export function ExpensesPage() {
         <TechEarnestFormKitCreateView
           title={editingExpenseId ? "Edit Expense" : "Create Expense"}
           tableCode="expense"
+          recordId={editingExpenseId}
           entityLabel="Expense"
           pending={isSubmitting || createMutation.isPending || updateMutation.isPending}
           isDirty={isDirty}
@@ -438,6 +441,7 @@ export function ExpensesPage() {
             meta={selected.billable ? "Billable" : undefined}
             status={<StatusBadge status={selected.status} />}
             recordKey={selected.id}
+            customFieldsTable="expense"
             onBack={recordNav.goBack}
             onPrev={recordNav.goPrev}
             onNext={recordNav.goNext}
@@ -614,6 +618,54 @@ export function ExpensesPage() {
           ]}
           rows={rows}
           rowKey={(expense) => expense.id}
+          bulk={{
+            noun: "expenses",
+            exportFileName: "expenses",
+            rowLabel: (expense) => expense.description || expense.category,
+            onComplete: () => {
+              void queryClient.invalidateQueries({ queryKey: ["expenses"] });
+              void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+            },
+            actions: [
+              {
+                id: "submit",
+                label: "Submit",
+                visible: canCreate,
+                doneLabel: "submitted",
+                applies: statusIn("DRAFT", "REJECTED"),
+                run: (expense) => postRecordAction(`/expenses/${expense.id}/submit`),
+              },
+              {
+                id: "approve",
+                label: "Approve",
+                tone: "success",
+                visible: canApprove,
+                doneLabel: "approved",
+                applies: statusIn("SUBMITTED"),
+                run: (expense) => postRecordAction(`/expenses/${expense.id}/approve`),
+              },
+              {
+                id: "reject",
+                label: "Reject",
+                tone: "danger",
+                visible: canApprove,
+                doneLabel: "rejected",
+                applies: statusIn("SUBMITTED"),
+                input: { kind: "text", label: "Rejection reason", multiline: true },
+                run: (expense, reason) => postRecordAction(`/expenses/${expense.id}/reject`, { reason }),
+              },
+              {
+                id: "delete",
+                label: "Delete",
+                tone: "danger",
+                visible: canDelete,
+                doneLabel: "deleted",
+                applies: statusIn("DRAFT", "REJECTED"),
+                confirm: "Only draft or rejected expenses can be deleted.",
+                run: (expense) => deleteRecord(`/expenses/${expense.id}`),
+              },
+            ],
+          }}
           selectedRowKey={selectedId}
           onRowClick={(expense) => {
             setSelectedId(expense.id);

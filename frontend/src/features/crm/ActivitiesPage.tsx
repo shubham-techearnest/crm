@@ -25,6 +25,8 @@ import {
   ModuleListShell,
 } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { deleteRecord, postRecordAction, postServerBulk } from "@/components/BulkActions/bulkActions";
+import { useActiveUserOptions } from "@/components/BulkActions/useBulkOptions";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
@@ -95,6 +97,8 @@ export function ActivitiesPage() {
   const canCreate = useHasPermission("ACTIVITY_CREATE");
   const canUpdate = useHasPermission("ACTIVITY_UPDATE");
   const canComplete = useHasPermission("ACTIVITY_COMPLETE");
+  const canDelete = useHasPermission("ACTIVITY_DELETE");
+  const bulkOwnerOptions = useActiveUserOptions(canUpdate);
   const canViewUsers = useHasPermission("USER_VIEW");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
@@ -536,6 +540,39 @@ export function ActivitiesPage() {
             defaultColumns={ACTIVITY_LIST_COLUMNS}
             rows={rows}
             rowKey={(activity) => activity.id}
+            bulk={{
+              noun: "activities",
+              exportFileName: "activities",
+              onComplete: () => void queryClient.invalidateQueries({ queryKey: ["crm", "activities"] }),
+              actions: [
+                {
+                  id: "complete",
+                  label: "Mark complete",
+                  tone: "success",
+                  visible: canComplete,
+                  doneLabel: "completed",
+                  applies: (activity) => activity.status !== "COMPLETED" && activity.status !== "CANCELLED",
+                  run: (activity) => postRecordAction(`/activities/${activity.id}/complete`),
+                },
+                {
+                  id: "assign-owner",
+                  label: "Reassign",
+                  visible: canUpdate,
+                  doneLabel: "reassigned",
+                  input: { kind: "select", label: "Assign to", options: bulkOwnerOptions },
+                  runBatch: (ids, ownerId) => postServerBulk("/activities/bulk-assign", { ids, ownerId }),
+                },
+                {
+                  id: "delete",
+                  label: "Delete",
+                  tone: "danger",
+                  visible: canDelete,
+                  doneLabel: "deleted",
+                  confirm: "Deleted activities disappear from timelines and calendars.",
+                  run: (activity) => deleteRecord(`/activities/${activity.id}`),
+                },
+              ],
+            }}
             selectedRowKey={selectedId}
             onRowClick={(activity) => setSelectedId(activity.id)}
             renderCell={(activity, field) => {

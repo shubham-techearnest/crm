@@ -319,7 +319,7 @@ public class ApprovalService {
             if (resource == null) {
                 return false;
             }
-            return isManagerStepVisible(request, user, resource);
+            return timesheetService.canReviewTimesheet(timesheet, resource, user);
         }
         if (TARGET_EXPENSE.equals(request.getTargetType())) {
             if (!user.hasPermission("EXPENSE_APPROVE") && !user.hasPermission("APPROVAL_ACT")) {

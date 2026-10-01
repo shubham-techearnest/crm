@@ -18,7 +18,7 @@ export interface Project {
   id: string;
   organizationId: string;
   regionId: string;
-  accountId: string;
+  accountId: string | null;
   dealId: string | null;
   projectManagerId: string | null;
   name: string;
@@ -35,6 +35,9 @@ export interface Project {
   hourlyRate?: number | null;
   monthlyFee?: number | null;
   contractValue?: number | null;
+  projectType?: string | null;
+  contractReference?: string | null;
+  contractSignedDate?: string | null;
   progressPercent: number | null;
   health?: string | null;
   version: number;
@@ -45,11 +48,11 @@ export interface Project {
 export interface CreateProjectBody {
   organizationId?: string;
   regionId: string;
-  accountId: string;
+  accountId?: string | null;
   dealId?: string | null;
   projectManagerId?: string | null;
   name: string;
-  projectCode: string;
+  projectCode?: string;
   description?: string;
   status?: string;
   priority?: string;
@@ -61,6 +64,44 @@ export interface CreateProjectBody {
   hourlyRate?: number | null;
   monthlyFee?: number | null;
   contractValue?: number | null;
+  projectType?: string;
+  contractReference?: string | null;
+  contractSignedDate?: string | null;
+}
+
+export const PROJECT_TYPE_META: Record<string, { label: string; description: string }> = {
+  IN_HOUSE: { label: "In-house", description: "Internal project — no customer account and no invoicing." },
+  B2B: { label: "B2B", description: "Delivered for a customer account." },
+  CONTRACT: { label: "Contract basis", description: "Governed by a signed contract with a customer." },
+};
+
+export const PROJECT_TYPES = Object.keys(PROJECT_TYPE_META);
+
+/** Must match Project.allowedBillingTypes on the backend. */
+export const BILLING_TYPES_BY_PROJECT_TYPE: Record<string, string[]> = {
+  IN_HOUSE: ["NON_BILLABLE"],
+  B2B: ["STAFF_AUGMENTATION", "TIME_AND_MATERIAL", "FIXED_MONTHLY", "FIXED_BID"],
+  CONTRACT: ["FIXED_BID", "FIXED_MONTHLY", "TIME_AND_MATERIAL"],
+};
+
+export async function suggestProjectCode(params: {
+  accountId?: string | null;
+  projectType?: string;
+  name?: string;
+}): Promise<string> {
+  const { data } = await api.get<ApiResponse<string>>("/projects/code-suggestion", {
+    params: {
+      accountId: params.accountId || undefined,
+      projectType: params.projectType || undefined,
+      name: params.name || undefined,
+    },
+  });
+  return unwrap(data, "Unable to suggest a project code");
+}
+
+export function projectTypeLabel(type: string | null | undefined): string {
+  if (!type) return "—";
+  return PROJECT_TYPE_META[type]?.label ?? type;
 }
 
 export const BILLING_TYPE_META: Record<string, { label: string; description: string }> = {
@@ -79,6 +120,10 @@ export const BILLING_TYPE_META: Record<string, { label: string; description: str
   FIXED_BID: {
     label: "Fixed bid",
     description: "Agreed contract value, invoiced in instalments or milestones.",
+  },
+  NON_BILLABLE: {
+    label: "Non-billable",
+    description: "Internal effort only; hours are tracked but never invoiced.",
   },
 };
 
@@ -125,7 +170,7 @@ export async function generateProjectInvoice(projectId: string, body: ProjectInv
 
 export interface UpdateProjectBody {
   regionId?: string;
-  accountId?: string;
+  accountId?: string | null;
   projectManagerId?: string | null;
   name?: string;
   description?: string;
@@ -139,6 +184,9 @@ export interface UpdateProjectBody {
   hourlyRate?: number | null;
   monthlyFee?: number | null;
   contractValue?: number | null;
+  projectType?: string;
+  contractReference?: string | null;
+  contractSignedDate?: string | null;
 }
 
 export interface CreateProjectFromDealBody {

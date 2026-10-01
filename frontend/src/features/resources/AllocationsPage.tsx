@@ -32,6 +32,7 @@ import { listProjects } from "@/features/projects/projectApi";
 import {
   createAllocation,
   deleteAllocation,
+  endAllocation,
   getAllocation,
   listAllocations,
   listResources,
@@ -110,6 +111,10 @@ export function AllocationsPage() {
   const [editingAllocation, setEditingAllocation] = useState<Allocation | null>(null);
   const [allocationToDelete, setAllocationToDelete] = useState<Allocation | null>(null);
   const [pendingUpdate, setPendingUpdate] = useState<{ id: string; body: UpdateAllocationBody } | null>(null);
+  const [allocationToEnd, setAllocationToEnd] = useState<Allocation | null>(null);
+  const [endDate, setEndDate] = useState("");
+  const [endReason, setEndReason] = useState("");
+  const [endError, setEndError] = useState<string | null>(null);
 
   const listParams = useMemo(
     () => ({
@@ -135,6 +140,26 @@ export function AllocationsPage() {
     },
     onError: (error) => setDeleteError(errorMessage(error, "Could not delete allocation.")),
   });
+  const endMutation = useMutation({
+    mutationFn: ({ id, body }: { id: string; body: { endDate?: string; reason?: string } }) => endAllocation(id, body),
+    onSuccess: async () => {
+      setEndError(null);
+      setAllocationToEnd(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["allocations"] }),
+        queryClient.invalidateQueries({ queryKey: ["resources"] }),
+        queryClient.invalidateQueries({ queryKey: ["resource-board"] }),
+      ]);
+    },
+    onError: (error) => setEndError(errorMessage(error, "Could not end allocation.")),
+  });
+  const openEnd = (allocation: Allocation) => {
+    setEndError(null);
+    setEndReason("");
+    setEndDate(new Date().toISOString().slice(0, 10));
+    setAllocationToEnd(allocation);
+  };
+  const canEnd = (allocation: Allocation) => allocation.status === "ACTIVE" || allocation.status === "PLANNED";
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => listProjects() });
   const resourcesQuery = useQuery({ queryKey: ["resources"], queryFn: () => listResources() });
   const [selectedId, setSelectedId] = useUrlRecordId();
@@ -391,6 +416,7 @@ export function AllocationsPage() {
         <TechEarnestFormKitCreateView
           title={editingAllocation ? "Edit Allocation" : "Create Allocation"}
           tableCode="allocation"
+          recordId={editingAllocation?.id}
           entityLabel="Allocation"
           pending={isSubmitting || createMutation.isPending || updateMutation.isPending}
           isDirty={isDirty}
@@ -586,11 +612,19 @@ export function AllocationsPage() {
                 {selected.allocatedHours != null ? <span>{selected.allocatedHours} h</span> : null}
               </div>
               {selected.warning ? <div className="small text-warning mt-1">{selected.warning}</div> : null}
+              {selected.warnings?.map((warning) => (
+                <div key={warning} className="small text-warning mt-1">{warning}</div>
+              ))}
             </div>
             <div className="d-flex gap-2">
               {canAllocate ? (
                 <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => openEdit(selected)}>
                   Edit
+                </button>
+              ) : null}
+              {canAllocate && canEnd(selected) ? (
+                <button type="button" className="btn btn-outline-warning btn-sm" onClick={() => openEnd(selected)}>
+                  End
                 </button>
               ) : null}
               <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setSelectedId(null)}>
@@ -621,6 +655,38 @@ export function AllocationsPage() {
               ]}
               rows={rows}
               rowKey={(allocation) => allocation.id}
+              bulk={{
+                noun: "allocations",
+                exportFileName: "allocations",
+                rowLabel: (allocation) => projectName(allocation.projectId),
+                onComplete: () => {
+                  void queryClient.invalidateQueries({ queryKey: ["allocations"] });
+                  void queryClient.invalidateQueries({ queryKey: ["resources"] });
+                  void queryClient.invalidateQueries({ queryKey: ["resource-board"] });
+                },
+                actions: [
+                  {
+                    id: "end",
+                    label: "End",
+                    tone: "warning",
+                    visible: canAllocate,
+                    doneLabel: "ended",
+                    applies: canEnd,
+                    confirm: "Planned allocations that have not started are cancelled instead of ended.",
+                    input: { kind: "date", label: "End date", defaultToday: true },
+                    run: (allocation, endDate) => endAllocation(allocation.id, { endDate }),
+                  },
+                  {
+                    id: "delete",
+                    label: "Delete",
+                    tone: "danger",
+                    visible: canAllocate,
+                    doneLabel: "deleted",
+                    confirm: "Deleting removes the allocation history. Prefer End for people who worked on the project.",
+                    run: (allocation) => deleteAllocation(allocation.id),
+                  },
+                ],
+              }}
               selectedRowKey={selectedId}
               onRowClick={(allocation) => setSelectedId(allocation.id)}
               renderCell={(allocation, field) => {
@@ -653,6 +719,9 @@ export function AllocationsPage() {
                 render: (allocation) => (
                   <div className="d-flex justify-content-end gap-2">
                     <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => openEdit(allocation)}>Edit</button>
+                    {canEnd(allocation) ? (
+                      <button type="button" className="btn btn-outline-warning btn-sm" onClick={() => openEnd(allocation)}>End</button>
+                    ) : null}
                     <button type="button" className="btn btn-outline-danger btn-sm" disabled={deleteMutation.isPending} onClick={() => confirmDelete(allocation)}>Delete</button>
                   </div>
                 ),
@@ -677,6 +746,9 @@ export function AllocationsPage() {
                   {canAllocate ? (
                     <div className="d-flex gap-2 mt-3">
                       <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => openEdit(allocation)}>Edit</button>
+                      {canEnd(allocation) ? (
+                        <button type="button" className="btn btn-outline-warning btn-sm" onClick={() => openEnd(allocation)}>End</button>
+                      ) : null}
                       <button type="button" className="btn btn-outline-danger btn-sm" onClick={() => confirmDelete(allocation)}>Delete</button>
                     </div>
                   ) : null}
@@ -697,6 +769,7 @@ export function AllocationsPage() {
               <button type="button" className="btn-close" aria-label="Close" disabled={deleteMutation.isPending} onClick={() => setAllocationToDelete(null)} />
             </header>
             <p>Remove the allocation for <strong>{resourceLabel(allocationToDelete.resourceId)}</strong> from <strong>{projectName(allocationToDelete.projectId)}</strong>?</p>
+            <p className="small text-muted">Allocations with logged time can't be deleted — end them instead so the history is kept.</p>
             {deleteError ? <div className="alert alert-danger py-2" role="alert">{deleteError}</div> : null}
             <footer className="d-flex justify-content-end gap-2">
               <button type="button" className="btn btn-outline-secondary btn-sm" disabled={deleteMutation.isPending} onClick={() => setAllocationToDelete(null)}>Cancel</button>
@@ -704,6 +777,58 @@ export function AllocationsPage() {
                 {deleteMutation.isPending ? "Deleting…" : "Delete allocation"}
               </button>
             </footer>
+          </section>
+        </div>
+      ) : null}
+      {allocationToEnd ? (
+        <div className="module-modal-backdrop" role="presentation" onClick={() => endMutation.isPending ? null : setAllocationToEnd(null)}>
+          <section className="module-modal" role="dialog" aria-modal="true" aria-labelledby="end-allocation-title" onClick={(event) => event.stopPropagation()}>
+            <header className="module-modal-header">
+              <h2 id="end-allocation-title" className="h5 mb-0">End allocation</h2>
+              <button type="button" className="btn-close" aria-label="Close" disabled={endMutation.isPending} onClick={() => setAllocationToEnd(null)} />
+            </header>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                endMutation.mutate({ id: allocationToEnd.id, body: { endDate: endDate || undefined, reason: endReason.trim() || undefined } });
+              }}
+            >
+              <div className="module-modal-body">
+                <p className="mb-3">
+                  Roll <strong>{resourceLabel(allocationToEnd.resourceId)}</strong> off <strong>{projectName(allocationToEnd.projectId)}</strong>.
+                  The allocation is kept in history as completed.
+                </p>
+                <div className="mb-3">
+                  <label className="form-label" htmlFor="end-allocation-date">Last working day</label>
+                  <input
+                    id="end-allocation-date"
+                    type="date"
+                    className="form-control"
+                    value={endDate}
+                    min={allocationToEnd.startDate}
+                    max={allocationToEnd.endDate}
+                    onChange={(event) => setEndDate(event.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="form-label" htmlFor="end-allocation-reason">Reason (optional)</label>
+                  <input
+                    id="end-allocation-reason"
+                    className="form-control"
+                    maxLength={500}
+                    value={endReason}
+                    onChange={(event) => setEndReason(event.target.value)}
+                  />
+                </div>
+                {endError ? <div className="alert alert-danger py-2 mt-3 mb-0" role="alert">{endError}</div> : null}
+              </div>
+              <footer className="module-modal-footer">
+                <button type="button" className="btn btn-outline-secondary btn-sm" disabled={endMutation.isPending} onClick={() => setAllocationToEnd(null)}>Cancel</button>
+                <button type="submit" className="btn btn-warning btn-sm" disabled={endMutation.isPending}>
+                  {endMutation.isPending ? "Ending…" : "End allocation"}
+                </button>
+              </footer>
+            </form>
           </section>
         </div>
       ) : null}

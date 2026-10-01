@@ -38,6 +38,7 @@ export interface SysField {
   mandatory: boolean;
   defaultValue: string | null;
   referenceTableCode: string | null;
+  options: string[] | null;
   active: boolean;
   filterable: boolean;
   system: boolean;
@@ -79,6 +80,7 @@ export async function createSysField(
     mandatory?: boolean;
     defaultValue?: string;
     referenceTableCode?: string;
+    options?: string[];
     filterable?: boolean;
     sortOrder?: number;
   },
@@ -96,6 +98,7 @@ export async function updateSysField(
     mandatory?: boolean;
     defaultValue?: string;
     referenceTableCode?: string;
+    options?: string[];
     active?: boolean;
     filterable?: boolean;
     sortOrder?: number;

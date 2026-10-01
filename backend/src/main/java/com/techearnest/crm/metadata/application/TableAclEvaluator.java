@@ -91,16 +91,29 @@ public class TableAclEvaluator {
     }
 
     public boolean isAllowed(CurrentUser user, String tableCode, CrudOp op) {
+        return evaluate(user, tableCode, op, false);
+    }
+
+    /**
+     * Like {@link #isAllowed} but tables without legacy permissions or explicit ACL rows stay open,
+     * because their module endpoints already enforce their own permissions.
+     */
+    public boolean isAllowedWhenConfigured(CurrentUser user, String tableCode, CrudOp op) {
+        return evaluate(user, tableCode, op, true);
+    }
+
+    private boolean evaluate(CurrentUser user, String tableCode, CrudOp op, boolean openWhenUnconfigured) {
         String code = tableCode.trim().toLowerCase(Locale.ROOT);
+        boolean fallbackOpen = openWhenUnconfigured && !LEGACY.containsKey(code);
         Optional<SysTable> table = tableRepository.findByCodePreferringOrg(user.organizationId(), code).stream()
                 .filter(t -> t.getOrganizationId() == null)
                 .findFirst();
         if (table.isEmpty()) {
-            return legacyAllowed(user, code, op);
+            return fallbackOpen || legacyAllowed(user, code, op);
         }
         Set<UUID> roleIds = loadRoleIds(user.userId());
         if (roleIds.isEmpty()) {
-            return legacyAllowed(user, code, op);
+            return fallbackOpen || legacyAllowed(user, code, op);
         }
         List<SysTableAcl> acls = roleIds.stream()
                 .map(roleId ->
@@ -109,7 +122,7 @@ public class TableAclEvaluator {
                 .flatMap(Optional::stream)
                 .toList();
         if (acls.isEmpty()) {
-            return legacyAllowed(user, code, op);
+            return fallbackOpen || legacyAllowed(user, code, op);
         }
         return switch (op) {
             case CREATE -> acls.stream().anyMatch(SysTableAcl::isCanCreate);

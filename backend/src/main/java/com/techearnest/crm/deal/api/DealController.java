@@ -94,6 +94,12 @@ public class DealController {
         return ApiResponse.ok(null, "Deal deleted successfully");
     }
 
+    @PostMapping("/bulk-assign")
+    public ApiResponse<com.techearnest.crm.common.bulk.BulkDtos.BulkResult> bulkAssign(
+            @Valid @RequestBody com.techearnest.crm.common.bulk.BulkDtos.BulkAssignOwnerRequest request) {
+        return ApiResponse.ok(dealService.bulkAssign(request), "Bulk assign completed");
+    }
+
     @PostMapping("/{id}/stage")
     public ApiResponse<DealResponse> changeStage(
             @PathVariable UUID id, @Valid @RequestBody StageChangeRequest request) {

@@ -16,6 +16,8 @@ import {
   ModuleMenuDropdown,
 } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { postServerBulk } from "@/components/BulkActions/bulkActions";
+import { enumOptions, useActiveUserOptions } from "@/components/BulkActions/useBulkOptions";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import type { ModuleMenuItem } from "@/components/ModuleListShell/ModuleListShell";
 import { buildOwnerOptions, buildFilterOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilterSelect, TechEarnestFormSelect } from "@/components/TechEarnestCreate";
@@ -41,8 +43,6 @@ import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi
 import { getPublishedListLayout, getUserListPref, type ListLayoutColumn } from "@/features/admin/studio/metadataApi";
 import {
   assignLead,
-  bulkAssignLeads,
-  bulkStatusLeads,
   convertLead,
   deleteLead,
   exportLeads,
@@ -95,6 +95,7 @@ export function LeadsPage() {
   const canAssign = useHasPermission("LEAD_ASSIGN");
   const canUpdate = useHasPermission("LEAD_UPDATE");
   const canDelete = useHasPermission("LEAD_DELETE");
+  const bulkOwnerOptions = useActiveUserOptions(canAssign);
   const canExport = useHasPermission("LEAD_EXPORT");
   const canImport = useHasPermission("LEAD_IMPORT");
   const canViewUsers = useHasPermission("USER_VIEW");
@@ -204,11 +205,7 @@ export function LeadsPage() {
   const [filterOpen, setFilterOpen] = useState(true);
   const [viewMode, setViewMode] = useState<"list" | "tile">("list");
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
-  const [bulkOwnerId, setBulkOwnerId] = useState("");
-  const [bulkStatus, setBulkStatus] = useState("");
   const [bulkMessage, setBulkMessage] = useState<string | null>(null);
-  const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
-  const [showBulkStatusDialog, setShowBulkStatusDialog] = useState(false);
   const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -309,30 +306,6 @@ export function LeadsPage() {
       queryClient.invalidateQueries({ queryKey: ["crm", "deals"] }),
     ]);
   };
-
-  const bulkAssignMutation = useMutation({
-    mutationFn: () => bulkAssignLeads(checkedIds, bulkOwnerId),
-    onSuccess: async (result) => {
-      await refresh();
-      setBulkMessage(`Assigned ${result.succeeded}; failed ${result.failed}.`);
-      setCheckedIds([]);
-      setShowBulkAssignDialog(false);
-      setBulkOwnerId("");
-    },
-    onError: () => setBulkMessage("Bulk assign failed."),
-  });
-
-  const bulkStatusMutation = useMutation({
-    mutationFn: () => bulkStatusLeads(checkedIds, bulkStatus),
-    onSuccess: async (result) => {
-      await refresh();
-      setBulkMessage(`Updated status for ${result.succeeded}; failed ${result.failed}.`);
-      setCheckedIds([]);
-      setShowBulkStatusDialog(false);
-      setBulkStatus("");
-    },
-    onError: () => setBulkMessage("Bulk status update failed."),
-  });
 
   async function handleLeadCreated(lead: Lead, mode: "save" | "saveAndNew") {
     await refresh();
@@ -603,9 +576,6 @@ export function LeadsPage() {
     search,
   ].filter(Boolean).length;
 
-  const selectionHint =
-    checkedIds.length > 0 ? `${checkedIds.length} selected` : "Select rows in the list first";
-
   const ownerOptions = useMemo(
     () =>
       buildOwnerOptions(usersQuery.data, {
@@ -675,23 +645,6 @@ export function LeadsPage() {
       onClick: () => exportMutation.mutate(visibleColumns.map((column) => column.field)),
       disabled: exportMutation.isPending,
     },
-    { id: "sep-bulk", label: "", separator: true, visible: canAssign || canUpdate },
-    {
-      id: "bulk-assign",
-      label: "Bulk assign owner…",
-      icon: "users",
-      visible: canAssign,
-      disabled: checkedIds.length === 0,
-      onClick: () => setShowBulkAssignDialog(true),
-    },
-    {
-      id: "bulk-status",
-      label: "Bulk update status…",
-      icon: "sort",
-      visible: canUpdate,
-      disabled: checkedIds.length === 0,
-      onClick: () => setShowBulkStatusDialog(true),
-    },
   ];
 
   return (
@@ -726,6 +679,7 @@ export function LeadsPage() {
           avatarLabel={leadDisplayName(selected)}
           status={<StatusBadge status={selected.status} />}
           recordKey={selected.id}
+          customFieldsTable="lead"
           onBack={() => {
             setShowEdit(false);
             setShowConvert(false);
@@ -1418,9 +1372,42 @@ export function LeadsPage() {
                   setAssignOwnerId(lead.ownerId ?? "");
                 }}
                 selectedRowKey={(selected as Lead | null)?.id}
-                selectable
                 selectedIds={checkedIds}
                 onSelectedIdsChange={setCheckedIds}
+                bulk={{
+                  noun: "leads",
+                  exportFileName: "leads",
+                  rowLabel: leadDisplayName,
+                  onComplete: () => void refresh(),
+                  actions: [
+                    {
+                      id: "assign-owner",
+                      label: "Assign owner",
+                      visible: canAssign,
+                      doneLabel: "reassigned",
+                      input: { kind: "select", label: "New owner", options: bulkOwnerOptions },
+                      runBatch: (leadIds, ownerId) => postServerBulk("/leads/bulk-assign", { leadIds, ownerId }),
+                    },
+                    {
+                      id: "change-status",
+                      label: "Change status",
+                      visible: canUpdate,
+                      doneLabel: "updated",
+                      applies: (lead) => lead.status !== "CONVERTED",
+                      input: { kind: "select", label: "New status", options: enumOptions(LEAD_STATUSES) },
+                      runBatch: (leadIds, status) => postServerBulk("/leads/bulk-status", { leadIds, status }),
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      tone: "danger",
+                      visible: canDelete,
+                      doneLabel: "deleted",
+                      confirm: "Deleted leads disappear from lists and reports.",
+                      run: (lead) => deleteLead(lead.id),
+                    },
+                  ],
+                }}
                 nameFields={["firstName", "lastName"]}
                 emptyMessage="No leads match the current view/filters."
                 trailingColumn={canDelete ? {
@@ -1466,85 +1453,6 @@ export function LeadsPage() {
         </div>
       ) : null}
 
-      {showBulkAssignDialog ? (
-        <div className="module-modal-backdrop" role="presentation" onClick={() => setShowBulkAssignDialog(false)}>
-          <div className="module-modal" role="dialog" onClick={(event) => event.stopPropagation()}>
-            <div className="module-modal-header">
-              <h2 className="h5 mb-0">Bulk assign owner</h2>
-              <button type="button" className="btn-close" aria-label="Close" onClick={() => setShowBulkAssignDialog(false)} />
-            </div>
-            <div className="module-modal-body">
-              <p className="small text-muted">{selectionHint}</p>
-              <label className="form-label">Owner</label>
-              <select
-                className="form-select form-select-sm"
-                value={bulkOwnerId}
-                onChange={(event) => setBulkOwnerId(event.target.value)}
-              >
-                <option value="">Select owner</option>
-                {(usersQuery.data ?? []).map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.firstName} {user.lastName}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="module-modal-footer">
-              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowBulkAssignDialog(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={!bulkOwnerId || bulkAssignMutation.isPending}
-                onClick={() => bulkAssignMutation.mutate()}
-              >
-                Assign owner
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showBulkStatusDialog ? (
-        <div className="module-modal-backdrop" role="presentation" onClick={() => setShowBulkStatusDialog(false)}>
-          <div className="module-modal" role="dialog" onClick={(event) => event.stopPropagation()}>
-            <div className="module-modal-header">
-              <h2 className="h5 mb-0">Bulk update status</h2>
-              <button type="button" className="btn-close" aria-label="Close" onClick={() => setShowBulkStatusDialog(false)} />
-            </div>
-            <div className="module-modal-body">
-              <p className="small text-muted">{selectionHint}</p>
-              <label className="form-label">Status</label>
-              <select
-                className="form-select form-select-sm"
-                value={bulkStatus}
-                onChange={(event) => setBulkStatus(event.target.value)}
-              >
-                <option value="">Select status</option>
-                {LEAD_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="module-modal-footer">
-              <button type="button" className="btn btn-outline-secondary btn-sm" onClick={() => setShowBulkStatusDialog(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                disabled={!bulkStatus || bulkStatusMutation.isPending}
-                onClick={() => bulkStatusMutation.mutate()}
-              >
-                Update status
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }

@@ -47,6 +47,7 @@ public class ProjectService {
     private final RegionRepository regionRepository;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
+    private final ProjectCodeGenerator codeGenerator;
 
     public ProjectService(
             ProjectRepository projectRepository,
@@ -56,7 +57,9 @@ public class ProjectService {
             AccountRepository accountRepository,
             RegionRepository regionRepository,
             TenantAccess tenantAccess,
-            AuditService auditService) {
+            AuditService auditService,
+            ProjectCodeGenerator codeGenerator) {
+        this.codeGenerator = codeGenerator;
         this.projectRepository = projectRepository;
         this.projectTaskRepository = projectTaskRepository;
         this.milestoneRepository = milestoneRepository;
@@ -112,16 +115,28 @@ public class ProjectService {
         Region region = requireRegionInOrg(request.regionId(), orgId);
         tenantAccess.assertRegionVisible(region.getId());
 
-        Account account = accountRepository
-                .findActiveById(request.accountId())
-                .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
-        if (!account.getOrganizationId().equals(orgId)) {
-            throw new ResourceNotFoundException("Resource not found");
+        String projectType = requireProjectType(request.projectType(), Project.TYPE_B2B);
+        String billingType = requireBillingForType(projectType, requireBillingType(request.billingType()));
+        UUID accountId = null;
+        String accountName = null;
+        if (request.accountId() != null && !Project.TYPE_IN_HOUSE.equals(projectType)) {
+            Account account = accountRepository
+                    .findActiveById(request.accountId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
+            if (!account.getOrganizationId().equals(orgId)) {
+                throw new ResourceNotFoundException("Resource not found");
+            }
+            tenantAccess.assertRecordVisible(account);
+            accountId = account.getId();
+            accountName = account.getName();
+        } else if (!Project.TYPE_IN_HOUSE.equals(projectType)) {
+            throw accountRequired();
         }
-        tenantAccess.assertRecordVisible(account);
 
-        String code = request.projectCode().trim();
-        if (projectRepository.existsByOrganizationIdAndProjectCode(orgId, code)) {
+        String code = blankToNull(request.projectCode());
+        if (code == null) {
+            code = codeGenerator.next(orgId, accountName, request.name());
+        } else if (projectRepository.existsByOrganizationIdAndProjectCode(orgId, code)) {
             throw new ConflictException("Project code already exists");
         }
 
@@ -129,7 +144,7 @@ public class ProjectService {
         Project project = Project.create(
                 orgId,
                 region.getId(),
-                account.getId(),
+                accountId,
                 request.dealId(),
                 managerId,
                 request.name().trim(),
@@ -141,7 +156,8 @@ public class ProjectService {
                 request.endDate(),
                 request.budget(),
                 request.estimatedHours(),
-                requireBillingType(request.billingType()));
+                billingType);
+        project.classify(projectType, blankToNull(request.contractReference()), request.contractSignedDate());
         applyBillingTerms(project, request.hourlyRate(), request.monthlyFee(), request.contractValue());
         projectRepository.save(project);
         auditService.record(orgId, user.userId(), "CREATE", "PROJECT", project.getId());
@@ -168,7 +184,10 @@ public class ProjectService {
                 : deal.getName();
         String code = request != null && request.projectCode() != null && !request.projectCode().isBlank()
                 ? request.projectCode().trim()
-                : generateProjectCode(deal.getOrganizationId(), deal.getName());
+                : codeGenerator.next(
+                        deal.getOrganizationId(),
+                        accountRepository.findById(deal.getAccountId()).map(Account::getName).orElse(null),
+                        name);
         if (projectRepository.existsByOrganizationIdAndProjectCode(deal.getOrganizationId(), code)) {
             throw new ConflictException("Project code already exists");
         }
@@ -177,7 +196,7 @@ public class ProjectService {
                 ? request.projectManagerId()
                 : user.userId();
         String billingType = request != null && request.billingType() != null && !request.billingType().isBlank()
-                ? requireBillingType(request.billingType())
+                ? requireBillingForType(Project.TYPE_B2B, requireBillingType(request.billingType()))
                 : Project.BILLING_FIXED_BID;
 
         Project project = Project.create(
@@ -210,16 +229,25 @@ public class ProjectService {
             Region region = requireRegionInOrg(request.regionId(), project.getOrganizationId());
             tenantAccess.assertRegionVisible(region.getId());
         }
-        if (request.accountId() != null) {
+        String projectType = requireProjectType(request.projectType(), project.getProjectType());
+        boolean inHouse = Project.TYPE_IN_HOUSE.equals(projectType);
+        String requestedBilling = request.billingType() == null || request.billingType().isBlank()
+                ? (inHouse ? Project.BILLING_NON_BILLABLE : project.getBillingType())
+                : requireBillingType(request.billingType());
+        String billingType = requireBillingForType(projectType, requestedBilling);
+        UUID accountId = inHouse ? null : request.accountId();
+        if (accountId != null) {
             Account account = accountRepository
-                    .findActiveById(request.accountId())
+                    .findActiveById(accountId)
                     .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
             tenantAccess.assertRecordVisible(account);
+        } else if (!inHouse && project.getAccountId() == null) {
+            throw accountRequired();
         }
         String previousBillingType = project.getBillingType();
         project.update(
                 request.regionId(),
-                request.accountId(),
+                accountId,
                 request.projectManagerId(),
                 request.name() != null ? request.name().trim() : null,
                 request.description(),
@@ -229,9 +257,12 @@ public class ProjectService {
                 request.endDate(),
                 request.budget(),
                 request.estimatedHours(),
-                request.billingType() == null || request.billingType().isBlank()
-                        ? null
-                        : requireBillingType(request.billingType()));
+                billingType);
+        if (request.projectType() == null) {
+            project.classify(projectType, project.getContractReference(), project.getContractSignedDate());
+        } else {
+            project.classify(projectType, blankToNull(request.contractReference()), request.contractSignedDate());
+        }
         boolean typeChanged = !project.getBillingType().equals(previousBillingType);
         boolean termsSent = request.hourlyRate() != null || request.monthlyFee() != null || request.contractValue() != null;
         if (typeChanged || termsSent) {
@@ -294,28 +325,19 @@ public class ProjectService {
         return overdueMilestone ? "DELAYED" : "ON_TRACK";
     }
 
-    private String generateProjectCode(UUID organizationId, String dealName) {
-        String base = dealName == null || dealName.isBlank()
-                ? "PRJ"
-                : dealName.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]+", "-");
-        if (base.length() > 40) {
-            base = base.substring(0, 40);
+    /** Preview of the code {@link #create} would assign; the final number is fixed only on save. */
+    @Transactional(readOnly = true)
+    public String suggestCode(UUID organizationId, UUID accountId, String projectType, String name) {
+        tenantAccess.requirePermission("PROJECT_CREATE");
+        UUID orgId = tenantAccess.resolveOrganizationId(organizationId);
+        String accountName = null;
+        if (accountId != null && !Project.TYPE_IN_HOUSE.equals(Project.normalizeProjectType(projectType))) {
+            accountName = accountRepository.findActiveById(accountId)
+                    .filter(account -> account.getOrganizationId().equals(orgId))
+                    .map(Account::getName)
+                    .orElse(null);
         }
-        if (base.endsWith("-")) {
-            base = base.substring(0, base.length() - 1);
-        }
-        if (base.isBlank()) {
-            base = "PRJ";
-        }
-        String candidate = base;
-        int suffix = 1;
-        while (projectRepository.existsByOrganizationIdAndProjectCode(organizationId, candidate)) {
-            String suffixStr = "-" + suffix;
-            int maxBase = Math.max(1, 64 - suffixStr.length());
-            candidate = (base.length() > maxBase ? base.substring(0, maxBase) : base) + suffixStr;
-            suffix++;
-        }
-        return candidate;
+        return codeGenerator.next(orgId, accountName, name);
     }
 
     private Region requireRegionInOrg(UUID regionId, UUID organizationId) {
@@ -339,6 +361,32 @@ public class ProjectService {
                     "INVALID_BILLING_TYPE", "Billing type must be one of " + String.join(", ", Project.BILLING_TYPES));
         }
         return type;
+    }
+
+    private static String requireProjectType(String value, String fallback) {
+        String type = Project.normalizeProjectType(value);
+        if (type == null) {
+            return fallback;
+        }
+        if (!Project.PROJECT_TYPES.contains(type)) {
+            throw new BusinessException(
+                    "INVALID_PROJECT_TYPE", "Project type must be one of " + String.join(", ", Project.PROJECT_TYPES));
+        }
+        return type;
+    }
+
+    private static String requireBillingForType(String projectType, String billingType) {
+        List<String> allowed = Project.allowedBillingTypes(projectType);
+        if (!allowed.contains(billingType)) {
+            throw new BusinessException(
+                    "INVALID_BILLING_FOR_PROJECT_TYPE",
+                    "Billing type for a " + projectType + " project must be one of " + String.join(", ", allowed));
+        }
+        return billingType;
+    }
+
+    private static BusinessException accountRequired() {
+        return new BusinessException("ACCOUNT_REQUIRED", "Select the customer account for this project");
     }
 
     /** Each billing type needs the amount its invoices are generated from. */

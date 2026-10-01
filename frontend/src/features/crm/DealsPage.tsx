@@ -13,6 +13,8 @@ import {
   ModuleListShell,
 } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { deleteRecord, postRecordAction, postServerBulk } from "@/components/BulkActions/bulkActions";
+import { enumOptions, useActiveUserOptions } from "@/components/BulkActions/useBulkOptions";
 import { RecordShell, DEAL_RELATED_LINKS } from "@/components/RecordShell";
 import { buildDealTimelineEntries, recordLifecycleInfo, useRecordNavigation, TechEarnestRecordTimeline } from "@/components/TechEarnestRecord";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
@@ -95,6 +97,8 @@ export function DealsPage() {
   const canCreate = useHasPermission("DEAL_CREATE");
   const canUpdate = useHasPermission("DEAL_UPDATE");
   const canStage = useHasPermission("DEAL_STAGE");
+  const canDelete = useHasPermission("DEAL_DELETE");
+  const bulkOwnerOptions = useActiveUserOptions(canUpdate);
   const canCreateProject = useHasPermission("PROJECT_CREATE");
   const canViewNotes = useHasPermission("NOTE_VIEW");
   const canCreateNotes = useHasPermission("NOTE_CREATE");
@@ -476,6 +480,7 @@ export function DealsPage() {
           meta={<span className="small text-muted">Last Update: {new Date(selected.updatedAt).toLocaleString()}</span>}
           status={<StatusBadge status={selected.stage} />}
           recordKey={selected.id}
+          customFieldsTable="deal"
           onBack={() => {
             setShowEdit(false);
             recordNav.goBack();
@@ -702,6 +707,53 @@ export function DealsPage() {
                 defaultColumns={DEAL_LIST_COLUMNS}
                 rows={deals}
                 rowKey={(deal) => deal.id}
+                bulk={{
+                  noun: "deals",
+                  exportFileName: "deals",
+                  onComplete: () => void queryClient.invalidateQueries({ queryKey: ["crm", "deals"] }),
+                  actions: [
+                    {
+                      id: "change-stage",
+                      label: "Change stage",
+                      visible: canStage,
+                      doneLabel: "moved",
+                      applies: (deal) => deal.stage !== "WON" && deal.stage !== "LOST",
+                      input: {
+                        kind: "select",
+                        label: "New stage",
+                        options: enumOptions(["NEW", "QUALIFICATION", "REQUIREMENT", "PROPOSAL", "NEGOTIATION", "WON"]),
+                      },
+                      run: (deal, toStage) => postRecordAction(`/deals/${deal.id}/stage`, { toStage }),
+                    },
+                    {
+                      id: "mark-lost",
+                      label: "Mark lost",
+                      tone: "warning",
+                      visible: canStage,
+                      doneLabel: "marked lost",
+                      applies: (deal) => deal.stage !== "WON" && deal.stage !== "LOST",
+                      input: { kind: "text", label: "Lost reason", placeholder: "e.g. Budget cut" },
+                      run: (deal, lostReason) => postRecordAction(`/deals/${deal.id}/stage`, { toStage: "LOST", lostReason }),
+                    },
+                    {
+                      id: "assign-owner",
+                      label: "Assign owner",
+                      visible: canUpdate,
+                      doneLabel: "reassigned",
+                      input: { kind: "select", label: "New owner", options: bulkOwnerOptions },
+                      runBatch: (ids, ownerId) => postServerBulk("/deals/bulk-assign", { ids, ownerId }),
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      tone: "danger",
+                      visible: canDelete,
+                      doneLabel: "deleted",
+                      confirm: "Deleted deals disappear from the pipeline and reports.",
+                      run: (deal) => deleteRecord(`/deals/${deal.id}`),
+                    },
+                  ],
+                }}
                 selectedRowKey={(selected as Deal | null)?.id}
                 onRowClick={(deal) => {
                   setSelected(deal);

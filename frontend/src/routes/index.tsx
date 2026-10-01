@@ -33,6 +33,7 @@ const TasksPage = lazy(() => import("@/features/projects/TasksPage").then((m) =>
 const MilestonesPage = lazy(() => import("@/features/projects/MilestonesPage").then((m) => ({ default: m.MilestonesPage })));
 const ResourcesPage = lazy(() => import("@/features/resources/ResourcesPage").then((m) => ({ default: m.ResourcesPage })));
 const AllocationsPage = lazy(() => import("@/features/resources/AllocationsPage").then((m) => ({ default: m.AllocationsPage })));
+const ResourceBoardPage = lazy(() => import("@/features/resources/ResourceBoardPage").then((m) => ({ default: m.ResourceBoardPage })));
 const SkillsPage = lazy(() => import("@/features/resources/SkillsPage").then((m) => ({ default: m.SkillsPage })));
 const TimesheetsPage = lazy(() => import("@/features/timesheets/TimesheetsPage").then((m) => ({ default: m.TimesheetsPage })));
 const ApprovalsPage = lazy(() => import("@/features/approvals/ApprovalsPage").then((m) => ({ default: m.ApprovalsPage })));
@@ -165,6 +166,7 @@ export const router = createBrowserRouter([
               { path: "/milestones", element: guard(["MILESTONE_VIEW"], <MilestonesPage />) },
               { path: "/resources", element: guard(["RESOURCE_VIEW"], <ResourcesPage />) },
               { path: "/allocations", element: guard(["ALLOCATION_VIEW"], <AllocationsPage />) },
+              { path: "/resource-board", element: guard(["RESOURCE_BOARD_VIEW"], <ResourceBoardPage />) },
               { path: "/skills", element: guard(["SKILL_VIEW"], <SkillsPage />) },
               { path: "/timesheets", element: guard(["TIMESHEET_VIEW"], <TimesheetsPage />) },
               {

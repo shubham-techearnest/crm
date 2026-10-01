@@ -5,6 +5,10 @@ import com.techearnest.crm.account.domain.AccountRepository;
 import com.techearnest.crm.audit.application.AuditFieldChanges;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkAssignOwnerRequest;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkResult;
+import com.techearnest.crm.common.bulk.BulkExecutor;
+import com.techearnest.crm.user.application.OwnerValidator;
 import com.techearnest.crm.common.exception.BusinessException;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
 import com.techearnest.crm.common.security.CurrentUser;
@@ -58,6 +62,7 @@ public class DealService {
     private final MetadataExtensionService metadataExtensionService;
     private final FormPolicyEvaluator formPolicyEvaluator;
     private final OutboxPublisher outboxPublisher;
+    private final OwnerValidator ownerValidator;
 
     public DealService(
             DealRepository dealRepository,
@@ -69,7 +74,9 @@ public class DealService {
             TableAclEvaluator tableAclEvaluator,
             MetadataExtensionService metadataExtensionService,
             FormPolicyEvaluator formPolicyEvaluator,
-            OutboxPublisher outboxPublisher) {
+            OutboxPublisher outboxPublisher,
+            OwnerValidator ownerValidator) {
+        this.ownerValidator = ownerValidator;
         this.dealRepository = dealRepository;
         this.dealStageHistoryRepository = dealStageHistoryRepository;
         this.accountRepository = accountRepository;
@@ -224,6 +231,25 @@ public class DealService {
         Deal deal = requireVisibleDeal(id);
         deal.markDeleted();
         auditService.record(deal.getOrganizationId(), user.userId(), "DELETE", "DEAL", deal.getId());
+    }
+
+    @Transactional
+    public BulkResult bulkAssign(BulkAssignOwnerRequest request) {
+        CurrentUser user = tenantAccess.requirePermission("DEAL_UPDATE");
+        tableAclEvaluator.requireTableAccess("deal", CrudOp.UPDATE);
+        UUID ownerOrgId = ownerValidator.requireActiveOwner(request.ownerId());
+        return BulkExecutor.run(request.ids(), "deal", id -> {
+            Deal deal = requireVisibleDeal(id);
+            OwnerValidator.requireSameOrganization(ownerOrgId, deal.getOrganizationId());
+            UUID oldOwnerId = deal.getOwnerId();
+            deal.reassignOwner(request.ownerId());
+            recordDealAudit(
+                    deal,
+                    user.userId(),
+                    "UPDATE",
+                    AuditFieldChanges.builder()
+                            .addIfChanged("ownerId", "Deal Owner", oldOwnerId, deal.getOwnerId()));
+        });
     }
 
     @Transactional

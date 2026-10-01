@@ -70,6 +70,15 @@ public class ProjectController {
         return ApiResponse.page(result.data(), result.pagination());
     }
 
+    @GetMapping("/code-suggestion")
+    public ApiResponse<String> suggestCode(
+            @RequestParam(required = false) UUID organizationId,
+            @RequestParam(required = false) UUID accountId,
+            @RequestParam(required = false) String projectType,
+            @RequestParam(required = false) String name) {
+        return ApiResponse.ok(projectService.suggestCode(organizationId, accountId, projectType, name));
+    }
+
     @GetMapping("/{id}")
     public ApiResponse<ProjectResponse> get(@PathVariable UUID id) {
         return ApiResponse.ok(projectService.get(id));

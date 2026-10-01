@@ -7,6 +7,10 @@ import com.techearnest.crm.activity.domain.Activity;
 import com.techearnest.crm.activity.domain.ActivityRepository;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkAssignOwnerRequest;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkResult;
+import com.techearnest.crm.common.bulk.BulkExecutor;
+import com.techearnest.crm.user.application.OwnerValidator;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.TenantAccess;
@@ -25,9 +29,14 @@ public class ActivityService {
     private final ActivityRepository activityRepository;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
+    private final OwnerValidator ownerValidator;
 
     public ActivityService(
-            ActivityRepository activityRepository, TenantAccess tenantAccess, AuditService auditService) {
+            ActivityRepository activityRepository,
+            TenantAccess tenantAccess,
+            AuditService auditService,
+            OwnerValidator ownerValidator) {
+        this.ownerValidator = ownerValidator;
         this.activityRepository = activityRepository;
         this.tenantAccess = tenantAccess;
         this.auditService = auditService;
@@ -141,6 +150,24 @@ public class ActivityService {
         activity.complete();
         auditService.record(activity.getOrganizationId(), user.userId(), "UPDATE", "ACTIVITY", activity.getId());
         return ActivityResponse.from(activity);
+    }
+
+    @Transactional
+    public BulkResult bulkAssign(BulkAssignOwnerRequest request) {
+        CurrentUser user = tenantAccess.requirePermission("ACTIVITY_UPDATE");
+        UUID ownerOrgId = ownerValidator.requireActiveOwner(request.ownerId());
+        return BulkExecutor.run(request.ids(), "activity", id -> {
+            Activity activity = requireVisibleActivity(id);
+            OwnerValidator.requireSameOrganization(ownerOrgId, activity.getOrganizationId());
+            activity.reassign(request.ownerId());
+            auditService.recordWithSummary(
+                    activity.getOrganizationId(),
+                    user.userId(),
+                    "ASSIGN",
+                    "ACTIVITY",
+                    activity.getId(),
+                    "{\"bulk\":true,\"assignedTo\":\"" + request.ownerId() + "\"}");
+        });
     }
 
     private Activity requireVisibleActivity(UUID id) {

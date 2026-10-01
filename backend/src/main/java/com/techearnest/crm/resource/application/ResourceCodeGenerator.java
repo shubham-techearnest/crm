@@ -31,12 +31,16 @@ public class ResourceCodeGenerator {
 
     private final JdbcTemplate jdbcTemplate;
     private final ResourceRepository resourceRepository;
+    private final ResourceTypeCatalog typeCatalog;
 
-    public ResourceCodeGenerator(JdbcTemplate jdbcTemplate, ResourceRepository resourceRepository) {
+    public ResourceCodeGenerator(
+            JdbcTemplate jdbcTemplate, ResourceRepository resourceRepository, ResourceTypeCatalog typeCatalog) {
         this.jdbcTemplate = jdbcTemplate;
         this.resourceRepository = resourceRepository;
+        this.typeCatalog = typeCatalog;
     }
 
+    /** Built-in fallback when the type is not in the catalogue. */
     public static String prefixFor(String resourceType) {
         String type = resourceType == null ? Resource.TYPE_EMPLOYEE : resourceType.trim().toUpperCase(Locale.ROOT);
         return switch (type) {
@@ -52,7 +56,9 @@ public class ResourceCodeGenerator {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public String next(UUID organizationId, String resourceType) {
-        String prefix = prefixFor(resourceType);
+        String prefix = typeCatalog.find(resourceType)
+                .map(com.techearnest.crm.resource.domain.ResourceType::getCodePrefix)
+                .orElseGet(() -> prefixFor(resourceType));
         while (true) {
             Long value = jdbcTemplate.queryForObject(
                     NEXT_VALUE_SQL, Long.class, organizationId, prefix, prefix, organizationId, prefix);

@@ -303,6 +303,7 @@ export function VendorsPage() {
       {showForm && canManage && !editingId ? (
         <TechEarnestFormKitCreateView
           title="Create Vendor"
+          tableCode="vendor"
           entityLabel="Vendor"
           pending={isSubmitting || createMutation.isPending}
           isDirty={isDirty}
@@ -464,6 +465,22 @@ export function VendorsPage() {
           ]}
           rows={rows}
           rowKey={(vendor) => vendor.id}
+          bulk={{
+            noun: "vendors",
+            exportFileName: "vendors",
+            onComplete: () => void queryClient.invalidateQueries({ queryKey: ["vendors"] }),
+            actions: [
+              {
+                id: "delete",
+                label: "Delete",
+                tone: "danger",
+                visible: canManage,
+                doneLabel: "deleted",
+                confirm: "Deleted vendors can no longer be picked on purchase orders.",
+                run: (vendor) => deleteVendor(vendor.id),
+              },
+            ],
+          }}
           selectedRowKey={selectedId}
           onRowClick={(vendor) => setSelectedId(vendor.id)}
           renderCell={(vendor, field) => {

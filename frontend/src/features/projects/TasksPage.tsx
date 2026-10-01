@@ -22,6 +22,8 @@ import {
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleFilterDateRange, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { postServerBulk } from "@/components/BulkActions/bulkActions";
+import { enumOptions } from "@/components/BulkActions/useBulkOptions";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -341,7 +343,7 @@ export function TasksPage() {
       {showForm && canCreate && projectId ? (
         <TechEarnestFormKitCreateView
           title="Create Task"
-          tableCode="task"
+          tableCode="project_task"
           entityLabel="Task"
           pending={createForm.formState.isSubmitting || createMutation.isPending}
           isDirty={createForm.formState.isDirty}
@@ -552,7 +554,7 @@ export function TasksPage() {
         >
           {viewMode === "list" ? (
             <ModuleListTable
-              tableCode="task"
+              tableCode="project_task"
               defaultColumns={[
                 { field: "name", label: "Name" },
                 { field: "status", label: "Status" },
@@ -562,6 +564,46 @@ export function TasksPage() {
               ]}
               rows={rows}
               rowKey={(task) => task.id}
+              bulk={{
+                noun: "tasks",
+                exportFileName: "tasks",
+                onComplete: () => {
+                  void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+                  void queryClient.invalidateQueries({ queryKey: ["projects"] });
+                },
+                actions: [
+                  {
+                    id: "change-status",
+                    label: "Change status",
+                    visible: canUpdate,
+                    doneLabel: "updated",
+                    input: { kind: "select", label: "New status", options: enumOptions(TASK_STATUSES) },
+                    runBatch: (ids, status) => postServerBulk("/tasks/bulk-status", { ids, status }),
+                  },
+                  {
+                    id: "assign",
+                    label: "Assign to",
+                    visible: canAssign,
+                    doneLabel: "assigned",
+                    confirm: "Each resource must already be allocated to the task's project; other tasks are reported as failed.",
+                    input: {
+                      kind: "select",
+                      label: "Resource",
+                      options: (resourcesQuery.data ?? []).map((resource) => ({ value: resource.id, label: resourceLabel(resource) })),
+                    },
+                    run: (task, assignedResourceId) => assignTask(task.id, { assignedResourceId }),
+                  },
+                  {
+                    id: "delete",
+                    label: "Delete",
+                    tone: "danger",
+                    visible: canDelete,
+                    doneLabel: "deleted",
+                    confirm: "Deleted tasks disappear from project plans.",
+                    run: (task) => deleteTask(task.id),
+                  },
+                ],
+              }}
               selectedRowKey={selected?.id}
               onRowClick={(task) => {
                 setSelected(task);

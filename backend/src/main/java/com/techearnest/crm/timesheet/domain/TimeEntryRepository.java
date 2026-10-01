@@ -80,6 +80,59 @@ public interface TimeEntryRepository extends JpaRepository<TimeEntry, UUID> {
 
     @Query(
             """
+            select case when count(e) > 0 then true else false end from TimeEntry e, Timesheet t
+            where e.timesheetId = t.id
+              and t.resourceId = :resourceId
+              and e.projectId = :projectId
+              and e.workDate between :fromDate and :toDate
+              and e.deletedAt is null
+              and t.deletedAt is null
+            """)
+    boolean existsForResourceProjectBetween(
+            @Param("resourceId") UUID resourceId,
+            @Param("projectId") UUID projectId,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate);
+
+    /** Time entries with their timesheet's resource and status, for resource-board aggregation. */
+    @Query(
+            """
+            select new com.techearnest.crm.timesheet.domain.TimeEntryFact(
+                e.id, t.resourceId, e.projectId, e.taskId, e.allocationId, e.workDate, e.hours, e.billable,
+                e.billingRate, e.costRate, t.status)
+            from TimeEntry e, Timesheet t
+            where e.timesheetId = t.id
+              and e.organizationId = :organizationId
+              and e.workDate between :fromDate and :toDate
+              and e.deletedAt is null
+              and t.deletedAt is null
+              and (:resourceId is null or t.resourceId = :resourceId)
+              and (:projectId is null or e.projectId = :projectId)
+            """)
+    List<TimeEntryFact> findFacts(
+            @Param("organizationId") UUID organizationId,
+            @Param("fromDate") LocalDate fromDate,
+            @Param("toDate") LocalDate toDate,
+            @Param("resourceId") UUID resourceId,
+            @Param("projectId") UUID projectId);
+
+    /** Approved time for one project across all dates, for project cost and revenue. */
+    @Query(
+            """
+            select new com.techearnest.crm.timesheet.domain.TimeEntryFact(
+                e.id, t.resourceId, e.projectId, e.taskId, e.allocationId, e.workDate, e.hours, e.billable,
+                e.billingRate, e.costRate, t.status)
+            from TimeEntry e, Timesheet t
+            where e.timesheetId = t.id
+              and e.projectId in :projectIds
+              and e.deletedAt is null
+              and t.deletedAt is null
+              and t.status = 'APPROVED'
+            """)
+    List<TimeEntryFact> findApprovedFactsByProjects(@Param("projectIds") java.util.Collection<UUID> projectIds);
+
+    @Query(
+            """
             select e from TimeEntry e, Timesheet t
             where e.timesheetId = t.id
               and e.organizationId = :organizationId

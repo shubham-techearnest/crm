@@ -2,6 +2,13 @@ package com.techearnest.crm.resource.api;
 
 import com.techearnest.crm.common.api.ApiResponse;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.CreateResourceRequest;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.DeactivateResourceRequest;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.ReactivateResourceRequest;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.ResourceLifecycleResponse;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.ResourceTypeResponse;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.UnavailabilityRequest;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.UnavailabilityResponse;
+import com.techearnest.crm.resource.application.ResourceLifecycleService;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.OnboardResourceRequest;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.OnboardResourceResponse;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.ReplaceSkillsRequest;
@@ -36,14 +43,17 @@ public class ResourceController {
     private final ResourceService resourceService;
     private final UtilizationService utilizationService;
     private final ResourceOnboardingService onboardingService;
+    private final ResourceLifecycleService lifecycleService;
 
     public ResourceController(
             ResourceService resourceService,
             UtilizationService utilizationService,
-            ResourceOnboardingService onboardingService) {
+            ResourceOnboardingService onboardingService,
+            ResourceLifecycleService lifecycleService) {
         this.resourceService = resourceService;
         this.utilizationService = utilizationService;
         this.onboardingService = onboardingService;
+        this.lifecycleService = lifecycleService;
     }
 
     @GetMapping
@@ -101,6 +111,40 @@ public class ResourceController {
     public ApiResponse<List<ResourceSkillResponse>> putSkills(
             @PathVariable UUID id, @Valid @RequestBody ReplaceSkillsRequest request) {
         return ApiResponse.ok(resourceService.putSkills(id, request), "Resource skills updated successfully");
+    }
+
+    @GetMapping("/types")
+    public ApiResponse<List<ResourceTypeResponse>> types() {
+        return ApiResponse.ok(resourceService.listTypes());
+    }
+
+    @PostMapping("/{id}/deactivate")
+    public ApiResponse<ResourceLifecycleResponse> deactivate(
+            @PathVariable UUID id, @Valid @RequestBody(required = false) DeactivateResourceRequest request) {
+        return ApiResponse.ok(lifecycleService.deactivate(id, request), "Resource deactivated");
+    }
+
+    @PostMapping("/{id}/reactivate")
+    public ApiResponse<ResourceLifecycleResponse> reactivate(
+            @PathVariable UUID id, @Valid @RequestBody(required = false) ReactivateResourceRequest request) {
+        return ApiResponse.ok(lifecycleService.reactivate(id, request), "Resource reactivated");
+    }
+
+    @GetMapping("/{id}/unavailability")
+    public ApiResponse<List<UnavailabilityResponse>> listUnavailability(@PathVariable UUID id) {
+        return ApiResponse.ok(lifecycleService.listUnavailability(id));
+    }
+
+    @PostMapping("/{id}/unavailability")
+    public ApiResponse<UnavailabilityResponse> addUnavailability(
+            @PathVariable UUID id, @Valid @RequestBody UnavailabilityRequest request) {
+        return ApiResponse.ok(lifecycleService.addUnavailability(id, request), "Leave recorded");
+    }
+
+    @DeleteMapping("/unavailability/{leaveId}")
+    public ApiResponse<Void> removeUnavailability(@PathVariable UUID leaveId) {
+        lifecycleService.removeUnavailability(leaveId);
+        return ApiResponse.ok(null, "Leave removed");
     }
 
     @GetMapping("/{id}/utilization")

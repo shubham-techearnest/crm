@@ -16,7 +16,12 @@ export type RecordModule =
   | "contract"
   | "expense"
   | "vendor"
-  | "purchaseOrder";
+  | "purchaseOrder"
+  | "user"
+  | "role"
+  | "region"
+  | "department"
+  | "team";
 
 interface RecordRoute {
   path: string;
@@ -42,6 +47,11 @@ export const RECORD_ROUTES: Record<RecordModule, RecordRoute> = {
   expense: { path: "/expenses", permission: "EXPENSE_VIEW", label: "Expense" },
   vendor: { path: "/vendors", permission: "VENDOR_VIEW", label: "Vendor" },
   purchaseOrder: { path: "/purchase-orders", permission: "PO_VIEW", label: "Purchase Order" },
+  user: { path: "/admin/users", permission: "USER_VIEW", label: "User" },
+  role: { path: "/admin/roles", permission: "ROLE_VIEW", label: "Role" },
+  region: { path: "/admin/regions", permission: "REGION_VIEW", label: "Region" },
+  department: { path: "/admin/departments", permission: "DEPARTMENT_VIEW", label: "Department" },
+  team: { path: "/admin/teams", permission: "TEAM_VIEW", label: "Team" },
 };
 
 const ENTITY_TYPE_MODULES: Record<string, RecordModule> = {

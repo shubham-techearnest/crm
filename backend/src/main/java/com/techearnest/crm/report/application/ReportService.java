@@ -19,6 +19,7 @@ import com.techearnest.crm.report.api.dto.ReportDtos.ProjectProfitabilityRow;
 import com.techearnest.crm.report.api.dto.ReportDtos.ResourceUtilizationReport;
 import com.techearnest.crm.report.api.dto.ReportDtos.ResourceUtilizationRow;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.UtilizationResponse;
+import com.techearnest.crm.resource.application.ResourceCostService;
 import com.techearnest.crm.resource.application.UtilizationService;
 import com.techearnest.crm.resource.domain.Resource;
 import com.techearnest.crm.resource.domain.ResourceRepository;
@@ -57,6 +58,7 @@ public class ReportService {
     private final ResourceRepository resourceRepository;
     private final UtilizationService utilizationService;
     private final PurchaseOrderRepository purchaseOrderRepository;
+    private final ResourceCostService costService;
 
     public ReportService(
             TenantAccess tenantAccess,
@@ -69,7 +71,9 @@ public class ReportService {
             ExpenseRepository expenseRepository,
             ResourceRepository resourceRepository,
             UtilizationService utilizationService,
-            PurchaseOrderRepository purchaseOrderRepository) {
+            PurchaseOrderRepository purchaseOrderRepository,
+            ResourceCostService costService) {
+        this.costService = costService;
         this.tenantAccess = tenantAccess;
         this.leadRepository = leadRepository;
         this.dealRepository = dealRepository;
@@ -153,7 +157,7 @@ public class ReportService {
         }
 
         List<Timesheet> timesheets = timesheetRepository
-                .search(orgId, null, null, null, false, regionIds, null, null, PageRequest.of(0, 5000))
+                .search(orgId, null, null, null, false, regionIds, null, null, null, PageRequest.of(0, 5000))
                 .getContent()
                 .stream()
                 .filter(ts -> inDateRange(ts.getWeekStartDate(), from, to))
@@ -261,11 +265,15 @@ public class ReportService {
                         Expense::getProjectId,
                         Collectors.reducing(BigDecimal.ZERO, Expense::getAmount, BigDecimal::add)));
 
+        Map<UUID, ResourceCostService.Totals> laborByProject = canViewRates
+                ? costService.approvedTotalsByProject(projects.stream().map(Project::getId).toList())
+                : Map.of();
+
         List<ProjectProfitabilityRow> rows = new ArrayList<>();
         for (Project project : projects) {
             BigDecimal revenue = revenueByProject.getOrDefault(project.getId(), BigDecimal.ZERO);
             BigDecimal expenses = expenseByProject.getOrDefault(project.getId(), BigDecimal.ZERO);
-            BigDecimal cost = canViewRates ? estimateProjectCost(orgId, project.getId()) : BigDecimal.ZERO;
+            BigDecimal cost = laborByProject.getOrDefault(project.getId(), ResourceCostService.Totals.ZERO).cost();
             rows.add(new ProjectProfitabilityRow(
                     project.getId(),
                     project.getName(),
@@ -351,21 +359,6 @@ public class ReportService {
         }
 
         return new ProcurementSpendReport(purchaseOrderTotal, expenseTotal, expensesByCategory, purchaseOrdersByStatus);
-    }
-
-    private BigDecimal estimateProjectCost(UUID organizationId, UUID projectId) {
-        BigDecimal hours = BigDecimal.ZERO;
-        List<Timesheet> timesheets = timesheetRepository
-                .search(organizationId, Timesheet.STATUS_APPROVED, null, null, false, null, null, null, PageRequest.of(0, 5000))
-                .getContent();
-        for (Timesheet ts : timesheets) {
-            for (TimeEntry entry : timeEntryRepository.findActiveByTimesheetId(ts.getId())) {
-                if (projectId.equals(entry.getProjectId())) {
-                    hours = hours.add(entry.getHours() == null ? BigDecimal.ZERO : entry.getHours());
-                }
-            }
-        }
-        return hours.multiply(BigDecimal.valueOf(1000));
     }
 
     private Collection<UUID> scopedRegions(UUID regionId) {

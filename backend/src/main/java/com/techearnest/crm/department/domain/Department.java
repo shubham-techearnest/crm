@@ -33,6 +33,15 @@ public class Department {
     @Column(nullable = false)
     private String status;
 
+    private String code;
+
+    private String description;
+
+    @Column(name = "head_id")
+    private UUID headId;
+
+    private String email;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -68,6 +77,29 @@ public class Department {
         if (status != null && !status.isBlank()) {
             this.status = status;
         }
+    }
+
+    public void updateDetails(String code, String description, UUID headId, String email) {
+        this.code = code;
+        this.description = description;
+        this.headId = headId;
+        this.email = email;
+    }
+
+    public String getCode() {
+        return code;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public UUID getHeadId() {
+        return headId;
+    }
+
+    public String getEmail() {
+        return email;
     }
 
     public void markDeleted() {

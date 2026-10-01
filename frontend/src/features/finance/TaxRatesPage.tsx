@@ -16,6 +16,7 @@ import {
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { deleteRecord } from "@/components/BulkActions/bulkActions";
 import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
@@ -180,6 +181,7 @@ export function TaxRatesPage() {
       {showForm && canManage ? (
         <TechEarnestFormKitCreateView
           title="Create Tax Rate"
+          tableCode="tax_rate"
           entityLabel="Tax Rate"
           pending={isSubmitting || createMutation.isPending}
           isDirty={isDirty}
@@ -258,6 +260,22 @@ export function TaxRatesPage() {
           ]}
           rows={rows}
           rowKey={(rate) => rate.id}
+          bulk={{
+            noun: "tax rates",
+            exportFileName: "tax-rates",
+            onComplete: () => void queryClient.invalidateQueries({ queryKey: ["tax-rates"] }),
+            actions: [
+              {
+                id: "delete",
+                label: "Delete",
+                tone: "danger",
+                visible: canManage,
+                doneLabel: "deleted",
+                confirm: "Deleted tax rates can no longer be applied to new invoice lines.",
+                run: (rate) => deleteRecord(`/tax-rates/${rate.id}`),
+              },
+            ],
+          }}
           renderCell={(rate, field) => {
             if (field === "active") return <StatusBadge status={rate.active ? "ACTIVE" : "INACTIVE"} />;
             const value = (rate as unknown as Record<string, unknown>)[field];

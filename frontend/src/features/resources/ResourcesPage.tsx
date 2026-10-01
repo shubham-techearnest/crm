@@ -23,6 +23,7 @@ import {
   countActiveFilters,
 } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { deleteRecord } from "@/components/BulkActions/bulkActions";
 import { TechEarnestFilterSelect } from "@/components/TechEarnestCreate/TechEarnestFilterSelect";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import {
@@ -57,13 +58,17 @@ import {
   listSkills,
   putResourceSkills,
   isExternalType,
+  RATE_UNITS,
   RESOURCE_TYPE_META,
   RESOURCE_TYPES,
   resourceTypeLabel,
+  deactivateResource,
+  reactivateResource,
   type Resource,
   type ResourceSkillItem,
 } from "./resourceApi";
 import { errorMessage, LoginStatusBadge, ResourcePortalPanel } from "./ResourcePortalPanel";
+import { isEndedResource, ResourceLeaveCard, ResourceLifecycleActions } from "./ResourceLifecyclePanel";
 import { ResourceTimesheetsCard } from "@/features/timesheets/TimeTrackingCards";
 
 const PROFICIENCIES = ["BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"] as const;
@@ -89,6 +94,15 @@ const resourceSchema = z
   email: z.union([z.literal(""), z.string().trim().email("Enter a valid email")]).optional(),
   phone: z.string().max(50).optional(),
   engagementEndDate: z.string().optional(),
+  engagementStartDate: z.string().optional(),
+  contractReference: z.string().max(128).optional(),
+  workingHoursPerDay: z.string().optional(),
+  workingDaysPerWeek: z.string().optional(),
+  experienceYears: z.string().optional(),
+  location: z.string().max(128).optional(),
+  availableFrom: z.string().optional(),
+  billable: z.boolean().optional(),
+  rateUnit: z.string().optional(),
   projectId: z.string().optional(),
   allocationStartDate: z.string().optional(),
   allocationEndDate: z.string().optional(),
@@ -115,6 +129,20 @@ const resourceSchema = z
     if (values.allocationStartDate && values.allocationEndDate && values.allocationEndDate < values.allocationStartDate) {
       ctx.addIssue({ code: "custom", path: ["allocationEndDate"], message: "End date cannot be before start date" });
     }
+    if (values.engagementStartDate && values.engagementEndDate && values.engagementEndDate < values.engagementStartDate) {
+      ctx.addIssue({ code: "custom", path: ["engagementEndDate"], message: "End date cannot be before start date" });
+    }
+    const rangeCheck = (field: "workingHoursPerDay" | "workingDaysPerWeek" | "experienceYears", min: number, max: number) => {
+      const raw = values[field]?.trim();
+      if (!raw) return;
+      const value = Number(raw);
+      if (!Number.isFinite(value) || value < min || value > max) {
+        ctx.addIssue({ code: "custom", path: [field], message: `Enter ${min}–${max}` });
+      }
+    };
+    rangeCheck("workingHoursPerDay", 0.5, 24);
+    rangeCheck("workingDaysPerWeek", 0.5, 7);
+    rangeCheck("experienceYears", 0, 60);
   });
 
 type ResourceFormValues = z.infer<typeof resourceSchema>;
@@ -136,6 +164,15 @@ const RESOURCE_DEFAULTS: ResourceFormValues = {
   email: "",
   phone: "",
   engagementEndDate: "",
+  engagementStartDate: "",
+  contractReference: "",
+  workingHoursPerDay: "8",
+  workingDaysPerWeek: "5",
+  experienceYears: "",
+  location: "",
+  availableFrom: "",
+  billable: true,
+  rateUnit: "HOURLY",
   projectId: "",
   allocationStartDate: "",
   allocationEndDate: "",
@@ -385,6 +422,17 @@ export function ResourcesPage() {
     billingRate: canWriteBillingRate ? parseOptionalNumber(values.billingRate) ?? null : undefined,
     status: values.status || "AVAILABLE",
     joiningDate: values.joiningDate || undefined,
+    profile: {
+      engagementStartDate: values.engagementStartDate || null,
+      contractReference: values.contractReference?.trim() || null,
+      workingHoursPerDay: parseOptionalNumber(values.workingHoursPerDay) ?? null,
+      workingDaysPerWeek: parseOptionalNumber(values.workingDaysPerWeek) ?? null,
+      experienceYears: parseOptionalNumber(values.experienceYears) ?? null,
+      location: values.location?.trim() || null,
+      availableFrom: values.availableFrom || null,
+      billable: values.billable ?? true,
+      rateUnit: values.rateUnit || "HOURLY",
+    },
   });
 
   const createMutation = useMutation({
@@ -442,10 +490,16 @@ export function ResourcesPage() {
 
   const onUpdateSubmit = (values: ResourceFormValues) => {
     if (!editingResourceId) return;
+    const base = buildResourceBody(values);
     updateMutation.mutate({
       id: editingResourceId,
       body: {
-        ...buildResourceBody(values),
+        ...base,
+        profile: {
+          ...base.profile,
+          clearAvailableFrom: !values.availableFrom,
+          clearEngagementStartDate: !values.engagementStartDate,
+        },
         // Blank strings clear contact fields on update; omitted (undefined) would keep the old value.
         fullName: values.fullName?.trim() ?? "",
         email: values.email?.trim() ?? "",
@@ -475,6 +529,15 @@ export function ResourcesPage() {
       email: resource.email ?? "",
       phone: resource.phone ?? "",
       engagementEndDate: resource.engagementEndDate ?? "",
+      engagementStartDate: resource.engagementStartDate ?? "",
+      contractReference: resource.contractReference ?? "",
+      workingHoursPerDay: resource.workingHoursPerDay != null ? String(resource.workingHoursPerDay) : "",
+      workingDaysPerWeek: resource.workingDaysPerWeek != null ? String(resource.workingDaysPerWeek) : "",
+      experienceYears: resource.experienceYears != null ? String(resource.experienceYears) : "",
+      location: resource.location ?? "",
+      availableFrom: resource.availableFrom ?? "",
+      billable: resource.billable ?? true,
+      rateUnit: resource.rateUnit ?? "HOURLY",
     });
     setShowForm(true);
   }
@@ -584,6 +647,7 @@ export function ResourcesPage() {
         <TechEarnestFormKitCreateView
           title={editingResourceId ? "Edit Resource" : "Create Resource"}
           tableCode="resource"
+          recordId={editingResourceId}
           entityLabel="Resource"
           pending={isSubmitting || createMutation.isPending || updateMutation.isPending}
           isDirty={isDirty}
@@ -711,6 +775,15 @@ export function ResourcesPage() {
                 <TechEarnestCreateField label="Joining Date">
                   <input type="date" className="form-control form-control-sm" {...register("joiningDate")} />
                 </TechEarnestCreateField>
+                <TechEarnestCreateField label="Experience (years)" error={errors.experienceYears?.message}>
+                  <input type="number" min={0} max={60} step="0.5" className="form-control form-control-sm" {...register("experienceYears")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Location" error={errors.location?.message}>
+                  <input type="text" maxLength={128} className="form-control form-control-sm" placeholder="City or Remote" {...register("location")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Available From" hint="Leave empty to derive it from allocations.">
+                  <input type="date" className="form-control form-control-sm" {...register("availableFrom")} />
+                </TechEarnestCreateField>
               </TechEarnestCreateColumn>
             </TechEarnestCreateGrid>
           </TechEarnestCreateSection>
@@ -736,8 +809,14 @@ export function ResourcesPage() {
                   </TechEarnestCreateField>
                 </TechEarnestCreateColumn>
                 <TechEarnestCreateColumn>
-                  <TechEarnestCreateField label="Engagement End Date">
+                  <TechEarnestCreateField label="Engagement Start Date">
+                    <input type="date" className="form-control form-control-sm" {...register("engagementStartDate")} />
+                  </TechEarnestCreateField>
+                  <TechEarnestCreateField label="Engagement End Date" error={errors.engagementEndDate?.message}>
                     <input type="date" className="form-control form-control-sm" {...register("engagementEndDate")} />
+                  </TechEarnestCreateField>
+                  <TechEarnestCreateField label="Contract Reference" error={errors.contractReference?.message}>
+                    <input type="text" maxLength={128} className="form-control form-control-sm" placeholder="SOW / PO number" {...register("contractReference")} />
                   </TechEarnestCreateField>
                 </TechEarnestCreateColumn>
               </TechEarnestCreateGrid>
@@ -842,8 +921,31 @@ export function ResourcesPage() {
                 <TechEarnestCreateField label="Capacity (hrs/week)" error={errors.capacityHoursPerWeek?.message}>
                   <input type="number" min={0} step="0.5" className="form-control form-control-sm" {...register("capacityHoursPerWeek")} />
                 </TechEarnestCreateField>
+                <TechEarnestCreateField label="Working Hours / Day" error={errors.workingHoursPerDay?.message}>
+                  <input type="number" min={0.5} max={24} step="0.5" className="form-control form-control-sm" {...register("workingHoursPerDay")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Working Days / Week" error={errors.workingDaysPerWeek?.message}>
+                  <input type="number" min={0.5} max={7} step="0.5" className="form-control form-control-sm" {...register("workingDaysPerWeek")} />
+                </TechEarnestCreateField>
+                <TechEarnestCreateField label="Billable">
+                  <div className="form-check mt-1">
+                    <input id="resource-billable" type="checkbox" className="form-check-input" {...register("billable")} />
+                    <label className="form-check-label small" htmlFor="resource-billable">
+                      Time on client projects is billable by default
+                    </label>
+                  </div>
+                </TechEarnestCreateField>
               </TechEarnestCreateColumn>
               <TechEarnestCreateColumn>
+                {canWriteCostRate || canWriteBillingRate ? (
+                  <TechEarnestCreateField label="Rate Unit" hint="Daily and monthly rates are converted to hourly using working hours.">
+                    <select className="form-select form-select-sm" {...register("rateUnit")}>
+                      {RATE_UNITS.map((unit) => (
+                        <option key={unit} value={unit}>{unit.charAt(0) + unit.slice(1).toLowerCase()}</option>
+                      ))}
+                    </select>
+                  </TechEarnestCreateField>
+                ) : null}
                 {canWriteCostRate ? (
                   <TechEarnestCreateField label="Cost Rate" error={errors.costRate?.message}>
                     <input type="number" min={0} step="0.01" className="form-control form-control-sm" {...register("costRate")} />
@@ -869,6 +971,7 @@ export function ResourcesPage() {
               }
               status={<StatusBadge status={selectedResource.status} />}
               recordKey={selectedResource.id}
+              customFieldsTable="resource"
               layout="page"
               avatarLabel={resourceTitle(selectedResource)}
               onBack={recordNav.goBack}
@@ -896,14 +999,34 @@ export function ResourcesPage() {
                 )
               }
               secondaryActions={
-                <button
-                  type="button"
-                  className="btn btn-outline-secondary btn-sm"
-                  disabled={!canManage}
-                  onClick={() => openResourceEdit(selectedResource)}
-                >
-                  Edit
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-outline-secondary btn-sm"
+                    disabled={!canManage}
+                    onClick={() => openResourceEdit(selectedResource)}
+                  >
+                    Edit
+                  </button>
+                  {canManage ? (
+                    <ResourceLifecycleActions
+                      resource={selectedResource}
+                      onChanged={(result) => {
+                        setSelected(result.resource);
+                        const notes: string[] = [];
+                        if (isEndedResource(result.resource)) {
+                          notes.push(`Resource deactivated (${result.resource.status.replace(/_/g, " ").toLowerCase()}).`);
+                          if (result.allocationsEnded) notes.push(`${result.allocationsEnded} current allocation(s) ended.`);
+                          if (result.allocationsCancelled) notes.push(`${result.allocationsCancelled} future allocation(s) cancelled.`);
+                          if (result.portalAccessRevoked) notes.push("Portal login revoked.");
+                        } else {
+                          notes.push("Resource reactivated.");
+                        }
+                        setCreateNotice({ notes, warnings: [] });
+                      }}
+                    />
+                  ) : null}
+                </>
               }
               tabs={[
                 {
@@ -958,7 +1081,17 @@ export function ResourcesPage() {
                       { label: "Resource Type", value: <ResourceTypeBadge type={selectedResource.resourceType} /> },
                       { label: "Status", value: selectedResource.status },
                       { label: "Joining Date", value: selectedResource.joiningDate ?? "—" },
+                      { label: "Experience", value: selectedResource.experienceYears != null ? `${selectedResource.experienceYears} yrs` : "—" },
+                      { label: "Location", value: selectedResource.location ?? "—" },
+                      { label: "Available From", value: selectedResource.availableFrom ?? "—" },
+                      { label: "Billable", value: selectedResource.billable === false ? "No" : "Yes" },
                       { label: "Login", value: <LoginStatusBadge status={selectedResource.loginStatus} /> },
+                      ...(selectedResource.deactivatedAt
+                        ? [
+                            { label: "Deactivated", value: new Date(selectedResource.deactivatedAt).toLocaleDateString() },
+                            { label: "Deactivation Reason", value: selectedResource.deactivationReason ?? "—" },
+                          ]
+                        : []),
                     ]}
                   />
 
@@ -968,7 +1101,9 @@ export function ResourcesPage() {
                       { label: "Full Name", value: selectedResource.fullName ?? "—" },
                       { label: "Email", value: selectedResource.email ?? "—" },
                       { label: "Phone", value: selectedResource.phone ?? "—" },
+                      { label: "Engagement Start", value: selectedResource.engagementStartDate ?? "—" },
                       { label: "Engagement End", value: selectedResource.engagementEndDate ?? "—" },
+                      { label: "Contract Reference", value: selectedResource.contractReference ?? "—" },
                       ...(selectedResource.accessExpiresAt
                         ? [{ label: "Portal Access Until", value: new Date(selectedResource.accessExpiresAt).toLocaleDateString() }]
                         : []),
@@ -985,8 +1120,12 @@ export function ResourcesPage() {
                             ? `${selectedResource.capacityHoursPerWeek} hrs/week`
                             : "—",
                       },
-                      ...(canViewCostRate ? [{ label: "Cost Rate", value: formatRate(selectedResource.costRate) }] : []),
-                      ...(canViewBillingRate ? [{ label: "Billing Rate", value: formatRate(selectedResource.billingRate) }] : []),
+                      {
+                        label: "Working Pattern",
+                        value: `${selectedResource.workingHoursPerDay ?? 8} h/day · ${selectedResource.workingDaysPerWeek ?? 5} days/week`,
+                      },
+                      ...(canViewCostRate ? [{ label: "Cost Rate", value: `${formatRate(selectedResource.costRate)}${selectedResource.costRate != null && selectedResource.rateUnit ? ` / ${selectedResource.rateUnit.toLowerCase()}` : ""}` }] : []),
+                      ...(canViewBillingRate ? [{ label: "Billing Rate", value: `${formatRate(selectedResource.billingRate)}${selectedResource.billingRate != null && selectedResource.rateUnit ? ` / ${selectedResource.rateUnit.toLowerCase()}` : ""}` }] : []),
                       {
                         label: `Allocated (${monthRange.periodStart} → ${monthRange.periodEnd})`,
                         value: utilizationQuery.data?.allocatedHours != null ? `${utilizationQuery.data.allocatedHours}h` : "—",
@@ -1011,6 +1150,8 @@ export function ResourcesPage() {
                       ...(utilizationQuery.data?.warning ? [{ label: "Warning", value: utilizationQuery.data.warning }] : []),
                     ]}
                   />
+
+                  <ResourceLeaveCard resourceId={selectedResource.id} canManage={canManage} />
 
                   <TechEarnestRecordRelatedCard
                     id="techearnest-record-section-skills"
@@ -1380,6 +1521,52 @@ export function ResourcesPage() {
               optionalColumns={RESOURCE_OPTIONAL_COLUMNS}
               rows={rows}
               rowKey={(resource) => resource.id}
+              bulk={{
+                noun: "resources",
+                exportFileName: "resources",
+                onComplete: () => {
+                  void queryClient.invalidateQueries({ queryKey: ["resources"] });
+                  void queryClient.invalidateQueries({ queryKey: ["allocations"] });
+                  void queryClient.invalidateQueries({ queryKey: ["resource-board"] });
+                },
+                actions: [
+                  {
+                    id: "deactivate",
+                    label: "Deactivate",
+                    tone: "warning",
+                    visible: canManage,
+                    doneLabel: "deactivated",
+                    applies: (resource) => !isEndedResource(resource),
+                    confirm: "Current allocations end today, future ones are cancelled, and portal access is revoked.",
+                    input: { kind: "text", label: "Reason", optional: true, placeholder: "e.g. Contract finished" },
+                    run: (resource, reason) =>
+                      deactivateResource(resource.id, {
+                        status: "INACTIVE",
+                        reason: reason || undefined,
+                        endOpenAllocations: true,
+                        revokePortalAccess: true,
+                      }),
+                  },
+                  {
+                    id: "reactivate",
+                    label: "Reactivate",
+                    tone: "success",
+                    visible: canManage,
+                    doneLabel: "reactivated",
+                    applies: (resource) => isEndedResource(resource),
+                    run: (resource) => reactivateResource(resource.id, {}),
+                  },
+                  {
+                    id: "delete",
+                    label: "Delete",
+                    tone: "danger",
+                    visible: canManage,
+                    doneLabel: "deleted",
+                    confirm: "Deleted resources disappear from lists and the resource board.",
+                    run: (resource) => deleteRecord(`/resources/${resource.id}`),
+                  },
+                ],
+              }}
               selectedRowKey={(selected as Resource | null)?.id}
               onRowClick={(resource) => {
                 setSelected(resource);

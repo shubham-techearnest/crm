@@ -131,6 +131,8 @@ public class ProjectBillingService {
 
     private ProjectInvoicePreview build(Project project, ProjectInvoiceRequest req) {
         return switch (project.getBillingType()) {
+            case Project.BILLING_NON_BILLABLE -> preview(project, null, null, List.of(), List.of(),
+                    "Non-billable (in-house) projects are not invoiced.", null, null);
             case Project.BILLING_FIXED_MONTHLY -> monthly(project, req);
             case Project.BILLING_FIXED_BID -> fixedBid(project, req);
             default -> hourly(project, req);
@@ -300,6 +302,7 @@ public class ProjectBillingService {
             case Project.BILLING_TIME_AND_MATERIAL -> "Time & material";
             case Project.BILLING_FIXED_MONTHLY -> "Fixed monthly";
             case Project.BILLING_FIXED_BID -> "Fixed bid";
+            case Project.BILLING_NON_BILLABLE -> "Non-billable";
             default -> billingType;
         };
     }

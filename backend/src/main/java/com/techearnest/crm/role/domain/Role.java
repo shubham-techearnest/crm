@@ -47,6 +47,8 @@ public class Role {
     @Column(name = "is_system", nullable = false)
     private boolean system;
 
+    private String description;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -95,6 +97,14 @@ public class Role {
         if (dataScope != null) {
             this.dataScope = dataScope;
         }
+    }
+
+    public void describe(String description) {
+        this.description = description;
+    }
+
+    public String getDescription() {
+        return description;
     }
 
     public void replacePermissions(Set<Permission> next) {

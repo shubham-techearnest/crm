@@ -146,6 +146,26 @@ class ProjectFlowTest {
                         .header("Authorization", "Bearer " + orgAdminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(assign)))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("RESOURCE_NOT_ON_PROJECT"));
+
+        ObjectNode allocation = objectMapper.createObjectNode();
+        allocation.put("projectId", projectId);
+        allocation.put("resourceId", SEED_RESOURCE_ID.toString());
+        allocation.put("startDate", "2031-01-01");
+        allocation.put("endDate", "2031-03-31");
+        allocation.put("allocationPercentage", 10);
+        allocation.put("status", "ACTIVE");
+        mockMvc.perform(post("/api/v1/allocations")
+                        .header("Authorization", "Bearer " + orgAdminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(allocation)))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/v1/tasks/" + taskId + "/assign")
+                        .header("Authorization", "Bearer " + orgAdminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(assign)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.assignedResourceId").value(SEED_RESOURCE_ID.toString()));
 

@@ -1,7 +1,11 @@
 package com.techearnest.crm.user.application;
 
 import com.techearnest.crm.audit.application.AuditService;
+import com.techearnest.crm.branch.domain.BranchRepository;
 import com.techearnest.crm.common.api.PaginationMeta;
+import com.techearnest.crm.common.exception.BusinessException;
+import com.techearnest.crm.department.domain.DepartmentRepository;
+import com.techearnest.crm.team.domain.TeamRepository;
 import com.techearnest.crm.common.exception.ConflictException;
 import com.techearnest.crm.common.exception.ForbiddenException;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
@@ -22,6 +26,7 @@ import com.techearnest.crm.user.domain.UserRepository;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -37,12 +42,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class UserAdminService {
 
+    static final List<String> USER_STATUSES = List.of("INVITED", "ACTIVE", "LOCKED", "DEACTIVATED");
+
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final RegionRepository regionRepository;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
     private final PasswordEncoder passwordEncoder;
+    private final BranchRepository branchRepository;
+    private final DepartmentRepository departmentRepository;
+    private final TeamRepository teamRepository;
+    private final OwnerValidator ownerValidator;
 
     public UserAdminService(
             UserRepository userRepository,
@@ -50,13 +61,21 @@ public class UserAdminService {
             RegionRepository regionRepository,
             TenantAccess tenantAccess,
             AuditService auditService,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            BranchRepository branchRepository,
+            DepartmentRepository departmentRepository,
+            TeamRepository teamRepository,
+            OwnerValidator ownerValidator) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.regionRepository = regionRepository;
         this.tenantAccess = tenantAccess;
         this.auditService = auditService;
         this.passwordEncoder = passwordEncoder;
+        this.branchRepository = branchRepository;
+        this.departmentRepository = departmentRepository;
+        this.teamRepository = teamRepository;
+        this.ownerValidator = ownerValidator;
     }
 
     @Transactional(readOnly = true)
@@ -97,22 +116,37 @@ public class UserAdminService {
             throw new ConflictException("Email already exists in organization");
         }
 
+        validateOrgStructure(orgId, request.branchId(), request.departmentId(), request.teamId(), request.managerId(), null);
         User user = User.create(
                 orgId,
                 email,
                 passwordEncoder.encode(request.password()),
                 request.firstName().trim(),
                 request.lastName().trim(),
-                request.phone(),
+                blankToNull(request.phone()),
                 request.regionId(),
                 request.branchId(),
                 request.departmentId(),
                 request.teamId(),
                 request.managerId(),
-                request.status());
+                normalizeStatus(request.status()));
+        user.updateWorkProfile(
+                blankToNull(request.jobTitle()),
+                blankToNull(request.employeeCode()),
+                blankToNull(request.mobile()),
+                request.dateOfJoining(),
+                blankToNull(request.timezone()),
+                blankToNull(request.locale()));
 
         if (request.roleIds() != null && !request.roleIds().isEmpty()) {
             user.replaceRoles(resolveAssignableRoles(actor, orgId, request.roleIds()));
+        }
+        if (request.regionIds() != null && !request.regionIds().isEmpty()) {
+            Set<Region> regions = resolveRegions(orgId, request.regionIds());
+            for (Region region : regions) {
+                tenantAccess.assertRegionVisible(region.getId());
+            }
+            user.replaceAssignedRegions(regions);
         }
 
         userRepository.save(user);
@@ -127,16 +161,30 @@ public class UserAdminService {
         if (request.regionId() != null) {
             tenantAccess.assertRegionVisible(request.regionId());
         }
+        validateOrgStructure(
+                user.getOrganizationId(),
+                request.branchId(),
+                request.departmentId(),
+                request.teamId(),
+                request.managerId(),
+                user);
         user.updateProfile(
                 request.firstName().trim(),
                 request.lastName().trim(),
-                request.phone(),
+                blankToNull(request.phone()),
                 request.regionId(),
                 request.branchId(),
                 request.departmentId(),
                 request.teamId(),
                 request.managerId(),
-                request.status());
+                normalizeStatus(request.status()));
+        user.updateWorkProfile(
+                blankToNull(request.jobTitle()),
+                blankToNull(request.employeeCode()),
+                blankToNull(request.mobile()),
+                request.dateOfJoining(),
+                blankToNull(request.timezone()),
+                blankToNull(request.locale()));
         auditService.record(user.getOrganizationId(), actor.userId(), "UPDATE", "USER", user.getId());
         return UserResponse.from(user);
     }
@@ -219,6 +267,55 @@ public class UserAdminService {
             regions.add(region);
         }
         return regions;
+    }
+
+    /** Validates references on create, and on update only the ones that change. */
+    private void validateOrgStructure(
+            UUID orgId, UUID branchId, UUID departmentId, UUID teamId, UUID managerId, User existing) {
+        UUID selfId = existing == null ? null : existing.getId();
+        boolean checkBranch = existing == null || !Objects.equals(existing.getBranchId(), branchId);
+        boolean checkDepartment = existing == null || !Objects.equals(existing.getDepartmentId(), departmentId);
+        boolean checkTeam = existing == null || checkDepartment || !Objects.equals(existing.getTeamId(), teamId);
+        boolean checkManager = existing == null || !Objects.equals(existing.getManagerId(), managerId);
+        if (checkBranch && branchId != null) {
+            branchRepository
+                    .findActiveById(branchId)
+                    .filter(branch -> Objects.equals(branch.getOrganizationId(), orgId))
+                    .orElseThrow(() -> new BusinessException("INVALID_BRANCH", "Branch not found in this organization"));
+        }
+        if (checkDepartment && departmentId != null) {
+            departmentRepository
+                    .findActiveById(departmentId)
+                    .filter(department -> Objects.equals(department.getOrganizationId(), orgId))
+                    .orElseThrow(() ->
+                            new BusinessException("INVALID_DEPARTMENT", "Department not found in this organization"));
+        }
+        if (checkTeam && teamId != null) {
+            var team = teamRepository
+                    .findActiveById(teamId)
+                    .filter(candidate -> Objects.equals(candidate.getOrganizationId(), orgId))
+                    .orElseThrow(() -> new BusinessException("INVALID_TEAM", "Team not found in this organization"));
+            if (departmentId != null && !Objects.equals(team.getDepartmentId(), departmentId)) {
+                throw new BusinessException("INVALID_TEAM", "Team does not belong to the selected department");
+            }
+        }
+        if (checkManager && managerId != null) {
+            if (managerId.equals(selfId)) {
+                throw new BusinessException("INVALID_MANAGER", "A user cannot report to themselves");
+            }
+            OwnerValidator.requireSameOrganization(ownerValidator.requireActiveOwner(managerId), orgId);
+        }
+    }
+
+    private static String normalizeStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        if (!USER_STATUSES.contains(normalized)) {
+            throw new BusinessException("INVALID_STATUS", "Invalid user status: " + status);
+        }
+        return normalized;
     }
 
     private static String blankToNull(String value) {

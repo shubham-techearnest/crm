@@ -41,7 +41,8 @@ import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listAuditLogs, listRegions, listUsers } from "@/features/admin/adminApi";
-import { getAccount, getDeal, listAccounts, listActivities } from "@/features/crm/crmApi";
+import { adminErrorMessage } from "@/features/admin/adminKit";
+import { createAccount, getAccount, getDeal, listAccounts, listActivities } from "@/features/crm/crmApi";
 import { listContracts } from "@/features/contracts/contractApi";
 import { RecordLink, RelatedRecordList } from "@/components/RecordLink";
 import { useUrlSelection } from "@/hooks/useUrlRecord";
@@ -72,16 +73,53 @@ import {
   listTasks,
   updateProject,
   BILLING_TYPE_META,
+  BILLING_TYPES_BY_PROJECT_TYPE,
+  PROJECT_TYPE_META,
+  PROJECT_TYPES,
   billingTypeLabel,
+  projectTypeLabel,
+  suggestProjectCode,
   type Project,
+  type UpdateProjectBody,
 } from "./projectApi";
 import { ProjectBillingCard } from "./ProjectBillingCard";
+import { enumOptions, useActiveUserOptions } from "@/components/BulkActions/useBulkOptions";
+
+/** The update endpoint replaces every field, so bulk edits resend the row's current values. */
+function projectUpdateBody(project: Project, patch: Partial<UpdateProjectBody>): UpdateProjectBody {
+  const body: Record<string, unknown> = {
+    regionId: project.regionId,
+    accountId: project.accountId,
+    projectManagerId: project.projectManagerId,
+    name: project.name,
+    description: project.description,
+    status: project.status,
+    priority: project.priority,
+    startDate: project.startDate,
+    endDate: project.endDate,
+    budget: project.budget,
+    estimatedHours: project.estimatedHours,
+    billingType: project.billingType,
+    projectType: project.projectType ?? undefined,
+    contractReference: project.contractReference ?? null,
+    contractSignedDate: project.contractSignedDate ?? null,
+    ...patch,
+  };
+  return body as UpdateProjectBody;
+}
 
 const PROJECT_STATUSES = ["PLANNED", "ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"] as const;
 const PROJECT_PRIORITIES = ["LOW", "MEDIUM", "HIGH"] as const;
 
 const projectStatusOptions = enumPickerOptions(PROJECT_STATUSES);
 const projectPriorityOptions = enumPickerOptions(PROJECT_PRIORITIES);
+const projectTypeOptions = optionsFromPairs(
+  PROJECT_TYPES.map((type) => ({
+    value: type,
+    label: PROJECT_TYPE_META[type].label,
+    subtitle: PROJECT_TYPE_META[type].description,
+  })),
+);
 
 const positiveAmount = (value: string | undefined) => {
   const n = Number(value);
@@ -91,10 +129,13 @@ const positiveAmount = (value: string | undefined) => {
 const projectSchema = z
   .object({
     name: z.string().min(1, "Name is required"),
-    projectCode: z.string().min(1, "Code is required").max(64),
-    accountId: z.string().min(1, "Account is required"),
+    projectCode: z.string().max(64).optional(),
+    projectType: z.string().min(1, "Project type is required"),
+    accountId: z.string().optional(),
     regionId: z.string().min(1, "Region is required"),
     billingType: z.string().min(1, "Billing type is required"),
+    contractReference: z.string().max(128).optional(),
+    contractSignedDate: z.string().optional(),
     status: z.string().min(1),
     projectManagerId: z.string().optional(),
     description: z.string().optional(),
@@ -108,6 +149,12 @@ const projectSchema = z
     contractValue: z.string().optional(),
   })
   .superRefine((values, ctx) => {
+    if (values.projectType !== "IN_HOUSE" && !values.accountId) {
+      ctx.addIssue({ code: "custom", path: ["accountId"], message: "Account is required" });
+    }
+    if (!(BILLING_TYPES_BY_PROJECT_TYPE[values.projectType] ?? []).includes(values.billingType)) {
+      ctx.addIssue({ code: "custom", path: ["billingType"], message: "Choose a billing type for this project type" });
+    }
     if (values.billingType === "TIME_AND_MATERIAL" && !positiveAmount(values.hourlyRate)) {
       ctx.addIssue({ code: "custom", path: ["hourlyRate"], message: "Hourly rate is required" });
     }
@@ -127,10 +174,13 @@ type ProjectFormValues = z.infer<typeof projectSchema>;
 const PROJECT_DEFAULTS: ProjectFormValues = {
   name: "",
   projectCode: "",
+  projectType: "B2B",
   accountId: "",
   regionId: "",
   projectManagerId: "",
   billingType: "FIXED_BID",
+  contractReference: "",
+  contractSignedDate: "",
   status: "PLANNED",
   description: "",
   priority: "MEDIUM",
@@ -151,6 +201,8 @@ function billingInvoiceHint(type: string): string {
       return "Invoices list every approved, billable hour at the project hourly rate.";
     case "FIXED_MONTHLY":
       return "One invoice line per month for the monthly fee. A month can only be invoiced once.";
+    case "NON_BILLABLE":
+      return "Hours are tracked against the project for cost and utilization, but nothing is invoiced.";
     default:
       return "Invoice any part of the contract value (for example an advance or a milestone) until it is fully billed.";
   }
@@ -196,6 +248,7 @@ export function ProjectsPage() {
   const canCreate = useHasPermission("PROJECT_CREATE");
   const canUpdateProject = useHasPermission("PROJECT_UPDATE");
   const canDeleteProject = useHasPermission("PROJECT_DELETE");
+  const bulkManagerOptions = useActiveUserOptions(canUpdateProject);
   const canManageMilestone = useHasPermission("MILESTONE_MANAGE");
   const canCreateTask = useHasPermission("TASK_CREATE");
   const canViewUsers = useHasPermission("USER_VIEW");
@@ -281,8 +334,8 @@ export function ProjectsPage() {
   });
   const accountQuery = useQuery({
     queryKey: ["crm", "accounts", selected?.accountId],
-    queryFn: () => getAccount(selected!.accountId),
-    enabled: !!selected,
+    queryFn: () => getAccount(selected!.accountId!),
+    enabled: !!selected?.accountId,
   });
   const allocationsQuery = useQuery({
     queryKey: ["allocations", "project", (selected as Project | null)?.id],
@@ -316,8 +369,8 @@ export function ProjectsPage() {
   });
   const contractsQuery = useQuery({
     queryKey: ["contracts", "account", selected?.accountId],
-    queryFn: () => listContracts({ accountId: selected!.accountId }),
-    enabled: !!selected && canViewContracts,
+    queryFn: () => listContracts({ accountId: selected!.accountId! }),
+    enabled: !!selected?.accountId && canViewContracts,
   });
   const projectContracts = useMemo(
     () => (contractsQuery.data ?? []).filter((contract) => contract.projectId === selected?.id),
@@ -381,10 +434,48 @@ export function ProjectsPage() {
     defaultValues: PROJECT_DEFAULTS,
   });
   const formBillingType = watch("billingType");
+  const formProjectType = watch("projectType");
+  const formName = watch("name");
+  const formAccountId = watch("accountId");
+  const [codeSeed, setCodeSeed] = useState({ name: "", accountId: "", projectType: "" });
+  useEffect(() => {
+    const handle = window.setTimeout(
+      () => setCodeSeed({ name: formName?.trim() ?? "", accountId: formAccountId ?? "", projectType: formProjectType }),
+      400,
+    );
+    return () => window.clearTimeout(handle);
+  }, [formName, formAccountId, formProjectType]);
+  const codeSuggestionQuery = useQuery({
+    queryKey: ["projects", "code-suggestion", codeSeed],
+    queryFn: () => suggestProjectCode(codeSeed),
+    enabled: showForm && !editingProject && canCreate && !!codeSeed.name,
+    staleTime: 30_000,
+  });
+  const [extraAccountOptions, setExtraAccountOptions] = useState<{ value: string; label: string }[]>([]);
+  const billingTypeOptions = useMemo(
+    () =>
+      optionsFromPairs(
+        (BILLING_TYPES_BY_PROJECT_TYPE[formProjectType] ?? []).map((type) => ({
+          value: type,
+          label: BILLING_TYPE_META[type]?.label ?? type,
+          subtitle: BILLING_TYPE_META[type]?.description,
+        })),
+      ),
+    [formProjectType],
+  );
+
+  function changeProjectType(next: string) {
+    const allowed = BILLING_TYPES_BY_PROJECT_TYPE[next] ?? [];
+    if (!allowed.includes(formBillingType)) {
+      setValue("billingType", allowed[0] ?? "", { shouldDirty: true, shouldValidate: true });
+    }
+    if (next === "IN_HOUSE") {
+      setValue("accountId", "", { shouldDirty: true });
+    }
+  }
 
   const {
     setSaveAndNew,
-    photo,
     cancelCreate,
     afterCreateSuccess,
   } = useTechEarnestCreateFlow({
@@ -406,8 +497,12 @@ export function ProjectsPage() {
   }, [searchParams, canCreate, reset, setShowForm]);
 
   const accountOptions = useMemo(
-    () => optionsFromPairs((accountsQuery.data ?? []).map((account) => ({ value: account.id, label: account.name }))),
-    [accountsQuery.data],
+    () =>
+      optionsFromPairs([
+        ...(accountsQuery.data ?? []).map((account) => ({ value: account.id, label: account.name })),
+        ...extraAccountOptions.filter((option) => !(accountsQuery.data ?? []).some((a) => a.id === option.value)),
+      ]),
+    [accountsQuery.data, extraAccountOptions],
   );
   const managerFilterOptions = useMemo(
     () => optionsFromPairs([
@@ -424,10 +519,13 @@ export function ProjectsPage() {
   const buildProjectBody = (values: ProjectFormValues) => ({
     name: values.name,
     projectCode: values.projectCode,
-    accountId: values.accountId,
+    projectType: values.projectType,
+    accountId: values.projectType === "IN_HOUSE" ? null : values.accountId || null,
     regionId: values.regionId,
     projectManagerId: values.projectManagerId || undefined,
     billingType: values.billingType,
+    contractReference: values.projectType === "CONTRACT" ? values.contractReference?.trim() || null : null,
+    contractSignedDate: values.projectType === "CONTRACT" ? values.contractSignedDate || null : null,
     status: values.status || "PLANNED",
     description: values.description || undefined,
     priority: values.priority || undefined,
@@ -503,6 +601,9 @@ export function ProjectsPage() {
         hourlyRate: body.hourlyRate,
         monthlyFee: body.monthlyFee,
         contractValue: body.contractValue,
+        projectType: body.projectType,
+        contractReference: body.contractReference,
+        contractSignedDate: body.contractSignedDate,
       });
     },
     onSuccess: async (project) => {
@@ -517,7 +618,15 @@ export function ProjectsPage() {
         await afterCreateSuccess(project, "PROJECT");
       }
     },
-    onError: () => setFormError(editingProject ? "Could not update project. Check required fields and permissions." : "Could not create project. Check required fields."),
+    onError: (error) =>
+      setFormError(
+        adminErrorMessage(
+          error,
+          editingProject
+            ? "Could not update project. Check required fields and permissions."
+            : "Could not create project. Check required fields.",
+        ),
+      ),
   });
 
   const onCreateSubmit = (values: ProjectFormValues) => {
@@ -541,10 +650,13 @@ export function ProjectsPage() {
     reset({
       name: project.name,
       projectCode: project.projectCode,
-      accountId: project.accountId,
+      projectType: project.projectType ?? "B2B",
+      accountId: project.accountId ?? "",
       regionId: project.regionId,
       projectManagerId: project.projectManagerId ?? "",
       billingType: project.billingType,
+      contractReference: project.contractReference ?? "",
+      contractSignedDate: project.contractSignedDate ?? "",
       status: project.status,
       description: project.description ?? "",
       priority: project.priority ?? "MEDIUM",
@@ -594,8 +706,8 @@ export function ProjectsPage() {
     onError: () => setInlineError("Could not create task."),
   });
 
-  const accountName = (id: string) =>
-    accountsQuery.data?.find((a) => a.id === id)?.name ?? id.slice(0, 8);
+  const accountName = (id: string | null | undefined) =>
+    !id ? "—" : accountsQuery.data?.find((a) => a.id === id)?.name ?? id.slice(0, 8);
 
   const userLabel = useMemo(() => {
     const map = new Map(
@@ -684,6 +796,7 @@ export function ProjectsPage() {
         <TechEarnestFormKitCreateView
           title={editingProject ? "Edit Project" : "Create Project"}
           tableCode="project"
+          recordId={editingProject?.id}
           entityLabel="Project"
           pending={isSubmitting || createMutation.isPending}
           isDirty={isDirty}
@@ -695,7 +808,7 @@ export function ProjectsPage() {
             void handleSubmit(onCreateSubmit)();
           } : undefined}
           onSubmit={() => void handleSubmit(onCreateSubmit)()}
-          photo={photo}
+          showRecordImage={false}
         >
           <TechEarnestCreateSection title="Project Information">
             <TechEarnestCreateGrid>
@@ -707,28 +820,102 @@ export function ProjectsPage() {
                     {...register("name")}
                   />
                 </TechEarnestCreateField>
-                <TechEarnestCreateField label="Project Code" required error={errors.projectCode?.message}>
-                  <input
-                    type="text"
-                    maxLength={64}
-                    readOnly={!!editingProject}
-                    title={editingProject ? "The project code cannot be changed" : undefined}
-                    className={`form-control form-control-sm${errors.projectCode ? " is-invalid" : ""}`}
-                    {...register("projectCode")}
-                  />
+                <TechEarnestCreateField
+                  label="Project Code"
+                  error={errors.projectCode?.message}
+                  hint={editingProject ? undefined : "Generated automatically from the account and project name."}
+                >
+                  {editingProject ? (
+                    <input
+                      type="text"
+                      readOnly
+                      title="The project code cannot be changed"
+                      className="form-control form-control-sm"
+                      {...register("projectCode")}
+                    />
+                  ) : (
+                    <input
+                      type="text"
+                      readOnly
+                      tabIndex={-1}
+                      className="form-control form-control-sm"
+                      value={
+                        codeSeed.name
+                          ? codeSuggestionQuery.data ?? (codeSuggestionQuery.isFetching ? "Generating…" : "")
+                          : ""
+                      }
+                      placeholder="Auto-generated on save"
+                    />
+                  )}
                 </TechEarnestCreateField>
-                <TechEarnestCreateField label="Account Name" required error={errors.accountId?.message}>
+                <TechEarnestCreateField
+                  label="Project Type"
+                  required
+                  error={errors.projectType?.message}
+                  hint={PROJECT_TYPE_META[formProjectType]?.description}
+                >
                   <TechEarnestFormSelect
                     control={control}
-                    name="accountId"
-                    options={accountOptions}
-                    searchPlaceholder="Search Accounts"
-                    lookupIcon="building"
+                    name="projectType"
+                    options={projectTypeOptions}
+                    searchPlaceholder="Search Project Types"
                     allowEmpty={false}
-                    placeholder="Select account"
-                    invalid={!!errors.accountId}
+                    onValueChange={changeProjectType}
+                    invalid={!!errors.projectType}
                   />
                 </TechEarnestCreateField>
+                {formProjectType !== "IN_HOUSE" ? (
+                  <TechEarnestCreateField label="Account Name" required error={errors.accountId?.message}>
+                    <TechEarnestFormSelect
+                      control={control}
+                      name="accountId"
+                      options={accountOptions}
+                      searchPlaceholder="Search Accounts"
+                      lookupIcon="building"
+                      lookupMode="modal"
+                      lookupTitle="Select Account"
+                      addNewLabel="New Account"
+                      allowEmpty={false}
+                      placeholder="Select account"
+                      invalid={!!errors.accountId}
+                      quickCreate={{
+                        title: "Create Account",
+                        fields: [
+                          { name: "name", label: "Account Name", required: true },
+                          {
+                            name: "regionId",
+                            label: "Region",
+                            type: "select",
+                            required: true,
+                            options: regionOptions,
+                          },
+                          {
+                            name: "accountType",
+                            label: "Account Type",
+                            type: "select",
+                            required: true,
+                            options: ["CUSTOMER", "PROSPECT", "PARTNER", "VENDOR"].map((type) => ({
+                              value: type,
+                              label: type.charAt(0) + type.slice(1).toLowerCase(),
+                            })),
+                          },
+                        ],
+                        submitLabel: "Save and Associate",
+                        onSubmit: async (values) => {
+                          const account = await createAccount({
+                            name: values.name.trim(),
+                            regionId: values.regionId,
+                            accountType: values.accountType,
+                          });
+                          const option = { value: account.id, label: account.name };
+                          setExtraAccountOptions((current) => [...current, option]);
+                          await queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] });
+                          return option;
+                        },
+                      }}
+                    />
+                  </TechEarnestCreateField>
+                ) : null}
                 <TechEarnestCreateField label="Project Manager" error={errors.projectManagerId?.message}>
                   <TechEarnestFormUserSelect
                     control={control}
@@ -779,26 +966,24 @@ export function ProjectsPage() {
             </TechEarnestCreateGrid>
           </TechEarnestCreateSection>
           <TechEarnestCreateSection title="Billing">
-            <div className="resource-type-picker" role="radiogroup" aria-label="Billing type">
-              {Object.entries(BILLING_TYPE_META).map(([type, meta]) => {
-                const active = formBillingType === type;
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    className={`resource-type-option${active ? " is-active" : ""}`}
-                    onClick={() => setValue("billingType", type, { shouldDirty: true, shouldValidate: true })}
-                  >
-                    <span className="resource-type-option__title">{meta.label}</span>
-                    <span className="resource-type-option__hint">{meta.description}</span>
-                  </button>
-                );
-              })}
-            </div>
             <TechEarnestCreateGrid>
               <TechEarnestCreateColumn>
+                <TechEarnestCreateField
+                  label="Billing Type"
+                  required
+                  error={errors.billingType?.message}
+                  hint={BILLING_TYPE_META[formBillingType]?.description}
+                >
+                  <TechEarnestFormSelect
+                    control={control}
+                    name="billingType"
+                    options={billingTypeOptions}
+                    searchPlaceholder="Search Billing Types"
+                    allowEmpty={false}
+                    disabled={billingTypeOptions.length <= 1}
+                    invalid={!!errors.billingType}
+                  />
+                </TechEarnestCreateField>
                 {formBillingType === "TIME_AND_MATERIAL" || formBillingType === "STAFF_AUGMENTATION" ? (
                   <TechEarnestCreateField
                     label={formBillingType === "TIME_AND_MATERIAL" ? "Hourly Rate" : "Fallback Hourly Rate"}
@@ -868,6 +1053,31 @@ export function ProjectsPage() {
               </TechEarnestCreateColumn>
             </TechEarnestCreateGrid>
           </TechEarnestCreateSection>
+          {formProjectType === "CONTRACT" ? (
+            <TechEarnestCreateSection title="Contract Details">
+              <TechEarnestCreateGrid>
+                <TechEarnestCreateColumn>
+                  <TechEarnestCreateField
+                    label="Contract Reference"
+                    error={errors.contractReference?.message}
+                    hint="Contract, SOW or PO number."
+                  >
+                    <input
+                      type="text"
+                      maxLength={128}
+                      className={`form-control form-control-sm${errors.contractReference ? " is-invalid" : ""}`}
+                      {...register("contractReference")}
+                    />
+                  </TechEarnestCreateField>
+                </TechEarnestCreateColumn>
+                <TechEarnestCreateColumn>
+                  <TechEarnestCreateField label="Contract Signed On" error={errors.contractSignedDate?.message}>
+                    <input type="date" className="form-control form-control-sm" {...register("contractSignedDate")} />
+                  </TechEarnestCreateField>
+                </TechEarnestCreateColumn>
+              </TechEarnestCreateGrid>
+            </TechEarnestCreateSection>
+          ) : null}
           <TechEarnestCreateSection title="Budget & Effort">
             <TechEarnestCreateGrid>
               <TechEarnestCreateColumn>
@@ -897,10 +1107,15 @@ export function ProjectsPage() {
               subtitle={selected.projectCode}
               meta={
                 <span className="text-muted small">
-                  <RecordLink module="account" id={selected.accountId}>
-                    {accountName(selected.accountId)}
-                  </RecordLink>{" "}
-                  · {billingTypeLabel(selected.billingType)}
+                  {selected.accountId ? (
+                    <>
+                      <RecordLink module="account" id={selected.accountId}>
+                        {accountName(selected.accountId)}
+                      </RecordLink>{" "}
+                      ·{" "}
+                    </>
+                  ) : null}
+                  {projectTypeLabel(selected.projectType)} · {billingTypeLabel(selected.billingType)}
                 </span>
               }
               status={
@@ -914,6 +1129,7 @@ export function ProjectsPage() {
                 </>
               }
               recordKey={selected.id}
+              customFieldsTable="project"
               layout="page"
               avatarLabel={selected.name}
               onBack={() => {
@@ -1006,14 +1222,23 @@ export function ProjectsPage() {
                         fields={[
                           { label: "Project Name", value: selected.name },
                           { label: "Project Code", value: selected.projectCode },
+                          { label: "Project Type", value: projectTypeLabel(selected.projectType) },
                           {
                             label: "Account Name",
-                            value: (
+                            value: selected.accountId ? (
                               <RecordLink module="account" id={selected.accountId}>
                                 {accountQuery.data?.name ?? accountName(selected.accountId)}
                               </RecordLink>
+                            ) : (
+                              "Internal (no account)"
                             ),
                           },
+                          ...(selected.projectType === "CONTRACT"
+                            ? [
+                                { label: "Contract Reference", value: selected.contractReference ?? "—" },
+                                { label: "Contract Signed On", value: selected.contractSignedDate ?? "—" },
+                              ]
+                            : []),
                           ...(selected.dealId
                             ? [
                                 {
@@ -1611,6 +1836,7 @@ export function ProjectsPage() {
               defaultColumns={[
                 { field: "name", label: "Name" },
                 { field: "projectCode", label: "Code" },
+                { field: "projectType", label: "Type" },
                 { field: "accountId", label: "Account" },
                 { field: "status", label: "Status" },
                 { field: "health", label: "Health" },
@@ -1619,6 +1845,39 @@ export function ProjectsPage() {
               ]}
               rows={rows}
               rowKey={(project) => project.id}
+              bulk={{
+                noun: "projects",
+                exportFileName: "projects",
+                onComplete: () => void queryClient.invalidateQueries({ queryKey: ["projects"] }),
+                actions: [
+                  {
+                    id: "change-status",
+                    label: "Change status",
+                    visible: canUpdateProject,
+                    doneLabel: "updated",
+                    input: { kind: "select", label: "New status", options: enumOptions(PROJECT_STATUSES) },
+                    run: (project, status) => updateProject(project.id, projectUpdateBody(project, { status })),
+                  },
+                  {
+                    id: "change-manager",
+                    label: "Change manager",
+                    visible: canUpdateProject,
+                    doneLabel: "reassigned",
+                    input: { kind: "select", label: "Project manager", options: bulkManagerOptions },
+                    run: (project, projectManagerId) =>
+                      updateProject(project.id, projectUpdateBody(project, { projectManagerId })),
+                  },
+                  {
+                    id: "delete",
+                    label: "Delete",
+                    tone: "danger",
+                    visible: canDeleteProject,
+                    doneLabel: "deleted",
+                    confirm: "Deleted projects disappear from lists, boards and reports.",
+                    run: (project) => deleteProject(project.id),
+                  },
+                ],
+              }}
               selectedRowKey={(selected as Project | null)?.id}
               onRowClick={(project) => {
                 setSelected(project);
@@ -1628,8 +1887,11 @@ export function ProjectsPage() {
               }}
               renderCell={(project, field) => {
                 if (field === "billingType") return billingTypeLabel(project.billingType);
+                if (field === "projectType") return projectTypeLabel(project.projectType);
                 if (field === "accountId")
-                  return (
+                  return !project.accountId ? (
+                    "—"
+                  ) : (
                     <RecordLink module="account" id={project.accountId}>
                       {accountName(project.accountId)}
                     </RecordLink>

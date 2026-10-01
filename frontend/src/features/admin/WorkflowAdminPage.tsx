@@ -61,6 +61,33 @@ export function WorkflowAdminPage() {
             ]}
             rows={query.data ?? []}
             rowKey={(row) => row.id}
+            bulk={{
+              noun: "workflows",
+              exportFileName: "workflows",
+              csvValue: (row, field) => (field === "active" ? (row.active ? "Active" : "Inactive") : undefined),
+              onComplete: () => void queryClient.invalidateQueries({ queryKey: ["admin", "workflows"] }),
+              actions: [
+                {
+                  id: "activate",
+                  label: "Activate",
+                  tone: "success",
+                  visible: canManage,
+                  doneLabel: "activated",
+                  applies: (row) => !row.active,
+                  run: (row) => setWorkflowActive(row.id, true),
+                },
+                {
+                  id: "deactivate",
+                  label: "Deactivate",
+                  tone: "warning",
+                  visible: canManage,
+                  doneLabel: "deactivated",
+                  applies: (row) => row.active,
+                  confirm: "Inactive workflows are skipped by the workflow engine.",
+                  run: (row) => setWorkflowActive(row.id, false),
+                },
+              ],
+            }}
             renderCell={(row, field) => {
               if (field === "active") return <StatusBadge status={row.active ? "ACTIVE" : "INACTIVE"} />;
               const value = (row as unknown as Record<string, unknown>)[field];

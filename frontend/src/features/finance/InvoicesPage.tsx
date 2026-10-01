@@ -23,6 +23,7 @@ import {
   ModuleListShell,
 } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { postRecordAction, statusIn } from "@/components/BulkActions/bulkActions";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import {
   buildTimelineEntries,
@@ -466,6 +467,7 @@ export function InvoicesPage() {
             meta={`Balance ${selected.balanceDue}`}
             status={<StatusBadge status={selected.status} />}
             recordKey={selected.id}
+            customFieldsTable="invoice"
             layout="page"
             avatarLabel={selected.invoiceNumber ?? "Draft invoice"}
             onBack={recordNav.goBack}
@@ -860,6 +862,34 @@ export function InvoicesPage() {
           ]}
           rows={rows}
           rowKey={(inv) => inv.id}
+          bulk={{
+            noun: "invoices",
+            exportFileName: "invoices",
+            rowLabel: (inv) => inv.invoiceNumber ?? "Draft invoice",
+            onComplete: () => void queryClient.invalidateQueries({ queryKey: ["invoices"] }),
+            actions: [
+              {
+                id: "issue",
+                label: "Issue",
+                tone: "success",
+                visible: canUpdate,
+                doneLabel: "issued",
+                applies: statusIn("DRAFT"),
+                confirm: "Each invoice gets its next number and today's issue date. Drafts without lines are reported as failed.",
+                run: (inv) => postRecordAction(`/invoices/${inv.id}/issue`),
+              },
+              {
+                id: "void",
+                label: "Void",
+                tone: "danger",
+                visible: canVoid,
+                doneLabel: "voided",
+                applies: statusIn("DRAFT", "ISSUED", "OVERDUE"),
+                confirm: "Voided invoices cannot be reopened. Paid invoices are skipped.",
+                run: (inv) => postRecordAction(`/invoices/${inv.id}/void`),
+              },
+            ],
+          }}
           selectedRowKey={selectedId}
           onRowClick={(inv) => {
             setSelectedId(inv.id);

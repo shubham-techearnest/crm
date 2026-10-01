@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -31,7 +32,15 @@ public final class UserDtos {
             List<UUID> roleIds,
             List<String> roleCodes,
             List<UUID> regionIds,
-            Instant createdAt) {
+            Instant createdAt,
+            String jobTitle,
+            String employeeCode,
+            String mobile,
+            LocalDate dateOfJoining,
+            String timezone,
+            String locale,
+            Instant lastLoginAt,
+            Instant updatedAt) {
 
         public static UserResponse from(User user) {
             List<UUID> roleIds = user.getRoles().stream().map(Role::getId).sorted().toList();
@@ -55,7 +64,15 @@ public final class UserDtos {
                     roleIds,
                     roleCodes,
                     regionIds,
-                    user.getCreatedAt());
+                    user.getCreatedAt(),
+                    user.getJobTitle(),
+                    user.getEmployeeCode(),
+                    user.getMobile(),
+                    user.getDateOfJoining(),
+                    user.getTimezone(),
+                    user.getLocale(),
+                    user.getLastLoginAt(),
+                    user.getUpdatedAt());
         }
     }
 
@@ -72,7 +89,14 @@ public final class UserDtos {
             UUID managerId,
             @Size(max = 32) String status,
             List<UUID> roleIds,
-            UUID organizationId) {}
+            UUID organizationId,
+            @Size(max = 128) String jobTitle,
+            @Size(max = 64) String employeeCode,
+            @Size(max = 50) String mobile,
+            LocalDate dateOfJoining,
+            @Size(max = 64) String timezone,
+            @Size(max = 16) String locale,
+            List<UUID> regionIds) {}
 
     public record UpdateUserRequest(
             @NotBlank @Size(max = 100) String firstName,
@@ -83,7 +107,13 @@ public final class UserDtos {
             UUID departmentId,
             UUID teamId,
             UUID managerId,
-            @Size(max = 32) String status) {}
+            @Size(max = 32) String status,
+            @Size(max = 128) String jobTitle,
+            @Size(max = 64) String employeeCode,
+            @Size(max = 50) String mobile,
+            LocalDate dateOfJoining,
+            @Size(max = 64) String timezone,
+            @Size(max = 16) String locale) {}
 
     public record AssignRolesRequest(@NotNull List<UUID> roleIds) {}
 

@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -10,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Link } from "react-router-dom";
 import { useAuth, useHasPermission } from "@/features/auth/AuthContext";
 import { listRegions } from "@/features/admin/adminApi";
 import { CrmPage } from "@/features/crm/CrmPage";
@@ -17,9 +17,12 @@ import { QUICK_CREATE_ITEMS } from "@/constants/nav";
 import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import { TechEarnestPicker, optionsFromPairs } from "@/components/TechEarnestCreate";
 import { getDashboard, type DashboardKind, type DashboardResponse } from "./dashboardApi";
+import { TeamSnapshot } from "./TeamSnapshot";
+
+type TabKind = DashboardKind | "team";
 
 interface TabDef {
-  kind: DashboardKind;
+  kind: TabKind;
   label: string;
   permission: string;
   needsRegion?: boolean;
@@ -30,6 +33,7 @@ const TABS: TabDef[] = [
   { kind: "region", label: "Region", permission: "DASHBOARD_REGION", needsRegion: true },
   { kind: "sales", label: "Sales", permission: "DASHBOARD_SALES" },
   { kind: "project", label: "Projects", permission: "DASHBOARD_PROJECT" },
+  { kind: "team", label: "Team Allocation", permission: "RESOURCE_BOARD_VIEW" },
   { kind: "employee", label: "My work", permission: "DASHBOARD_EMPLOYEE" },
 ];
 
@@ -113,6 +117,7 @@ export function DashboardsPage() {
   const canSales = useHasPermission("DASHBOARD_SALES");
   const canProject = useHasPermission("DASHBOARD_PROJECT");
   const canEmployee = useHasPermission("DASHBOARD_EMPLOYEE");
+  const canTeam = useHasPermission("RESOURCE_BOARD_VIEW");
 
   const tabs = useMemo(
     () =>
@@ -126,20 +131,24 @@ export function DashboardsPage() {
             return canSales;
           case "DASHBOARD_PROJECT":
             return canProject;
+          case "RESOURCE_BOARD_VIEW":
+            return canTeam;
+          // Team Allocation replaces My work for anyone who can see the team; employees keep their own view.
           case "DASHBOARD_EMPLOYEE":
-            return canEmployee;
+            return canEmployee && !canTeam;
           default:
             return false;
         }
       }),
-    [canOrg, canRegion, canSales, canProject, canEmployee],
+    [canOrg, canRegion, canSales, canProject, canEmployee, canTeam],
   );
 
-  const [activeKind, setActiveKind] = useState<DashboardKind | null>(null);
+  const [activeKind, setActiveKind] = useState<TabKind | null>(null);
   const [regionId, setRegionId] = useState("");
 
   const selectedKind = activeKind && tabs.some((t) => t.kind === activeKind) ? activeKind : tabs[0]?.kind;
   const selectedTab = tabs.find((t) => t.kind === selectedKind);
+  const dashboardKind: DashboardKind | undefined = selectedKind === "team" ? undefined : selectedKind;
 
   const regionsQuery = useQuery({
     queryKey: ["admin", "regions"],
@@ -154,12 +163,12 @@ export function DashboardsPage() {
   );
 
   const dashboardQuery = useQuery({
-    queryKey: ["dashboards", selectedKind, effectiveRegionId],
+    queryKey: ["dashboards", dashboardKind, effectiveRegionId],
     queryFn: () =>
-      getDashboard(selectedKind!, {
+      getDashboard(dashboardKind!, {
         regionId: selectedTab?.needsRegion ? effectiveRegionId : undefined,
       }),
-    enabled: !!selectedKind && (!selectedTab?.needsRegion || !!effectiveRegionId),
+    enabled: !!dashboardKind && (!selectedTab?.needsRegion || !!effectiveRegionId),
   });
 
   if (tabs.length === 0) {
@@ -211,37 +220,42 @@ export function DashboardsPage() {
       }
     >
       <div className="crm-dashboard-home">
-        <section className="crm-dashboard-welcome">
-          <div>
-            <div className="crm-dashboard-eyebrow">TECH EARNEST CRM</div>
-            <h2>Welcome back, {user.displayName.split(" ")[0]}</h2>
-            <p>Your latest business activity and key numbers are gathered here.</p>
-          </div>
-          <div className="crm-dashboard-date">
-            {new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date())}
-          </div>
-        </section>
-        {quickActions.length > 0 ? (
-          <section className="crm-dashboard-quick-actions" aria-labelledby="crm-dashboard-quick-actions-title">
-            <div className="crm-dashboard-quick-actions-heading">
+        {selectedKind !== "team" ? (
+          <>
+            <section className="crm-dashboard-welcome">
               <div>
-                <h3 id="crm-dashboard-quick-actions-title">Quick actions</h3>
-                <p>Start a common task in your workspace.</p>
+                <div className="crm-dashboard-eyebrow">TECH EARNEST CRM</div>
+                <h2>Welcome back, {user.displayName.split(" ")[0]}</h2>
+                <p>Your latest business activity and key numbers are gathered here.</p>
               </div>
-            </div>
-            <div className="crm-dashboard-quick-actions-list">
-              {quickActions.map((action) => (
-                <Link key={action.label} className="crm-dashboard-quick-action" to={action.to}>
-                  <span className="crm-dashboard-quick-action-icon"><ToolbarIcon name="plus" /></span>
-                  <span>Create {action.label}</span>
-                  <span className="crm-dashboard-quick-action-arrow" aria-hidden="true">›</span>
-                </Link>
-              ))}
-            </div>
-          </section>
+              <div className="crm-dashboard-date">
+                {new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date())}
+              </div>
+            </section>
+            {quickActions.length > 0 ? (
+              <section className="crm-dashboard-quick-actions" aria-labelledby="crm-dashboard-quick-actions-title">
+                <div className="crm-dashboard-quick-actions-heading">
+                  <div>
+                    <h3 id="crm-dashboard-quick-actions-title">Quick actions</h3>
+                    <p>Start a common task in your workspace.</p>
+                  </div>
+                </div>
+                <div className="crm-dashboard-quick-actions-list">
+                  {quickActions.map((action) => (
+                    <Link key={action.label} className="crm-dashboard-quick-action" to={action.to}>
+                      <span className="crm-dashboard-quick-action-icon"><ToolbarIcon name="plus" /></span>
+                      <span>Create {action.label}</span>
+                      <span className="crm-dashboard-quick-action-arrow" aria-hidden="true">›</span>
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </>
         ) : null}
-        {dashboardQuery.data && selectedKind ? <DashboardBody data={dashboardQuery.data} kind={selectedKind} /> : null}
-        {!dashboardQuery.isLoading && !dashboardQuery.error && dashboardQuery.data?.cards.length === 0 ? (
+        {selectedKind === "team" ? <TeamSnapshot /> : null}
+        {dashboardQuery.data && dashboardKind ? <DashboardBody data={dashboardQuery.data} kind={dashboardKind} /> : null}
+        {dashboardKind && !dashboardQuery.isLoading && !dashboardQuery.error && dashboardQuery.data?.cards.length === 0 ? (
           <div className="crm-dashboard-empty crm-dashboard-empty--large">
             <strong>Nothing to summarize yet</strong>
             <span>Once your workspace has records, live metrics and charts will appear here.</span>

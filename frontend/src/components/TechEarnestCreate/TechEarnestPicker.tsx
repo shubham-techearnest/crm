@@ -15,6 +15,7 @@ export interface TechEarnestPickerProps {
   options: TechEarnestPickerOption[];
   searchPlaceholder?: string;
   placeholder?: string;
+  /** @deprecated The picker has a single caret trigger; kept so existing callers compile. */
   lookupIcon?: ToolbarIconName;
   mode?: "standard" | "user";
   allowEmpty?: boolean;
@@ -56,7 +57,6 @@ export function TechEarnestPicker({
   options,
   searchPlaceholder = "Search",
   placeholder = "—None—",
-  lookupIcon = "apps",
   mode = "standard",
   allowEmpty = true,
   emptyLabel = "—None—",
@@ -275,20 +275,10 @@ export function TechEarnestPicker({
           aria-haspopup="listbox"
           aria-expanded={open}
           disabled={disabled}
-          onClick={() => (open ? closeMenu() : openMenu())}
+          onClick={() => (open ? closeMenu() : openLookup())}
         >
           <span className={`techearnest-picker-value${selected ? "" : " is-placeholder"}`}>{displayLabel}</span>
           <ToolbarIcon name="chevron-down" className="techearnest-picker-caret" />
-        </button>
-        <button
-          type="button"
-          className="btn btn-light techearnest-lookup-btn techearnest-picker-lookup"
-          tabIndex={-1}
-          disabled={disabled}
-          aria-label="Open lookup"
-          onClick={openLookup}
-        >
-          <ToolbarIcon name={lookupIcon} />
         </button>
       </div>
 

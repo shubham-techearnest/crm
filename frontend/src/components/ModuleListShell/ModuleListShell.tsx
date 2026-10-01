@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { navIconForPath } from "@/constants/nav";
 import { NavIcon } from "@/components/NavIcon/NavIcon";
@@ -15,6 +15,7 @@ import {
   type ModulePaginationProps,
 } from "./moduleWorkspaceUi";
 import { ModuleCreateSplit, ModuleMenuDropdown, type ModuleMenuItem } from "./ModuleMenuDropdown";
+import { ModuleBulkMenuContext } from "./moduleBulkMenu";
 
 export {
   ModuleFilterButton,
@@ -234,6 +235,19 @@ export function ModuleListShell({
     ) : null);
   const resolvedFooterRight = footerRight ?? (pagination ? <ModulePagination {...pagination} /> : null);
   const viewTabs = resolveViewTabs(viewSelector);
+  const [bulkMenu, setBulkMenu] = useState<{ ownerId: string; items: ModuleMenuItem[] } | null>(null);
+  const registerBulkMenu = useCallback((ownerId: string, items: ModuleMenuItem[] | null) => {
+    setBulkMenu((current) => {
+      if (items) return { ownerId, items };
+      return current?.ownerId === ownerId ? null : current;
+    });
+  }, []);
+  const pageMenuItems = (moreMenuItems ?? []).filter((item) => item.visible !== false);
+  const combinedMenuItems: ModuleMenuItem[] = bulkMenu?.items.length
+    ? pageMenuItems.length
+      ? [...pageMenuItems, { id: "bulk-menu-separator", label: "", separator: true }, ...bulkMenu.items]
+      : bulkMenu.items
+    : pageMenuItems;
   const showToolbar =
     toolbarSearch ||
     toolbarActions ||
@@ -241,11 +255,12 @@ export function ModuleListShell({
     onViewModeChange ||
     primaryAction ||
     (createMenuItems && createMenuItems.length > 0) ||
-    moreMenuItems ||
+    combinedMenuItems.length > 0 ||
     moreActions ||
     showSortButton;
 
   return (
+    <ModuleBulkMenuContext.Provider value={registerBulkMenu}>
     <section
       className={`module-list-shell${activeFilterCount > 0 ? " has-active-filters" : ""}`}
       aria-labelledby="module-list-title"
@@ -297,9 +312,9 @@ export function ModuleListShell({
               {toolbarActions}
             </div>
             <div className="module-list-toolbar-right">
-              {moreMenuItems?.length ? (
+              {combinedMenuItems.length ? (
                 <ModuleMenuDropdown
-                  items={moreMenuItems}
+                  items={combinedMenuItems}
                   align="end"
                   ariaLabel="More actions"
                   triggerClassName="module-more-btn"
@@ -339,5 +354,6 @@ export function ModuleListShell({
         </footer>
       ) : null}
     </section>
+    </ModuleBulkMenuContext.Provider>
   );
 }

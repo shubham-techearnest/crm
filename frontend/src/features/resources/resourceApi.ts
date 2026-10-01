@@ -8,7 +8,7 @@ function unwrap<T>(response: ApiResponse<T>, fallback = "Request failed"): T {
   return response.data;
 }
 
-export const RESOURCE_TYPES = ["EMPLOYEE", "CONTRACTOR", "FREELANCER", "CONSULTANT"] as const;
+export const RESOURCE_TYPES = ["EMPLOYEE", "CONTRACTOR", "FREELANCER", "CONSULTANT", "OTHER_EXTERNAL"] as const;
 export type ResourceType = (typeof RESOURCE_TYPES)[number];
 
 /** Codes are auto-numbered per prefix (EMP-001, CON-001, FRL-001) when a resource is created. */
@@ -17,7 +17,15 @@ export const RESOURCE_TYPE_META: Record<ResourceType, { label: string; prefix: s
   CONTRACTOR: { label: "Contractor", prefix: "CON", hint: "External, contract based" },
   FREELANCER: { label: "Freelancer", prefix: "FRL", hint: "External, engaged per assignment" },
   CONSULTANT: { label: "Consultant", prefix: "CON", hint: "External, contract based advisory" },
+  OTHER_EXTERNAL: { label: "Other external", prefix: "EXT", hint: "Any other outside resource" },
 };
+
+export const RATE_UNITS = ["HOURLY", "DAILY", "MONTHLY"] as const;
+
+/** Lifecycle states that take a resource out of the workforce. */
+export const ENDED_STATUSES = ["INACTIVE", "CONTRACT_EXPIRED", "TERMINATED"] as const;
+
+export const LEAVE_KINDS = ["LEAVE", "HOLIDAY", "SICK", "TRAINING", "OTHER"] as const;
 
 export function resourceTypeLabel(type: string | null | undefined): string {
   return (type && RESOURCE_TYPE_META[type as ResourceType]?.label) || type || "—";
@@ -54,6 +62,37 @@ export interface Resource {
   /** NONE (no login), INVITED, ACTIVE, EXPIRED or DEACTIVATED. */
   loginStatus: string;
   accessExpiresAt: string | null;
+  typeCategory?: "INTERNAL" | "EXTERNAL" | null;
+  engagementStartDate?: string | null;
+  contractReference?: string | null;
+  vendorId?: string | null;
+  vendorName?: string | null;
+  workingHoursPerDay?: number | null;
+  workingDaysPerWeek?: number | null;
+  experienceYears?: number | null;
+  location?: string | null;
+  availableFrom?: string | null;
+  billable?: boolean;
+  rateUnit?: string | null;
+  deactivatedAt?: string | null;
+  deactivationReason?: string | null;
+}
+
+/** Profile, capacity and engagement fields; omitted values stay unchanged. */
+export interface ResourceProfileBody {
+  engagementStartDate?: string | null;
+  contractReference?: string | null;
+  vendorId?: string | null;
+  workingHoursPerDay?: number | null;
+  workingDaysPerWeek?: number | null;
+  experienceYears?: number | null;
+  location?: string | null;
+  availableFrom?: string | null;
+  billable?: boolean;
+  rateUnit?: string | null;
+  clearVendor?: boolean;
+  clearAvailableFrom?: boolean;
+  clearEngagementStartDate?: boolean;
 }
 
 export interface CreateResourceBody {
@@ -74,6 +113,7 @@ export interface CreateResourceBody {
   email?: string;
   phone?: string;
   engagementEndDate?: string | null;
+  profile?: ResourceProfileBody;
 }
 
 export interface UpdateResourceBody {
@@ -94,6 +134,56 @@ export interface UpdateResourceBody {
   phone?: string;
   engagementEndDate?: string | null;
   clearEngagementEndDate?: boolean;
+  profile?: ResourceProfileBody;
+}
+
+export interface ResourceTypeOption {
+  code: string;
+  name: string;
+  category: "INTERNAL" | "EXTERNAL";
+  codePrefix: string;
+  requiresUser: boolean;
+  active: boolean;
+}
+
+export interface DeactivateResourceBody {
+  status?: string;
+  reason?: string;
+  effectiveDate?: string;
+  endOpenAllocations?: boolean;
+  revokePortalAccess?: boolean;
+}
+
+export interface ReactivateResourceBody {
+  engagementStartDate?: string | null;
+  engagementEndDate?: string | null;
+  availableFrom?: string | null;
+}
+
+export interface ResourceLifecycleResult {
+  resource: Resource;
+  allocationsEnded: number;
+  allocationsCancelled: number;
+  portalAccessRevoked: boolean;
+}
+
+export interface Unavailability {
+  id: string;
+  resourceId: string;
+  startDate: string;
+  endDate: string;
+  kind: string;
+  hoursPerDay: number | null;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface UnavailabilityBody {
+  startDate: string;
+  endDate: string;
+  kind?: string;
+  hoursPerDay?: number | null;
+  reason?: string;
 }
 
 export interface PortalAccess {
@@ -141,12 +231,16 @@ export interface ResourceSkill {
   skillId: string;
   proficiency: string;
   yearsOfExperience: number | null;
+  primary?: boolean;
+  certification?: string | null;
 }
 
 export interface ResourceSkillItem {
   skillId: string;
   proficiency: string;
   yearsOfExperience?: number | null;
+  primary?: boolean;
+  certification?: string | null;
 }
 
 export interface ReplaceSkillsBody {
@@ -181,6 +275,13 @@ export interface Allocation {
   warning: string | null;
   createdAt: string;
   updatedAt: string;
+  billable?: boolean;
+  source?: string | null;
+  notes?: string | null;
+  milestoneId?: string | null;
+  endedAt?: string | null;
+  /** Non-blocking notes, e.g. outside the engagement or project window. */
+  warnings?: string[];
 }
 
 export interface CreateAllocationBody {
@@ -196,6 +297,9 @@ export interface CreateAllocationBody {
   costRate?: number | null;
   status?: string;
   dryRun?: boolean;
+  billable?: boolean;
+  notes?: string;
+  milestoneId?: string | null;
 }
 
 export interface UpdateAllocationBody {
@@ -208,6 +312,10 @@ export interface UpdateAllocationBody {
   costRate?: number | null;
   status?: string;
   dryRun?: boolean;
+  billable?: boolean;
+  notes?: string;
+  milestoneId?: string | null;
+  clearMilestone?: boolean;
 }
 
 // —— Resources ——
@@ -412,4 +520,41 @@ export async function updateAllocation(
 export async function deleteAllocation(id: string): Promise<void> {
   const { data } = await api.delete<ApiResponse<null>>(`/allocations/${id}`);
   if (!data.success) throw new Error(data.message ?? "Could not delete allocation.");
+}
+
+/** Ends an allocation (today unless a date is given) and keeps it as history. */
+export async function endAllocation(id: string, body?: { endDate?: string; reason?: string }): Promise<Allocation> {
+  const { data } = await api.post<ApiResponse<Allocation>>(`/allocations/${id}/end`, body ?? {});
+  return unwrap(data);
+}
+
+// —— Lifecycle, types and leave ——
+
+export async function listResourceTypes(): Promise<ResourceTypeOption[]> {
+  const { data } = await api.get<ApiResponse<ResourceTypeOption[]>>("/resources/types");
+  return unwrap(data);
+}
+
+export async function deactivateResource(id: string, body: DeactivateResourceBody): Promise<ResourceLifecycleResult> {
+  const { data } = await api.post<ApiResponse<ResourceLifecycleResult>>(`/resources/${id}/deactivate`, body);
+  return unwrap(data);
+}
+
+export async function reactivateResource(id: string, body: ReactivateResourceBody): Promise<ResourceLifecycleResult> {
+  const { data } = await api.post<ApiResponse<ResourceLifecycleResult>>(`/resources/${id}/reactivate`, body);
+  return unwrap(data);
+}
+
+export async function listUnavailability(resourceId: string): Promise<Unavailability[]> {
+  const { data } = await api.get<ApiResponse<Unavailability[]>>(`/resources/${resourceId}/unavailability`);
+  return unwrap(data);
+}
+
+export async function addUnavailability(resourceId: string, body: UnavailabilityBody): Promise<Unavailability> {
+  const { data } = await api.post<ApiResponse<Unavailability>>(`/resources/${resourceId}/unavailability`, body);
+  return unwrap(data);
+}
+
+export async function removeUnavailability(leaveId: string): Promise<void> {
+  await api.delete(`/resources/unavailability/${leaveId}`);
 }

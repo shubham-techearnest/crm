@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { EmptyState } from "@/components/EmptyState/EmptyState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { useHasPermission } from "@/features/auth/AuthContext";
+import { adminErrorMessage } from "@/features/admin/adminKit";
 import { FormPolicyStudio } from "./FormPolicyStudio";
 import {
   createSysField,
@@ -32,6 +34,10 @@ import {
 import "./StudioPage.scss";
 
 const FIELD_TYPES = ["STRING", "TEXT", "NUMBER", "BOOLEAN", "DATE", "DATETIME", "REFERENCE", "ENUM"] as const;
+
+function splitOptions(raw: string): string[] {
+  return Array.from(new Set(raw.split(/\r?\n/).map((o) => o.trim()).filter(Boolean)));
+}
 type CanvasTab = "fields" | "form" | "list" | "related" | "policies";
 
 const SUPPORTED_RELATED_TABLES: Record<string, string[]> = {
@@ -57,7 +63,11 @@ export function StudioPage() {
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [groupFilter, setGroupFilter] = useState("");
-  const [canvasTab, setCanvasTab] = useState<CanvasTab>("fields");
+  const [searchParams] = useSearchParams();
+  const [canvasTab, setCanvasTab] = useState<CanvasTab>(() => {
+    const tab = searchParams.get("tab");
+    return tab === "form" || tab === "list" || tab === "related" || tab === "policies" ? tab : "fields";
+  });
   const [layoutKey, setLayoutKey] = useState<"CREATE" | "EDIT">("CREATE");
   const [previewMode, setPreviewMode] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -66,6 +76,10 @@ export function StudioPage() {
   const [newLabel, setNewLabel] = useState("");
   const [newType, setNewType] = useState<string>("STRING");
   const [newFilterable, setNewFilterable] = useState(false);
+  const [newMandatory, setNewMandatory] = useState(false);
+  const [newHelpText, setNewHelpText] = useState("");
+  const [newDefault, setNewDefault] = useState("");
+  const [newOptions, setNewOptions] = useState("");
   const [formDraft, setFormDraft] = useState<FormLayoutJson>(EMPTY_FORM);
   const [listDraft, setListDraft] = useState<ListLayoutJson>(EMPTY_LIST);
   const [relatedDrafts, setRelatedDrafts] = useState<RelatedListLayout[]>([]);
@@ -81,6 +95,13 @@ export function StudioPage() {
     queryFn: listSysTables,
   });
   const tables = tablesQuery.data ?? [];
+  const requestedTableCode = searchParams.get("table");
+
+  useEffect(() => {
+    if (selectedTableId || !requestedTableCode || !tablesQuery.data) return;
+    const match = tablesQuery.data.find((t) => t.code === requestedTableCode);
+    if (match) setSelectedTableId(match.id);
+  }, [selectedTableId, requestedTableCode, tablesQuery.data]);
 
   const fieldsQuery = useQuery({
     queryKey: ["metadata", "fields", selectedTableId],
@@ -176,6 +197,7 @@ export function StudioPage() {
     queryClient.invalidateQueries({ queryKey: ["metadata", "form-layout", selectedTableId, layoutKey] });
   const refreshList = () =>
     queryClient.invalidateQueries({ queryKey: ["metadata", "list-layout", selectedTableId] });
+  const refreshCustomFields = () => queryClient.invalidateQueries({ queryKey: ["custom-fields"] });
   const refreshRelatedLists = () =>
     queryClient.invalidateQueries({ queryKey: ["metadata", "related-lists", selectedTableId] });
 
@@ -187,7 +209,7 @@ export function StudioPage() {
       setToast(previewMode ? "Preview saved locally (publish when ready)" : "Table published");
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const updateFieldMutation = useMutation({
@@ -197,13 +219,16 @@ export function StudioPage() {
       active?: boolean;
       fieldType?: string;
       filterable?: boolean;
+      mandatory?: boolean;
+      options?: string[];
     }) => updateSysField(selectedFieldId!, body),
     onSuccess: async () => {
       await refreshFields();
+      void refreshCustomFields();
       setToast("Field updated");
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const createFieldMutation = useMutation({
@@ -213,18 +238,27 @@ export function StudioPage() {
         label: newLabel,
         fieldType: newType,
         filterable: newFilterable,
+        mandatory: newMandatory,
+        helpText: newHelpText.trim() || undefined,
+        defaultValue: newDefault.trim() || undefined,
+        options: newType === "ENUM" ? splitOptions(newOptions) : undefined,
       }),
     onSuccess: async (field) => {
       await refreshFields();
+      void refreshCustomFields();
       setSelectedFieldId(field.id);
       setNewCode("");
       setNewLabel("");
       setNewType("STRING");
       setNewFilterable(false);
-      setToast("Custom field created (values stored in custom_fields JSONB map)");
+      setNewMandatory(false);
+      setNewHelpText("");
+      setNewDefault("");
+      setNewOptions("");
+      setToast("Custom field created — add it from Manage Columns and fill it on the record form");
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const deactivateMutation = useMutation({
@@ -234,7 +268,7 @@ export function StudioPage() {
       await refreshFields();
       setToast("Field deactivated");
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const saveFormMutation = useMutation({
@@ -245,7 +279,7 @@ export function StudioPage() {
       setToast(previewMode ? "Form draft saved (preview)" : "Form draft saved");
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const publishFormMutation = useMutation({
@@ -255,11 +289,12 @@ export function StudioPage() {
     },
     onSuccess: async () => {
       await refreshForm();
+      void refreshCustomFields();
       setFormDirty(false);
       setToast("Form layout published — runtime forms update without redeploy");
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const discardFormMutation = useMutation({
@@ -268,7 +303,7 @@ export function StudioPage() {
       await refreshForm();
       setToast("Form draft discarded");
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const saveListMutation = useMutation({
@@ -279,7 +314,7 @@ export function StudioPage() {
       setToast("List draft saved");
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const publishListMutation = useMutation({
@@ -293,7 +328,7 @@ export function StudioPage() {
       setToast("List layout published");
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const discardListMutation = useMutation({
@@ -302,7 +337,7 @@ export function StudioPage() {
       await refreshList();
       setToast("List draft discarded");
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const saveRelatedMutation = useMutation({
@@ -323,7 +358,7 @@ export function StudioPage() {
       setNewRelatedPermission("");
       setNewRelatedColumns([]);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const publishRelatedMutation = useMutation({
@@ -334,7 +369,7 @@ export function StudioPage() {
       setToast("Related list published");
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "The change could not be saved.")),
   });
 
   const moveFormField = (sectionIdx: number, fieldIdx: number, dir: -1 | 1) => {
@@ -448,8 +483,16 @@ export function StudioPage() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-secondary"
-                disabled={!canManage || !formDirty}
-                onClick={() => discardFormMutation.mutate()}
+                disabled={!canManage || (!formDirty && formLayoutQuery.data?.status !== "DRAFT")}
+                onClick={() => {
+                  if (formLayoutQuery.data?.status === "DRAFT") {
+                    discardFormMutation.mutate();
+                    return;
+                  }
+                  setFormDraft(structuredClone(formLayoutQuery.data?.layout ?? EMPTY_FORM));
+                  setFormDirty(false);
+                  setToast("Unsaved changes discarded");
+                }}
               >
                 Discard draft
               </button>
@@ -476,8 +519,16 @@ export function StudioPage() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline-secondary"
-                disabled={!canManage || !listDirty}
-                onClick={() => discardListMutation.mutate()}
+                disabled={!canManage || (!listDirty && listLayoutQuery.data?.status !== "DRAFT")}
+                onClick={() => {
+                  if (listLayoutQuery.data?.status === "DRAFT") {
+                    discardListMutation.mutate();
+                    return;
+                  }
+                  setListDraft(structuredClone(listLayoutQuery.data?.layout ?? EMPTY_LIST));
+                  setListDirty(false);
+                  setToast("Unsaved changes discarded");
+                }}
               >
                 Discard draft
               </button>
@@ -1012,6 +1063,36 @@ export function StudioPage() {
                     />
                     <span className="form-check-label">Filterable (appears in advanced filter catalog)</span>
                   </label>
+                  {!selectedField.system ? (
+                    <label className="form-check small mb-2">
+                      <input
+                        type="checkbox"
+                        className="form-check-input"
+                        checked={!!selectedField.mandatory}
+                        disabled={!canManage}
+                        onChange={(e) => updateFieldMutation.mutate({ mandatory: e.target.checked })}
+                      />
+                      <span className="form-check-label">Required on forms</span>
+                    </label>
+                  ) : null}
+                  {!selectedField.system && selectedField.fieldType === "ENUM" ? (
+                    <>
+                      <label className="form-label small mb-1">Picklist options (one per line)</label>
+                      <textarea
+                        className="form-control form-control-sm mb-2"
+                        rows={4}
+                        defaultValue={(selectedField.options ?? []).join("\n")}
+                        key={`fopts-${selectedField.id}-${(selectedField.options ?? []).join("|")}`}
+                        disabled={!canManage}
+                        onBlur={(e) => {
+                          const next = splitOptions(e.target.value);
+                          if (next.length > 0 && next.join("\n") !== (selectedField.options ?? []).join("\n")) {
+                            updateFieldMutation.mutate({ options: next });
+                          }
+                        }}
+                      />
+                    </>
+                  ) : null}
                   {canManage && !selectedField.system ? (
                     <button
                       type="button"
@@ -1028,7 +1109,8 @@ export function StudioPage() {
                 <section>
                   <h3 className="h6">Add custom field</h3>
                   <p className="small text-muted">
-                    Storage: JSONB <code>custom_fields</code> map on records. Max 50 per table.
+                    New fields appear in Manage Columns, on create/edit forms (Additional Information, or the
+                    section you place them in on the Form layout tab) and on record views. Max 50 per table.
                   </p>
                   <input
                     className="form-control form-control-sm mb-2"
@@ -1053,6 +1135,36 @@ export function StudioPage() {
                       </option>
                     ))}
                   </select>
+                  {newType === "ENUM" ? (
+                    <textarea
+                      className="form-control form-control-sm mb-2"
+                      rows={4}
+                      placeholder="Picklist options, one per line"
+                      value={newOptions}
+                      onChange={(e) => setNewOptions(e.target.value)}
+                    />
+                  ) : null}
+                  <input
+                    className="form-control form-control-sm mb-2"
+                    placeholder="Help text (optional)"
+                    value={newHelpText}
+                    onChange={(e) => setNewHelpText(e.target.value)}
+                  />
+                  <input
+                    className="form-control form-control-sm mb-2"
+                    placeholder="Default value (optional)"
+                    value={newDefault}
+                    onChange={(e) => setNewDefault(e.target.value)}
+                  />
+                  <label className="form-check small mb-1">
+                    <input
+                      type="checkbox"
+                      className="form-check-input"
+                      checked={newMandatory}
+                      onChange={(e) => setNewMandatory(e.target.checked)}
+                    />
+                    <span className="form-check-label">Required</span>
+                  </label>
                   <label className="form-check small mb-2">
                     <input
                       type="checkbox"
@@ -1065,7 +1177,12 @@ export function StudioPage() {
                   <button
                     type="button"
                     className="btn btn-outline-primary btn-sm"
-                    disabled={!newCode.trim() || !newLabel.trim() || createFieldMutation.isPending}
+                    disabled={
+                      !newCode.trim() ||
+                      !newLabel.trim() ||
+                      (newType === "ENUM" && splitOptions(newOptions).length === 0) ||
+                      createFieldMutation.isPending
+                    }
                     onClick={() => createFieldMutation.mutate()}
                   >
                     Add field
@@ -1077,8 +1194,9 @@ export function StudioPage() {
                 <section>
                   <h3 className="h6">Form layout</h3>
                   <p className="small text-muted mb-0">
-                    Place fields into Primary (ALWAYS) or Additional (MORE) sections. Publish updates Lead
-                    DynamicForm without redeploy.
+                    Group custom fields into sections. Publishing updates the custom-field sections on this
+                    table's create/edit forms and record views without redeploy. Standard fields keep their
+                    built-in positions.
                   </p>
                 </section>
               ) : null}

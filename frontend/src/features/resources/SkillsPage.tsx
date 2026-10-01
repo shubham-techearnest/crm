@@ -168,6 +168,8 @@ export function SkillsPage() {
       {showForm && canManage ? (
         <TechEarnestFormKitCreateView
           title={editingSkillId ? "Edit Skill" : "Create Skill"}
+          tableCode="skill"
+          recordId={editingSkillId}
           entityLabel="Skill"
           pending={isSubmitting || createMutation.isPending || updateMutation.isPending}
           isDirty={isDirty}
@@ -270,6 +272,22 @@ export function SkillsPage() {
               ]}
               rows={rows}
               rowKey={(skill) => skill.id}
+              bulk={{
+                noun: "skills",
+                exportFileName: "skills",
+                onComplete: () => void queryClient.invalidateQueries({ queryKey: ["skills"] }),
+                actions: [
+                  {
+                    id: "delete",
+                    label: "Delete",
+                    tone: "danger",
+                    visible: canManage,
+                    doneLabel: "deleted",
+                    confirm: "Deleted skills are removed from the catalog and can no longer be picked.",
+                    run: (skill) => deleteSkill(skill.id),
+                  },
+                ],
+              }}
               renderCell={(skill, field) => {
                 const value = (skill as unknown as Record<string, unknown>)[field];
                 return value == null || value === "" ? "—" : String(value);

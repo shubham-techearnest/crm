@@ -36,6 +36,16 @@ public class Region {
     @Column(nullable = false)
     private String status;
 
+    private String description;
+
+    @Column(name = "manager_id")
+    private UUID managerId;
+
+    private String timezone;
+
+    @Column(name = "currency_code")
+    private String currencyCode;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -72,6 +82,29 @@ public class Region {
         if (status != null && !status.isBlank()) {
             this.status = status;
         }
+    }
+
+    public void updateDetails(String description, UUID managerId, String timezone, String currencyCode) {
+        this.description = description;
+        this.managerId = managerId;
+        this.timezone = timezone;
+        this.currencyCode = currencyCode;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public UUID getManagerId() {
+        return managerId;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
+    public String getCurrencyCode() {
+        return currencyCode;
     }
 
     public void markDeleted() {

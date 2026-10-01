@@ -3,6 +3,7 @@ package com.techearnest.crm.resource.api;
 import com.techearnest.crm.common.api.ApiResponse;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.AllocationResponse;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.CreateAllocationRequest;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.EndAllocationRequest;
 import com.techearnest.crm.resource.api.dto.ResourceDtos.UpdateAllocationRequest;
 import com.techearnest.crm.resource.application.AllocationService;
 import jakarta.validation.Valid;
@@ -64,6 +65,13 @@ public class AllocationController {
     public ApiResponse<AllocationResponse> update(
             @PathVariable UUID id, @Valid @RequestBody UpdateAllocationRequest request) {
         var result = allocationService.update(id, request);
+        return ApiResponse.ok(result.data(), result.message());
+    }
+
+    @PostMapping("/{id}/end")
+    public ApiResponse<AllocationResponse> end(
+            @PathVariable UUID id, @Valid @RequestBody(required = false) EndAllocationRequest request) {
+        var result = allocationService.end(id, request);
         return ApiResponse.ok(result.data(), result.message());
     }
 

@@ -12,6 +12,7 @@ import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -60,6 +61,21 @@ public class User {
     private String lastName;
 
     private String phone;
+
+    @Column(name = "job_title")
+    private String jobTitle;
+
+    @Column(name = "employee_code")
+    private String employeeCode;
+
+    private String mobile;
+
+    @Column(name = "date_of_joining")
+    private LocalDate dateOfJoining;
+
+    private String timezone;
+
+    private String locale;
 
     @Column(nullable = false)
     private String status;
@@ -238,6 +254,45 @@ public class User {
         if (status != null && !status.isBlank()) {
             this.status = status;
         }
+    }
+
+    public void updateWorkProfile(
+            String jobTitle,
+            String employeeCode,
+            String mobile,
+            LocalDate dateOfJoining,
+            String timezone,
+            String locale) {
+        this.jobTitle = jobTitle;
+        this.employeeCode = employeeCode;
+        this.mobile = mobile;
+        this.dateOfJoining = dateOfJoining;
+        this.timezone = timezone;
+        this.locale = locale;
+    }
+
+    public String getJobTitle() {
+        return jobTitle;
+    }
+
+    public String getEmployeeCode() {
+        return employeeCode;
+    }
+
+    public String getMobile() {
+        return mobile;
+    }
+
+    public LocalDate getDateOfJoining() {
+        return dateOfJoining;
+    }
+
+    public String getTimezone() {
+        return timezone;
+    }
+
+    public String getLocale() {
+        return locale;
     }
 
     public void replaceRoles(Set<Role> nextRoles) {

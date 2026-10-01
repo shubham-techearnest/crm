@@ -19,6 +19,7 @@ import { TechEarnestRecordImage } from "@/components/TechEarnestCreate/TechEarne
 import { useTechEarnestRecordPhoto } from "@/components/TechEarnestCreate/useTechEarnestRecordPhoto";
 import { addressPrefix, parseAddressJson, serializeAddressJson, type TechEarnestAddressValues } from "@/components/TechEarnestCreate/techearnestAddressUtils";
 import { attachRecordPhoto } from "@/components/TechEarnestCreate/attachRecordPhoto";
+import { useCustomFieldsForm } from "@/features/customFields/useCustomFieldsForm";
 import { createAccount, updateAccount, type Account } from "./crmApi";
 import { LEAD_INDUSTRIES, LEAD_RATINGS, noneLabel } from "./leadFormConstants";
 
@@ -181,11 +182,13 @@ export function AccountCreateView({
     setValue,
     getValues,
     control,
-    formState: { errors, isSubmitting, isDirty },
+    formState: { errors, isSubmitting, isDirty: formDirty },
   } = useForm<AccountFormValues>({
     resolver: zodResolver(accountSchema),
     defaultValues: defaults,
   });
+  const customFields = useCustomFieldsForm("account", account?.id);
+  const isDirty = formDirty || customFields.dirty;
 
   const regionOptions = useMemo(
     () => optionsFromPairs(regions.map((region) => ({ value: region.id, label: region.name }))),
@@ -230,6 +233,7 @@ export function AccountCreateView({
   }
 
   function submit(values: AccountFormValues) {
+    if (!customFields.prepareSave()) return;
     createMutation.mutate(buildCreateBody(values));
   }
 
@@ -458,6 +462,7 @@ export function AccountCreateView({
                 <textarea className="form-control form-control-sm" rows={5} {...register("description")} />
               </TechEarnestField>
             </TechEarnestCreateSection>
+            {customFields.section}
           </div>
         </div>
       </form>

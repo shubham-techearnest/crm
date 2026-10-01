@@ -3,6 +3,7 @@ import { useState } from "react";
 import { EmptyState } from "@/components/EmptyState/EmptyState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
+import { adminErrorMessage } from "@/features/admin/adminKit";
 import {
   createFormPolicy,
   listFormPolicies,
@@ -62,7 +63,7 @@ export function FormPolicyStudio({ tableId, canManage }: { tableId: string; canM
       setFormError(null);
       await queryClient.invalidateQueries({ queryKey: ["metadata", "form-policies", tableId] });
     },
-    onError: (error: Error) => setFormError(error.message || "Could not save policy draft."),
+    onError: (error) => setFormError(adminErrorMessage(error, "Could not save policy draft.")),
   });
 
   const publishMutation = useMutation({
@@ -72,7 +73,7 @@ export function FormPolicyStudio({ tableId, canManage }: { tableId: string; canM
       await queryClient.invalidateQueries({ queryKey: ["metadata", "runtime", "form-policies", "deal", "EDIT"] });
       setFormError(null);
     },
-    onError: (error: Error) => setFormError(error.message || "Could not publish this policy."),
+    onError: (error) => setFormError(adminErrorMessage(error, "Could not publish this policy.")),
   });
 
   const needsValue = !["EMPTY", "NOT_EMPTY"].includes(operator);

@@ -20,6 +20,7 @@ import {
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { deleteRecord, postRecordAction, statusIn } from "@/components/BulkActions/bulkActions";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import {
   buildTimelineEntries,
@@ -112,6 +113,7 @@ export function PurchaseOrdersPage() {
   const canCreate = useHasPermission("PO_CREATE");
   const canApprove = useHasPermission("PO_APPROVE");
   const canUpdate = useHasPermission("PO_UPDATE");
+  const canDelete = useHasPermission("PO_DELETE");
   const canViewVendors = useHasPermission("VENDOR_VIEW");
   const { filterOpen, setFilterOpen, viewMode, setViewMode, search, setSearch, showForm, setShowForm } =
     useModuleWorkspace();
@@ -568,6 +570,7 @@ export function PurchaseOrdersPage() {
             meta={vendorName(selected.vendorId)}
             status={<StatusBadge status={selected.status} />}
             recordKey={selected.id}
+            customFieldsTable="purchase_order"
             layout="page"
             avatarLabel={selected.poNumber ?? "Draft PO"}
             onBack={recordNav.goBack}
@@ -928,6 +931,70 @@ export function PurchaseOrdersPage() {
           ]}
           rows={rows}
           rowKey={(row) => row.id}
+          bulk={{
+            noun: "purchase orders",
+            exportFileName: "purchase-orders",
+            rowLabel: (row) => row.poNumber ?? "Draft PO",
+            onComplete: () => {
+              void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+              void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+            },
+            actions: [
+              {
+                id: "submit",
+                label: "Submit",
+                visible: canCreate,
+                doneLabel: "submitted",
+                applies: statusIn("DRAFT", "REJECTED"),
+                run: (row) => postRecordAction(`/purchase-orders/${row.id}/submit`),
+              },
+              {
+                id: "approve",
+                label: "Approve",
+                tone: "success",
+                visible: canApprove,
+                doneLabel: "approved",
+                applies: statusIn("PENDING_APPROVAL"),
+                run: (row) => postRecordAction(`/purchase-orders/${row.id}/approve`),
+              },
+              {
+                id: "reject",
+                label: "Reject",
+                tone: "danger",
+                visible: canApprove,
+                doneLabel: "rejected",
+                applies: statusIn("PENDING_APPROVAL"),
+                input: { kind: "text", label: "Rejection reason", multiline: true },
+                run: (row, reason) => postRecordAction(`/purchase-orders/${row.id}/reject`, { reason }),
+              },
+              {
+                id: "send",
+                label: "Send to vendor",
+                visible: canUpdate,
+                doneLabel: "sent",
+                applies: statusIn("APPROVED"),
+                run: (row) => postRecordAction(`/purchase-orders/${row.id}/send`),
+              },
+              {
+                id: "close",
+                label: "Close",
+                visible: canUpdate,
+                doneLabel: "closed",
+                applies: statusIn("APPROVED", "SENT"),
+                run: (row) => postRecordAction(`/purchase-orders/${row.id}/close`),
+              },
+              {
+                id: "delete",
+                label: "Delete",
+                tone: "danger",
+                visible: canDelete,
+                doneLabel: "deleted",
+                applies: statusIn("DRAFT", "REJECTED"),
+                confirm: "Only draft or rejected purchase orders can be deleted.",
+                run: (row) => deleteRecord(`/purchase-orders/${row.id}`),
+              },
+            ],
+          }}
           selectedRowKey={selectedId}
           onRowClick={(row) => {
             setSelectedId(row.id);

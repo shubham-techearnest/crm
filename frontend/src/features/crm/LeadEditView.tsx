@@ -13,6 +13,7 @@ import {
 } from "@/components/TechEarnestCreate";
 import { TechEarnestCreateField as TechEarnestField } from "@/components/TechEarnestCreate/TechEarnestCreateField";
 import { TechEarnestCreateSection } from "@/components/TechEarnestCreate/TechEarnestCreateSection";
+import { useCustomFieldsForm } from "@/features/customFields/useCustomFieldsForm";
 import { updateLead, type Lead } from "./crmApi";
 import { LEAD_SOURCES, LEAD_STATUSES, noneLabel } from "./leadFormConstants";
 import type { ApiResponse } from "@/types/api";
@@ -81,11 +82,13 @@ export function LeadEditView({ lead, users, onCancel, onUpdated }: LeadEditViewP
     register,
     handleSubmit,
     control,
-    formState: { errors, isSubmitting, isDirty },
+    formState: { errors, isSubmitting, isDirty: formDirty },
   } = useForm<LeadEditFormValues>({
     resolver: zodResolver(leadEditSchema),
     defaultValues: defaults,
   });
+  const customFields = useCustomFieldsForm("lead", lead.id);
+  const isDirty = formDirty || customFields.dirty;
 
   const updateMutation = useMutation({
     mutationFn: (values: LeadEditFormValues) =>
@@ -132,7 +135,7 @@ export function LeadEditView({ lead, users, onCancel, onUpdated }: LeadEditViewP
             type="button"
             className="btn btn-primary btn-sm techearnest-create-btn techearnest-create-btn--save"
             disabled={pending || readOnly}
-            onClick={() => void handleSubmit((values) => updateMutation.mutate(values))()}
+            onClick={() => void handleSubmit((values) => customFields.prepareSave() && updateMutation.mutate(values))()}
           >
             {pending ? "Saving…" : "Save"}
           </button>
@@ -143,7 +146,7 @@ export function LeadEditView({ lead, users, onCancel, onUpdated }: LeadEditViewP
         className="techearnest-create-form"
         onSubmit={(event) => {
           event.preventDefault();
-          void handleSubmit((values) => updateMutation.mutate(values))();
+          void handleSubmit((values) => customFields.prepareSave() && updateMutation.mutate(values))();
         }}
       >
         <UnsavedGuard when={isDirty} />
@@ -202,6 +205,7 @@ export function LeadEditView({ lead, users, onCancel, onUpdated }: LeadEditViewP
                 <textarea className="form-control form-control-sm" rows={5} disabled={readOnly} {...register("description")} />
               </TechEarnestField>
             </TechEarnestCreateSection>
+            {customFields.section}
           </div>
         </div>
       </form>

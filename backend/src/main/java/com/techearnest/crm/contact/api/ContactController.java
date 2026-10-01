@@ -74,4 +74,10 @@ public class ContactController {
         contactService.delete(id);
         return ApiResponse.ok(null, "Contact deleted successfully");
     }
+
+    @PostMapping("/bulk-assign")
+    public ApiResponse<com.techearnest.crm.common.bulk.BulkDtos.BulkResult> bulkAssign(
+            @Valid @RequestBody com.techearnest.crm.common.bulk.BulkDtos.BulkAssignOwnerRequest request) {
+        return ApiResponse.ok(contactService.bulkAssign(request), "Bulk assign completed");
+    }
 }

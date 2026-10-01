@@ -170,6 +170,12 @@ export function AuditLogsPage() {
               ]}
               rows={rows}
               rowKey={(log) => log.id}
+              bulk={{
+                noun: "audit entries",
+                exportFileName: "audit-log",
+                rowLabel: (log) => `${log.action} ${log.entityType}`,
+                csvValue: (log, field) => (field === "entityId" ? log.entityId ?? "" : field === "createdAt" ? log.createdAt : undefined),
+              }}
               renderCell={(log, field) => {
                 if (field === "createdAt") return <span className="small">{new Date(log.createdAt).toLocaleString()}</span>;
                 if (field === "entityId")

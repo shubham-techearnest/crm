@@ -7,6 +7,8 @@ import { buildOwnerOptions, enumPickerOptions, optionsFromPairs, TechEarnestFilt
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleFilterField, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { deleteRecord, postServerBulk, putRecord } from "@/components/BulkActions/bulkActions";
+import { enumOptions, useActiveUserOptions } from "@/components/BulkActions/useBulkOptions";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import {
   buildTimelineEntries,
@@ -46,13 +48,33 @@ import {
   uploadDocument,
 } from "./foundationApi";
 
+function accountUpdateBody(account: Account, patch: { status?: string; accountType?: string }) {
+  return {
+    regionId: account.regionId,
+    ownerId: account.ownerId,
+    name: account.name,
+    industry: account.industry,
+    website: account.website,
+    email: account.email,
+    phone: account.phone,
+    billingAddress: account.billingAddress,
+    shippingAddress: account.shippingAddress,
+    taxNumber: account.taxNumber,
+    status: patch.status ?? account.status,
+    accountType: patch.accountType ?? account.accountType,
+    description: account.description,
+  };
+}
+
 export function AccountsPage() {
   const queryClient = useQueryClient();
   const auth = useAuth();
   const [params] = useSearchParams();
   const canCreate = useHasPermission("ACCOUNT_CREATE");
   const canUpdate = useHasPermission("ACCOUNT_UPDATE");
+  const canDelete = useHasPermission("ACCOUNT_DELETE");
   const canViewUsers = useHasPermission("USER_VIEW");
+  const bulkOwnerOptions = useActiveUserOptions(canUpdate);
   const canViewNotes = useHasPermission("NOTE_VIEW");
   const canCreateNotes = useHasPermission("NOTE_CREATE");
   const canDeleteNotes = useHasPermission("NOTE_DELETE");
@@ -282,6 +304,7 @@ export function AccountsPage() {
           avatarVariant="building"
           status={<StatusBadge status={selected.status} />}
           recordKey={selected.id}
+          customFieldsTable="account"
           onBack={recordNav.goBack}
           onPrev={recordNav.goPrev}
           onNext={recordNav.goNext}
@@ -741,6 +764,51 @@ export function AccountsPage() {
                 ]}
                 rows={rows}
                 rowKey={(account) => account.id}
+                bulk={{
+                  noun: "accounts",
+                  exportFileName: "accounts",
+                  onComplete: () => void queryClient.invalidateQueries({ queryKey: ["crm", "accounts"] }),
+                  actions: [
+                    {
+                      id: "assign-owner",
+                      label: "Assign owner",
+                      visible: canUpdate,
+                      doneLabel: "reassigned",
+                      input: { kind: "select", label: "New owner", options: bulkOwnerOptions },
+                      runBatch: (ids, ownerId) => postServerBulk("/accounts/bulk-assign", { ids, ownerId }),
+                    },
+                    {
+                      id: "change-status",
+                      label: "Change status",
+                      visible: canUpdate,
+                      doneLabel: "updated",
+                      input: { kind: "select", label: "New status", options: enumOptions(["ACTIVE", "INACTIVE"]) },
+                      run: (account, status) => putRecord(`/accounts/${account.id}`, accountUpdateBody(account, { status })),
+                    },
+                    {
+                      id: "change-type",
+                      label: "Change type",
+                      visible: canUpdate,
+                      doneLabel: "updated",
+                      input: {
+                        kind: "select",
+                        label: "New account type",
+                        options: enumOptions(["PROSPECT", "CUSTOMER", "PARTNER", "VENDOR"]),
+                      },
+                      run: (account, accountType) =>
+                        putRecord(`/accounts/${account.id}`, accountUpdateBody(account, { accountType })),
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      tone: "danger",
+                      visible: canDelete,
+                      doneLabel: "deleted",
+                      confirm: "Deleted accounts disappear from lists. Their contacts and deals are kept.",
+                      run: (account) => deleteRecord(`/accounts/${account.id}`),
+                    },
+                  ],
+                }}
                 selectedRowKey={(selected as Account | null)?.id}
                 onRowClick={setSelected}
                 renderCell={(account, field) =>

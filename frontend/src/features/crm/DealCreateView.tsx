@@ -12,10 +12,10 @@ import {
   type TechEarnestPickerOption,
   type TechEarnestPickerUser,
 } from "@/components/TechEarnestCreate";
-import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import { FormLayoutEditorModal } from "@/components/TechEarnestCreate/FormLayoutEditorModal";
 import { TechEarnestCreateField as TechEarnestField } from "@/components/TechEarnestCreate/TechEarnestCreateField";
 import { TechEarnestCreateSection } from "@/components/TechEarnestCreate/TechEarnestCreateSection";
+import { useCustomFieldsForm } from "@/features/customFields/useCustomFieldsForm";
 import { createAccount, createContact, createDeal, listContacts, type Deal } from "./crmApi";
 import { LEAD_SOURCES, noneLabel } from "./leadFormConstants";
 
@@ -141,11 +141,13 @@ export function DealCreateView({
     reset,
     setValue,
     control,
-    formState: { errors, isSubmitting, isDirty },
+    formState: { errors, isSubmitting, isDirty: formDirty },
   } = useForm<DealFormValues>({
     resolver: zodResolver(dealSchema),
     defaultValues: defaults,
   });
+  const customFields = useCustomFieldsForm("deal");
+  const isDirty = formDirty || customFields.dirty;
 
   const accountId = useWatch({ control, name: "accountId" });
   const amountValue = useWatch({ control, name: "value" });
@@ -213,6 +215,7 @@ export function DealCreateView({
   }
 
   function submit(values: DealFormValues) {
+    if (!customFields.prepareSave()) return;
     createMutation.mutate(buildCreateBody(values));
   }
 
@@ -408,12 +411,7 @@ export function DealCreateView({
                   </TechEarnestField>
 
                   <TechEarnestField label="Campaign Source">
-                    <div className="input-group input-group-sm">
-                      <input type="text" className="form-control" {...register("campaignSource")} />
-                      <button type="button" className="btn btn-light techearnest-lookup-btn" tabIndex={-1} aria-hidden="true">
-                        <ToolbarIcon name="apps" />
-                      </button>
-                    </div>
+                    <input type="text" className="form-control form-control-sm" {...register("campaignSource")} />
                   </TechEarnestField>
 
                   <TechEarnestField label="Contact Name">
@@ -464,6 +462,7 @@ export function DealCreateView({
                 <textarea className="form-control form-control-sm" rows={5} {...register("description")} />
               </TechEarnestField>
             </TechEarnestCreateSection>
+            {customFields.section}
           </div>
         </div>
       </form>

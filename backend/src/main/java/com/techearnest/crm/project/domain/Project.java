@@ -30,8 +30,37 @@ public class Project implements SecuredRecord, Persistable<UUID> {
     public static final String BILLING_TIME_AND_MATERIAL = "TIME_AND_MATERIAL";
     public static final String BILLING_FIXED_MONTHLY = "FIXED_MONTHLY";
     public static final String BILLING_FIXED_BID = "FIXED_BID";
+    public static final String BILLING_NON_BILLABLE = "NON_BILLABLE";
     public static final java.util.List<String> BILLING_TYPES = java.util.List.of(
-            BILLING_STAFF_AUGMENTATION, BILLING_TIME_AND_MATERIAL, BILLING_FIXED_MONTHLY, BILLING_FIXED_BID);
+            BILLING_STAFF_AUGMENTATION, BILLING_TIME_AND_MATERIAL, BILLING_FIXED_MONTHLY, BILLING_FIXED_BID,
+            BILLING_NON_BILLABLE);
+
+    public static final String TYPE_IN_HOUSE = "IN_HOUSE";
+    public static final String TYPE_B2B = "B2B";
+    public static final String TYPE_CONTRACT = "CONTRACT";
+    public static final java.util.List<String> PROJECT_TYPES = java.util.List.of(TYPE_IN_HOUSE, TYPE_B2B, TYPE_CONTRACT);
+
+    private static final java.util.Map<String, java.util.List<String>> BILLING_BY_TYPE = java.util.Map.of(
+            TYPE_IN_HOUSE, java.util.List.of(BILLING_NON_BILLABLE),
+            TYPE_B2B, java.util.List.of(
+                    BILLING_STAFF_AUGMENTATION, BILLING_TIME_AND_MATERIAL, BILLING_FIXED_MONTHLY, BILLING_FIXED_BID),
+            TYPE_CONTRACT, java.util.List.of(BILLING_FIXED_BID, BILLING_FIXED_MONTHLY, BILLING_TIME_AND_MATERIAL));
+
+    public static java.util.List<String> allowedBillingTypes(String projectType) {
+        return BILLING_BY_TYPE.getOrDefault(projectType, java.util.List.of());
+    }
+
+    public static String normalizeProjectType(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String code = value.trim().toUpperCase(java.util.Locale.ROOT).replace('-', '_').replace(' ', '_');
+        return switch (code) {
+            case "INHOUSE", "INTERNAL" -> TYPE_IN_HOUSE;
+            case "CONTRACT_BASIS", "CONTRACTUAL" -> TYPE_CONTRACT;
+            default -> code;
+        };
+    }
 
     /** Accepts the pre-V39 names so older API clients and import files keep working. */
     public static String normalizeBillingType(String value) {
@@ -44,6 +73,7 @@ public class Project implements SecuredRecord, Persistable<UUID> {
             case "HOURLY", "T_AND_M", "TIME_AND_MATERIALS" -> BILLING_TIME_AND_MATERIAL;
             case "RETAINER" -> BILLING_FIXED_MONTHLY;
             case "STAFF_AUG" -> BILLING_STAFF_AUGMENTATION;
+            case "INTERNAL", "NONE", "NON_BILLED" -> BILLING_NON_BILLABLE;
             default -> code;
         };
     }
@@ -60,8 +90,17 @@ public class Project implements SecuredRecord, Persistable<UUID> {
     @Column(name = "region_id", nullable = false)
     private UUID regionId;
 
-    @Column(name = "account_id", nullable = false)
+    @Column(name = "account_id")
     private UUID accountId;
+
+    @Column(name = "project_type", nullable = false)
+    private String projectType = TYPE_B2B;
+
+    @Column(name = "contract_reference")
+    private String contractReference;
+
+    @Column(name = "contract_signed_date")
+    private LocalDate contractSignedDate;
 
     @Column(name = "deal_id")
     private UUID dealId;
@@ -168,6 +207,20 @@ public class Project implements SecuredRecord, Persistable<UUID> {
         return project;
     }
 
+    /**
+     * In-house projects never carry a customer account; contract details only apply to
+     * contract-basis projects.
+     */
+    public void classify(String projectType, String contractReference, LocalDate contractSignedDate) {
+        this.projectType = projectType;
+        if (TYPE_IN_HOUSE.equals(projectType)) {
+            this.accountId = null;
+        }
+        boolean contract = TYPE_CONTRACT.equals(projectType);
+        this.contractReference = contract ? contractReference : null;
+        this.contractSignedDate = contract ? contractSignedDate : null;
+    }
+
     /** Only the amounts relevant to the billing type are kept; the others are cleared. */
     public void applyBillingTerms(BigDecimal hourlyRate, BigDecimal monthlyFee, BigDecimal contractValue) {
         this.hourlyRate = BILLING_TIME_AND_MATERIAL.equals(billingType) || BILLING_STAFF_AUGMENTATION.equals(billingType)
@@ -264,6 +317,18 @@ public class Project implements SecuredRecord, Persistable<UUID> {
 
     public UUID getAccountId() {
         return accountId;
+    }
+
+    public String getProjectType() {
+        return projectType;
+    }
+
+    public String getContractReference() {
+        return contractReference;
+    }
+
+    public LocalDate getContractSignedDate() {
+        return contractSignedDate;
     }
 
     public UUID getDealId() {

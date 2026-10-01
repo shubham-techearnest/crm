@@ -23,13 +23,38 @@ public class ResourceSkill {
     @Column(name = "years_of_experience")
     private BigDecimal yearsOfExperience;
 
+    @Column(name = "is_primary", nullable = false)
+    private boolean primary;
+
+    private String certification;
+
     public static ResourceSkill create(
             UUID resourceId, UUID skillId, String proficiency, BigDecimal yearsOfExperience) {
+        return create(resourceId, skillId, proficiency, yearsOfExperience, false, null);
+    }
+
+    public static ResourceSkill create(
+            UUID resourceId,
+            UUID skillId,
+            String proficiency,
+            BigDecimal yearsOfExperience,
+            boolean primary,
+            String certification) {
         ResourceSkill rs = new ResourceSkill();
         rs.id = new ResourceSkillId(resourceId, skillId);
         rs.proficiency = proficiency;
         rs.yearsOfExperience = yearsOfExperience;
+        rs.primary = primary;
+        rs.certification = certification == null || certification.isBlank() ? null : certification.trim();
         return rs;
+    }
+
+    public boolean isPrimary() {
+        return primary;
+    }
+
+    public String getCertification() {
+        return certification;
     }
 
     public ResourceSkillId getId() {

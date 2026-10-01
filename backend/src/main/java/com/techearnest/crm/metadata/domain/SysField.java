@@ -41,6 +41,9 @@ public class SysField {
     @Column(name = "reference_table_code", length = 64)
     private String referenceTableCode;
 
+    @Column(columnDefinition = "text")
+    private String options;
+
     @Column(nullable = false)
     private boolean active = true;
 
@@ -144,6 +147,12 @@ public class SysField {
         this.updatedAt = Instant.now();
     }
 
+    public void setOptions(String options, UUID updatedBy) {
+        this.options = options;
+        this.updatedBy = updatedBy;
+        this.updatedAt = Instant.now();
+    }
+
     public void setFilterable(boolean filterable, UUID updatedBy) {
         this.filterable = filterable;
         this.updatedBy = updatedBy;
@@ -194,6 +203,17 @@ public class SysField {
 
     public String getReferenceTableCode() {
         return referenceTableCode;
+    }
+
+    public String getOptions() {
+        return options;
+    }
+
+    public java.util.List<String> optionList() {
+        if (options == null || options.isBlank()) {
+            return java.util.List.of();
+        }
+        return options.lines().map(String::trim).filter(line -> !line.isEmpty()).distinct().toList();
     }
 
     public boolean isActive() {

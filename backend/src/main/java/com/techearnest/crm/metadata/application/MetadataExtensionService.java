@@ -148,7 +148,7 @@ public class MetadataExtensionService {
                 .filter(p -> p.getName().equals(policy.getName()) && !p.getId().equals(policy.getId()))
                 .forEach(existing -> {
                     existing.markSuperseded(user.userId());
-                    policyRepository.save(existing);
+                    policyRepository.saveAndFlush(existing);
                 });
         policy.publish(user.userId());
         policyRepository.save(policy);
@@ -234,7 +234,7 @@ public class MetadataExtensionService {
                         orgId, draft.getParentTableId(), draft.getChildTableCode(), "PUBLISHED")
                 .ifPresent(existing -> {
                     existing.markSuperseded(user.userId());
-                    relatedRepository.save(existing);
+                    relatedRepository.saveAndFlush(existing);
                 });
         draft.publish(user.userId());
         relatedRepository.save(draft);
@@ -250,8 +250,14 @@ public class MetadataExtensionService {
     private List<RelatedListResponse> dedupeRelated(List<SysRelatedListLayout> rows) {
         Map<String, SysRelatedListLayout> effective = new LinkedHashMap<>();
         for (SysRelatedListLayout row : rows) {
+            if ("SUPERSEDED".equals(row.getStatus())) {
+                continue;
+            }
             String key = row.getChildTableCode() + ":" + row.getStatus();
-            effective.putIfAbsent(key, row);
+            SysRelatedListLayout current = effective.get(key);
+            if (current == null || (current.getOrganizationId() == null && row.getOrganizationId() != null)) {
+                effective.put(key, row);
+            }
         }
         return effective.values().stream().map(this::toRelatedResponse).toList();
     }

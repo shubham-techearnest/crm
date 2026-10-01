@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { RecordLinkSource } from "@/components/RecordLink/RecordLinkSource";
 import { TechEarnestRecordView, type TechEarnestRecordRelatedLink, type TechEarnestRecordTab } from "@/components/TechEarnestRecord";
+import { CustomFieldsRecordPanel } from "@/features/customFields/CustomFieldsRecordPanel";
 import { RecordHeader } from "./RecordHeader";
 
 export type RecordShellTabId =
@@ -52,6 +53,8 @@ export interface RecordShellProps {
   onNext?: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
+  /** Metadata table code; shows the record's custom fields at the end of the overview tab. */
+  customFieldsTable?: string;
 }
 
 /**
@@ -81,8 +84,26 @@ export function RecordShell({
   onNext,
   hasPrev,
   hasNext,
+  customFieldsTable,
 }: RecordShellProps) {
-  const visibleTabs = tabs.filter((tab) => tab.visible !== false);
+  const shownTabs = tabs.filter((tab) => tab.visible !== false);
+  const customFieldsTabId = shownTabs.some((tab) => tab.id === "overview") ? "overview" : shownTabs[0]?.id;
+  const visibleTabs =
+    customFieldsTable && recordKey
+      ? shownTabs.map((tab) =>
+          tab.id === customFieldsTabId
+            ? {
+                ...tab,
+                content: (
+                  <>
+                    {tab.content}
+                    <CustomFieldsRecordPanel tableCode={customFieldsTable} recordId={recordKey} />
+                  </>
+                ),
+              }
+            : tab,
+        )
+      : shownTabs;
   const resolvedStatus = status ?? badges;
   const resolvedSecondary = secondaryActions ?? actions;
   const resolvedBack = onBack ?? onClose;

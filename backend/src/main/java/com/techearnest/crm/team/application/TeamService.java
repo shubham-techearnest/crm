@@ -2,6 +2,7 @@ package com.techearnest.crm.team.application;
 
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
+import com.techearnest.crm.common.exception.BusinessException;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.TenantAccess;
@@ -15,6 +16,8 @@ import com.techearnest.crm.team.domain.TeamRepository;
 import com.techearnest.crm.user.domain.User;
 import com.techearnest.crm.user.domain.UserRepository;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -65,6 +68,7 @@ public class TeamService {
         Department department = requireDepartmentInOrg(request.departmentId(), orgId);
         requireManagerInOrg(request.managerId(), orgId);
         Team team = Team.create(orgId, department.getId(), request.name().trim(), request.managerId());
+        team.updateDetails(blankToNull(request.description()), lowerOrNull(request.email()), normalizeStatus(request.status()));
         teamRepository.save(team);
         auditService.record(orgId, user.userId(), "CREATE", "TEAM", team.getId());
         return TeamResponse.from(team);
@@ -76,8 +80,11 @@ public class TeamService {
         Team team = requireVisibleTeam(id);
         UUID departmentId = request.departmentId() != null ? request.departmentId() : team.getDepartmentId();
         Department department = requireDepartmentInOrg(departmentId, team.getOrganizationId());
-        requireManagerInOrg(request.managerId(), team.getOrganizationId());
+        if (!Objects.equals(request.managerId(), team.getManagerId())) {
+            requireManagerInOrg(request.managerId(), team.getOrganizationId());
+        }
         team.update(request.name().trim(), department.getId(), request.managerId());
+        team.updateDetails(blankToNull(request.description()), lowerOrNull(request.email()), normalizeStatus(request.status()));
         auditService.record(team.getOrganizationId(), user.userId(), "UPDATE", "TEAM", team.getId());
         return TeamResponse.from(team);
     }
@@ -110,6 +117,21 @@ public class TeamService {
         if (!organizationId.equals(manager.getOrganizationId())) {
             throw new ResourceNotFoundException("Resource not found");
         }
+    }
+
+    private static String normalizeStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return null;
+        }
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        if (!"ACTIVE".equals(normalized) && !"INACTIVE".equals(normalized)) {
+            throw new BusinessException("INVALID_STATUS", "Team status must be ACTIVE or INACTIVE");
+        }
+        return normalized;
+    }
+
+    private static String lowerOrNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim().toLowerCase(Locale.ROOT);
     }
 
     private static String blankToNull(String value) {

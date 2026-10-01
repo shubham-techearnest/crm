@@ -6,11 +6,11 @@ import com.techearnest.crm.resource.api.dto.ResourceDtos.UtilizationResponse;
 import com.techearnest.crm.resource.domain.Resource;
 import com.techearnest.crm.resource.domain.ResourceAllocation;
 import com.techearnest.crm.resource.domain.ResourceAllocationRepository;
+import com.techearnest.crm.resource.domain.ResourceMetrics;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
@@ -60,11 +60,8 @@ public class UtilizationService {
             LocalDate periodEnd,
             ResourceAllocation candidate,
             UUID excludeAllocationId) {
-        long periodDays = inclusiveDays(periodStart, periodEnd);
-        BigDecimal capacityHours = resource
-                .getCapacityHoursPerWeek()
-                .multiply(BigDecimal.valueOf(periodDays))
-                .divide(BigDecimal.valueOf(7), 4, RoundingMode.HALF_UP);
+        BigDecimal capacityHours = ResourceMetrics.capacityForDays(
+                resource.getCapacityHoursPerWeek(), ResourceMetrics.inclusiveDays(periodStart, periodEnd));
 
         List<ResourceAllocation> overlapping = allocationRepository.findOverlappingForUtilization(
                 resource.getId(), periodStart, periodEnd);
@@ -74,13 +71,15 @@ public class UtilizationService {
             if (excludeAllocationId != null && excludeAllocationId.equals(allocation.getId())) {
                 continue;
             }
-            allocatedHours = allocatedHours.add(prorate(allocation, periodStart, periodEnd, resource));
+            allocatedHours = allocatedHours.add(ResourceMetrics.allocatedHoursInPeriod(
+                    allocation, resource.getCapacityHoursPerWeek(), periodStart, periodEnd));
         }
         if (candidate != null
                 && !"CANCELLED".equals(candidate.getStatus())
                 && !"COMPLETED".equals(candidate.getStatus())
-                && overlaps(candidate.getStartDate(), candidate.getEndDate(), periodStart, periodEnd)) {
-            allocatedHours = allocatedHours.add(prorate(candidate, periodStart, periodEnd, resource));
+                && ResourceMetrics.overlaps(candidate.getStartDate(), candidate.getEndDate(), periodStart, periodEnd)) {
+            allocatedHours = allocatedHours.add(ResourceMetrics.allocatedHoursInPeriod(
+                    candidate, resource.getCapacityHoursPerWeek(), periodStart, periodEnd));
         }
 
         allocatedHours = allocatedHours.setScale(2, RoundingMode.HALF_UP);
@@ -104,40 +103,4 @@ public class UtilizationService {
                 overAllocated ? "OVER_ALLOCATED" : null);
     }
 
-    private BigDecimal prorate(
-            ResourceAllocation allocation, LocalDate periodStart, LocalDate periodEnd, Resource resource) {
-        LocalDate overlapStart =
-                allocation.getStartDate().isAfter(periodStart) ? allocation.getStartDate() : periodStart;
-        LocalDate overlapEnd = allocation.getEndDate().isBefore(periodEnd) ? allocation.getEndDate() : periodEnd;
-        long overlapDays = inclusiveDays(overlapStart, overlapEnd);
-        if (overlapDays <= 0) {
-            return BigDecimal.ZERO;
-        }
-        long allocationDays = inclusiveDays(allocation.getStartDate(), allocation.getEndDate());
-        if (allocation.getAllocatedHours() != null) {
-            return allocation
-                    .getAllocatedHours()
-                    .multiply(BigDecimal.valueOf(overlapDays))
-                    .divide(BigDecimal.valueOf(allocationDays), 4, RoundingMode.HALF_UP);
-        }
-        if (allocation.getAllocationPercentage() != null) {
-            BigDecimal overlapCapacity = resource
-                    .getCapacityHoursPerWeek()
-                    .multiply(BigDecimal.valueOf(overlapDays))
-                    .divide(BigDecimal.valueOf(7), 4, RoundingMode.HALF_UP);
-            return allocation
-                    .getAllocationPercentage()
-                    .multiply(overlapCapacity)
-                    .divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP);
-        }
-        return BigDecimal.ZERO;
-    }
-
-    private static boolean overlaps(LocalDate aStart, LocalDate aEnd, LocalDate bStart, LocalDate bEnd) {
-        return !aStart.isAfter(bEnd) && !aEnd.isBefore(bStart);
-    }
-
-    private static long inclusiveDays(LocalDate start, LocalDate end) {
-        return ChronoUnit.DAYS.between(start, end) + 1;
-    }
 }

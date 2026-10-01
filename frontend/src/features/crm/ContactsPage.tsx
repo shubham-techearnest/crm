@@ -12,6 +12,8 @@ import {
   countActiveFilters,
 } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { deleteRecord, postServerBulk, putRecord } from "@/components/BulkActions/bulkActions";
+import { enumOptions, useActiveUserOptions } from "@/components/BulkActions/useBulkOptions";
 import { RecordShell, DEFAULT_RELATED_LINKS } from "@/components/RecordShell";
 import {
   buildTimelineEntries,
@@ -60,6 +62,8 @@ export function ContactsPage() {
   const auth = useAuth();
   const canCreate = useHasPermission("CONTACT_CREATE");
   const canUpdate = useHasPermission("CONTACT_UPDATE");
+  const canDelete = useHasPermission("CONTACT_DELETE");
+  const bulkOwnerOptions = useActiveUserOptions(canUpdate);
   const canViewUsers = useHasPermission("USER_VIEW");
   const canViewNotes = useHasPermission("NOTE_VIEW");
   const canCreateNotes = useHasPermission("NOTE_CREATE");
@@ -314,6 +318,7 @@ export function ContactsPage() {
           avatarLabel={contactName(selected)}
           status={<StatusBadge status={selected.status} />}
           recordKey={selected.id}
+          customFieldsTable="contact"
           onBack={() => {
             setShowEdit(false);
             recordNav.goBack();
@@ -710,6 +715,52 @@ export function ContactsPage() {
                 ]}
                 rows={rows}
                 rowKey={(contact) => contact.id}
+                bulk={{
+                  noun: "contacts",
+                  exportFileName: "contacts",
+                  rowLabel: (contact) => `${contact.firstName} ${contact.lastName}`.trim(),
+                  onComplete: () => void queryClient.invalidateQueries({ queryKey: ["crm", "contacts"] }),
+                  actions: [
+                    {
+                      id: "assign-owner",
+                      label: "Assign owner",
+                      visible: canUpdate,
+                      doneLabel: "reassigned",
+                      input: { kind: "select", label: "New owner", options: bulkOwnerOptions },
+                      runBatch: (ids, ownerId) => postServerBulk("/contacts/bulk-assign", { ids, ownerId }),
+                    },
+                    {
+                      id: "change-status",
+                      label: "Change status",
+                      visible: canUpdate,
+                      doneLabel: "updated",
+                      input: { kind: "select", label: "New status", options: enumOptions(["ACTIVE", "INACTIVE"]) },
+                      run: (contact, status) =>
+                        putRecord(`/contacts/${contact.id}`, {
+                          ownerId: contact.ownerId,
+                          firstName: contact.firstName,
+                          lastName: contact.lastName,
+                          email: contact.email,
+                          phone: contact.phone,
+                          mobile: contact.mobile,
+                          designation: contact.designation,
+                          department: contact.department,
+                          linkedinUrl: contact.linkedinUrl,
+                          status,
+                          notes: contact.notes,
+                        }),
+                    },
+                    {
+                      id: "delete",
+                      label: "Delete",
+                      tone: "danger",
+                      visible: canDelete,
+                      doneLabel: "deleted",
+                      confirm: "Deleted contacts disappear from lists and related records.",
+                      run: (contact) => deleteRecord(`/contacts/${contact.id}`),
+                    },
+                  ],
+                }}
                 selectedRowKey={(selected as Contact | null)?.id}
                 onRowClick={(contact) => {
                   setSelected(contact);

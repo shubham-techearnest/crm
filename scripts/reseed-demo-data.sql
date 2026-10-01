@@ -54,7 +54,7 @@ TRUNCATE TABLE
     workflow_runs, domain_events, audit_logs, notifications, notes, documents,
     approval_actions, approval_requests,
     task_comments, task_dependencies, time_entries, timesheet_links, timesheets,
-    resource_allocations, resource_skills, resources, resource_code_sequences, skills,
+    resource_allocations, resource_skills, resource_unavailability, resources, resource_code_sequences, skills,
     invoice_payments, invoice_lines, credit_notes, invoices, invoice_number_sequences, tax_rates,
     purchase_order_items, purchase_orders, expenses, vendors,
     contract_expiry_reminders, contracts,
@@ -87,6 +87,7 @@ DELETE FROM approval_workflows      WHERE organization_id IN (SELECT id FROM jun
 DELETE FROM workflow_actions        WHERE organization_id IN (SELECT id FROM junk_orgs);
 DELETE FROM workflow_definitions    WHERE organization_id IN (SELECT id FROM junk_orgs);
 DELETE FROM saved_views             WHERE organization_id IN (SELECT id FROM junk_orgs);
+DELETE FROM resource_board_settings WHERE organization_id IN (SELECT id FROM junk_orgs);
 DELETE FROM roles                   WHERE organization_id IN (SELECT id FROM junk_orgs);
 DELETE FROM teams                   WHERE organization_id IN (SELECT id FROM junk_orgs);
 DELETE FROM departments             WHERE organization_id IN (SELECT id FROM junk_orgs);
@@ -124,6 +125,11 @@ FROM (VALUES
     (116, :'mum', :'puneadm', 'Bluepeak Cloud Hosting Pvt Ltd',    'Cloud Infrastructure', 'bluepeak-cloud.example.com',      '+91-22-6172-9900', 'Hiranandani Gardens, Powai',  'Mumbai',    'MH', '400076', '27AAICB6604A1ZS', 'VENDOR',   'Managed Kubernetes and database hosting vendor.',                       '2025-12-01 10:00'),
     (117, :'pun', :'puneadm', 'Shree Ganesh Travels',              'Travel',               'shreeganesh-travels.example.com', '+91-20-2444-6710', 'Shankarshet Road, Swargate',  'Pune',      'MH', '411042', '27AAPFS2231H1ZC', 'VENDOR',   'Corporate travel desk for flights, hotels and cabs.',                   '2025-12-01 10:00')
 ) AS v(n, region, owner, name, industry, domain, phone, line1, city, state, pin, gstin, acct_type, descr, created);
+
+-- Client-portal login for Horizon Retail (same password as the internal demo users).
+INSERT INTO portal_users (id, organization_id, account_id, email, password_hash, first_name, last_name, status)
+VALUES ('99999999-9999-4999-8999-000000000001', :'org', pg_temp.u8(1), 'portal@horizon-retail.example.com',
+        '$2a$12$cgvJnrKl0NRx/R/xqUZk1OAiZzSAkjmogcc4BHN8h.ygKP9pttflS', 'Priya', 'Sharma', 'ACTIVE');
 
 INSERT INTO contacts (id, organization_id, region_id, account_id, owner_id, first_name, last_name, email, phone, mobile,
                       designation, department, linkedin_url, status, created_by)

@@ -193,6 +193,22 @@ public class ResourcePortalService {
         return response(resource, user, null, null, false);
     }
 
+    /** Disables an external contributor's login when the resource leaves; internal logins are left to Users. */
+    @Transactional
+    public boolean revokeContributorLogin(Resource resource) {
+        if (resource.getUserId() == null) {
+            return false;
+        }
+        return userRepository.findActiveDetailsById(resource.getUserId())
+                .filter(ResourcePortalService::isContributorOnly)
+                .map(user -> {
+                    user.deactivate();
+                    inviteRepository.findOpenByUserId(user.getId()).forEach(UserInviteToken::revoke);
+                    return true;
+                })
+                .orElse(false);
+    }
+
     /** Keeps a contributor's login expiry in line with the resource's engagement end date. */
     @Transactional
     public void syncEngagementEnd(Resource resource) {

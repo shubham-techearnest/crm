@@ -47,6 +47,19 @@ public class TimeEntry {
     @Column(name = "billing_rate")
     private BigDecimal billingRate;
 
+    /** Hourly cost rate stamped on approval so later rate changes never rewrite history. */
+    @Column(name = "cost_rate")
+    private BigDecimal costRate;
+
+    @Column(name = "allocation_id")
+    private UUID allocationId;
+
+    @Column(name = "approved_by")
+    private UUID approvedBy;
+
+    @Column(name = "approved_at")
+    private Instant approvedAt;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -115,6 +128,45 @@ public class TimeEntry {
 
     public void clearTaskId() {
         this.taskId = null;
+    }
+
+    /** Records the allocation and hourly rates this entry is costed and billed with. */
+    public void stampRates(UUID allocationId, BigDecimal costRate, BigDecimal billingRate) {
+        this.allocationId = allocationId;
+        this.costRate = costRate;
+        if (billingRate != null) {
+            this.billingRate = billingRate;
+        }
+    }
+
+    public BigDecimal getCostRate() {
+        return costRate;
+    }
+
+    public UUID getAllocationId() {
+        return allocationId;
+    }
+
+    public void approve(UUID approverId) {
+        this.approvedBy = approverId;
+        this.approvedAt = Instant.now();
+    }
+
+    public void clearApproval() {
+        this.approvedBy = null;
+        this.approvedAt = null;
+    }
+
+    public boolean isApproved() {
+        return approvedAt != null;
+    }
+
+    public UUID getApprovedBy() {
+        return approvedBy;
+    }
+
+    public Instant getApprovedAt() {
+        return approvedAt;
     }
 
     public void markDeleted() {

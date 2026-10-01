@@ -76,6 +76,7 @@ public class RoleService {
             throw new ConflictException("Role code already exists");
         }
         Role role = Role.create(orgId, code, request.name().trim(), request.dataScope());
+        role.describe(blankToNullText(request.description()));
         role.replacePermissions(resolvePermissions(request.permissionCodes()));
         roleRepository.save(role);
         auditService.record(orgId, user.userId(), "CREATE", "ROLE", role.getId());
@@ -107,6 +108,7 @@ public class RoleService {
                 role.replacePermissions(resolvePermissions(request.permissionCodes()));
             }
         }
+        role.describe(blankToNullText(request.description()));
         auditService.record(role.getOrganizationId(), user.userId(), "UPDATE", "ROLE", role.getId());
         return RoleResponse.from(role);
     }
@@ -130,5 +132,9 @@ public class RoleService {
             throw new ResourceNotFoundException("Resource not found");
         }
         return new HashSet<>(permissions);
+    }
+
+    private static String blankToNullText(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

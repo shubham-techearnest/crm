@@ -1,6 +1,9 @@
 package com.techearnest.crm.project.application;
 
 import com.techearnest.crm.audit.application.AuditService;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkResult;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkStatusRequest;
+import com.techearnest.crm.common.bulk.BulkExecutor;
 import com.techearnest.crm.common.exception.BusinessException;
 import com.techearnest.crm.common.exception.ConflictException;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
@@ -23,6 +26,9 @@ import com.techearnest.crm.project.domain.TaskComment;
 import com.techearnest.crm.project.domain.TaskCommentRepository;
 import com.techearnest.crm.project.domain.TaskDependency;
 import com.techearnest.crm.project.domain.TaskDependencyRepository;
+import com.techearnest.crm.resource.domain.Resource;
+import com.techearnest.crm.resource.domain.ResourceAllocationRepository;
+import com.techearnest.crm.resource.domain.ResourceRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
@@ -33,6 +39,9 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class TaskService {
 
+    private static final java.util.Set<String> TASK_STATUSES =
+            java.util.Set.of("TODO", "IN_PROGRESS", "BLOCKED", "COMPLETED", "CANCELLED");
+
     private final ProjectTaskRepository projectTaskRepository;
     private final TaskDependencyRepository taskDependencyRepository;
     private final TaskCommentRepository taskCommentRepository;
@@ -40,6 +49,8 @@ public class TaskService {
     private final ProjectService projectService;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
+    private final ResourceRepository resourceRepository;
+    private final ResourceAllocationRepository allocationRepository;
 
     public TaskService(
             ProjectTaskRepository projectTaskRepository,
@@ -48,7 +59,11 @@ public class TaskService {
             MilestoneRepository milestoneRepository,
             ProjectService projectService,
             TenantAccess tenantAccess,
-            AuditService auditService) {
+            AuditService auditService,
+            ResourceRepository resourceRepository,
+            ResourceAllocationRepository allocationRepository) {
+        this.resourceRepository = resourceRepository;
+        this.allocationRepository = allocationRepository;
         this.projectTaskRepository = projectTaskRepository;
         this.taskDependencyRepository = taskDependencyRepository;
         this.taskCommentRepository = taskCommentRepository;
@@ -112,6 +127,9 @@ public class TaskService {
         Project project = projectService.requireVisibleProject(projectId);
         validateMilestone(request.milestoneId(), project);
         validateParent(request.parentTaskId(), project);
+        if (request.assignedResourceId() != null) {
+            validateAssignee(request.assignedResourceId(), project);
+        }
 
         ProjectTask task = ProjectTask.create(
                 project.getOrganizationId(),
@@ -180,9 +198,34 @@ public class TaskService {
     public TaskResponse assign(UUID id, AssignTaskRequest request) {
         CurrentUser user = tenantAccess.requirePermission("TASK_ASSIGN");
         ProjectTask task = requireVisibleTask(id);
+        if (request.assignedResourceId() != null
+                && !request.assignedResourceId().equals(task.getAssignedResourceId())) {
+            validateAssignee(request.assignedResourceId(), projectService.requireVisibleProject(task.getProjectId()));
+        }
         task.assign(request.assignedResourceId());
         auditService.record(task.getOrganizationId(), user.userId(), "ASSIGN", "TASK", task.getId());
         return TaskResponse.from(task);
+    }
+
+    @Transactional
+    public BulkResult bulkStatus(BulkStatusRequest request) {
+        CurrentUser user = tenantAccess.requirePermission("TASK_UPDATE");
+        String status = request.status().trim().toUpperCase(java.util.Locale.ROOT);
+        if (!TASK_STATUSES.contains(status)) {
+            throw new BusinessException("INVALID_STATUS", "Invalid task status: " + status);
+        }
+        return BulkExecutor.run(request.ids(), "task", id -> {
+            ProjectTask task = requireVisibleTask(id);
+            task.changeStatus(status);
+            auditService.recordWithSummary(
+                    task.getOrganizationId(),
+                    user.userId(),
+                    "UPDATE",
+                    "TASK",
+                    task.getId(),
+                    "{\"bulk\":true,\"status\":\"" + status + "\"}");
+            recalculateParentProgress(task.getParentTaskId());
+        });
     }
 
     @Transactional
@@ -233,6 +276,21 @@ public class TaskService {
         taskCommentRepository.save(comment);
         auditService.record(task.getOrganizationId(), user.userId(), "UPDATE", "TASK", task.getId());
         return CommentResponse.from(comment);
+    }
+
+    /** Tasks can only go to active resources that hold an open allocation on the task's project. */
+    private void validateAssignee(UUID resourceId, Project project) {
+        Resource resource = resourceRepository.findActiveById(resourceId)
+                .filter(r -> r.getOrganizationId().equals(project.getOrganizationId()))
+                .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
+        if (!resource.isActiveWorkforce()) {
+            throw new BusinessException("RESOURCE_INACTIVE", "This resource is inactive and cannot be assigned work");
+        }
+        if (!allocationRepository.existsActiveOrPlannedForResourceAndProject(resourceId, project.getId())) {
+            throw new BusinessException(
+                    "RESOURCE_NOT_ON_PROJECT",
+                    "Allocate this resource to the project before assigning it tasks");
+        }
     }
 
     private void recalculateParentProgress(UUID parentTaskId) {

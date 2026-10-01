@@ -10,7 +10,7 @@ import com.techearnest.crm.resource.api.dto.ResourceDtos.OnboardResourceResponse
 import com.techearnest.crm.resource.api.dto.ResourceDtos.ResourceResponse;
 import com.techearnest.crm.resource.api.dto.ResourcePortalDtos.PortalAccessResponse;
 import com.techearnest.crm.resource.api.dto.ResourcePortalDtos.PortalInviteRequest;
-import com.techearnest.crm.resource.domain.Resource;
+import com.techearnest.crm.resource.domain.ResourceAllocation;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -50,9 +50,18 @@ public class ResourceOnboardingService {
             Project project = projectRepository
                     .findActiveById(request.projectId())
                     .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
+            boolean externalType = "EXTERNAL".equals(resource.typeCategory());
             LocalDate start = request.allocationStartDate() != null ? request.allocationStartDate() : LocalDate.now();
+            if (request.allocationStartDate() == null && externalType && resource.engagementStartDate() != null
+                    && resource.engagementStartDate().isAfter(start)) {
+                start = resource.engagementStartDate();
+            }
             LocalDate end = firstNonNull(
                     request.allocationEndDate(), project.getEndDate(), resource.engagementEndDate());
+            if (request.allocationEndDate() == null && externalType && resource.engagementEndDate() != null
+                    && (end == null || end.isAfter(resource.engagementEndDate()))) {
+                end = resource.engagementEndDate();
+            }
             if (end == null || end.isBefore(start)) {
                 end = start.plusMonths(3);
                 warnings.add("The project has no end date, so the allocation runs for 3 months until " + end + ".");
@@ -69,15 +78,17 @@ public class ResourceOnboardingService {
                     null,
                     null,
                     start.isAfter(LocalDate.now()) ? "PLANNED" : "ACTIVE",
-                    false));
+                    false,
+                    null,
+                    null,
+                    null,
+                    ResourceAllocation.SOURCE_ONBOARDING));
             allocation = result.data();
-            if (result.message() != null && !result.message().isBlank()) {
-                warnings.add(result.message());
-            }
+            warnings.addAll(allocation.warnings());
         }
 
         PortalAccessResponse portalAccess = null;
-        boolean external = !Resource.TYPE_EMPLOYEE.equals(resource.resourceType());
+        boolean external = "EXTERNAL".equals(resource.typeCategory());
         if (external && !Boolean.FALSE.equals(request.grantPortalAccess()) && resource.userId() == null) {
             if (resource.email() == null || resource.email().isBlank()) {
                 warnings.add("No email on the resource, so no portal login was sent. Add an email and invite them"

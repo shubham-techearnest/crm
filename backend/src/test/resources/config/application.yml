@@ -1,0 +1,4 @@
+# Flow tests log time against synthetic far-future weeks so they never collide with real data.
+crm:
+  timesheet:
+    allow-future-submission: true

@@ -202,6 +202,10 @@ public class Deal implements SecuredRecord, Persistable<UUID> {
         changeStage(toStage, lostReason, null);
     }
 
+    public void reassignOwner(UUID ownerId) {
+        this.ownerId = ownerId;
+    }
+
     public void markDeleted() {
         this.deletedAt = Instant.now();
     }

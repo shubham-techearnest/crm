@@ -1,6 +1,12 @@
 package com.techearnest.crm.resource.application;
 
+import com.techearnest.crm.audit.application.AuditFieldChanges;
 import com.techearnest.crm.audit.application.AuditService;
+import com.techearnest.crm.procurement.domain.VendorRepository;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.ResourceProfile;
+import com.techearnest.crm.resource.api.dto.ResourceDtos.ResourceTypeResponse;
+import com.techearnest.crm.resource.domain.ResourceMetrics;
+import com.techearnest.crm.resource.domain.ResourceType;
 import com.techearnest.crm.common.api.PaginationMeta;
 import com.techearnest.crm.common.exception.BusinessException;
 import com.techearnest.crm.common.exception.ConflictException;
@@ -62,6 +68,8 @@ public class ResourceService {
     private final DepartmentRepository departmentRepository;
     private final ResourcePortalService portalService;
     private final ResourceCodeGenerator codeGenerator;
+    private final ResourceTypeCatalog typeCatalog;
+    private final VendorRepository vendorRepository;
 
     public ResourceService(
             ResourceRepository resourceRepository,
@@ -75,9 +83,13 @@ public class ResourceService {
             UserRepository userRepository,
             DepartmentRepository departmentRepository,
             ResourcePortalService portalService,
-            ResourceCodeGenerator codeGenerator) {
+            ResourceCodeGenerator codeGenerator,
+            ResourceTypeCatalog typeCatalog,
+            VendorRepository vendorRepository) {
         this.portalService = portalService;
         this.codeGenerator = codeGenerator;
+        this.typeCatalog = typeCatalog;
+        this.vendorRepository = vendorRepository;
         this.userRepository = userRepository;
         this.departmentRepository = departmentRepository;
         this.resourceRepository = resourceRepository;
@@ -137,6 +149,7 @@ public class ResourceService {
 
         String resourceType = normalizeType(request.resourceType());
         assertPersonDetails(resourceType, orgId, request.userId(), request.fullName(), null);
+        assertManualStatus(request.status());
 
         String employeeCode = blankToNull(request.employeeCode());
         if (employeeCode != null
@@ -162,10 +175,76 @@ public class ResourceService {
                 request.capacityHoursPerWeek(),
                 blankToNull(request.status()));
         resource.updateContact(request.fullName(), request.email(), request.phone(), request.engagementEndDate());
+        resource.syncWorkingHoursFromCapacity();
+        applyProfile(resource, request.profile());
+        assertEngagementWindow(resource);
         resourceRepository.save(resource);
         refreshDerivedStatus(resource);
         auditService.record(orgId, user.userId(), "CREATE", "RESOURCE", resource.getId());
         return toResponse(resource);
+    }
+
+    private void applyProfile(Resource resource, ResourceProfile profile) {
+        if (profile == null) {
+            return;
+        }
+        String rateUnit = blankToNull(profile.rateUnit());
+        if (rateUnit != null && !Resource.RATE_UNITS.contains(rateUnit.toUpperCase(Locale.ROOT))) {
+            throw new BusinessException("INVALID_RATE_UNIT", "Rate unit must be HOURLY, DAILY or MONTHLY");
+        }
+        if (profile.vendorId() != null) {
+            var vendor = vendorRepository
+                    .findActiveById(profile.vendorId())
+                    .filter(v -> resource.getOrganizationId().equals(v.getOrganizationId()))
+                    .orElseThrow(() -> new ResourceNotFoundException("Vendor not found"));
+            if (!"ACTIVE".equals(vendor.getStatus())) {
+                throw new BusinessException("VENDOR_INACTIVE", "Vendor " + vendor.getName() + " is inactive");
+            }
+        }
+        resource.updateProfile(
+                profile.engagementStartDate(),
+                profile.contractReference(),
+                profile.vendorId(),
+                profile.workingHoursPerDay(),
+                profile.workingDaysPerWeek(),
+                profile.experienceYears(),
+                profile.location(),
+                profile.availableFrom(),
+                profile.billable(),
+                rateUnit);
+        if (Boolean.TRUE.equals(profile.clearVendor())) {
+            resource.clearVendor();
+        }
+        if (Boolean.TRUE.equals(profile.clearAvailableFrom())) {
+            resource.clearAvailableFrom();
+        }
+        if (Boolean.TRUE.equals(profile.clearEngagementStartDate())) {
+            resource.clearEngagementStartDate();
+        }
+    }
+
+    private static void assertEngagementWindow(Resource resource) {
+        if (resource.getEngagementStartDate() != null
+                && resource.getEngagementEndDate() != null
+                && resource.getEngagementEndDate().isBefore(resource.getEngagementStartDate())) {
+            throw new BusinessException(
+                    "INVALID_ENGAGEMENT", "Engagement end date must be on or after the engagement start date");
+        }
+    }
+
+    /** Only lifecycle states can be set by hand; allocation states are always recalculated. */
+    private static void assertManualStatus(String status) {
+        String value = blankToNull(status);
+        if (value == null || Resource.STATUS_AVAILABLE.equals(value)) {
+            return;
+        }
+        if (Resource.STATUS_PARTIALLY_ALLOCATED.equals(value) || Resource.STATUS_FULLY_ALLOCATED.equals(value)) {
+            throw new BusinessException(
+                    "DERIVED_STATUS", "Allocation status is calculated from allocations and cannot be set by hand");
+        }
+        if (!Resource.MANUAL_STATUSES.contains(value)) {
+            throw new BusinessException("INVALID_STATUS", "Unknown resource status " + value);
+        }
     }
 
     @Transactional
@@ -193,12 +272,14 @@ public class ResourceService {
         if (!resourceType.equals(resource.getResourceType()) || request.userId() != null) {
             assertPersonDetails(resourceType, resource.getOrganizationId(), userId, fullName, resource.getId());
         }
+        assertManualStatus(request.status());
         String employeeCode = request.employeeCode() != null ? request.employeeCode().trim() : null;
         if (employeeCode != null && employeeCode.isEmpty()) {
             employeeCode = resource.getEmployeeCode() != null
                     ? resource.getEmployeeCode()
                     : codeGenerator.next(resource.getOrganizationId(), resourceType);
         }
+        Snapshot before = Snapshot.of(resource);
         resource.update(
                 request.regionId(),
                 request.userId(),
@@ -216,17 +297,72 @@ public class ResourceService {
         if (Boolean.TRUE.equals(request.clearEngagementEndDate())) {
             resource.clearEngagementEndDate();
         }
+        if (request.capacityHoursPerWeek() != null
+                && (request.profile() == null
+                        || (request.profile().workingHoursPerDay() == null
+                                && request.profile().workingDaysPerWeek() == null))) {
+            resource.syncWorkingHoursFromCapacity();
+        }
+        applyProfile(resource, request.profile());
+        assertEngagementWindow(resource);
         if (request.engagementEndDate() != null) {
             portalService.syncEngagementEnd(resource);
         }
-        if (request.status() == null || request.status().isBlank()) {
-            refreshDerivedStatus(resource);
+        refreshDerivedStatus(resource);
+        String changes = before.diff(resource);
+        if (changes != null) {
+            auditService.recordWithSummary(
+                    resource.getOrganizationId(), user.userId(), "UPDATE", "RESOURCE", resource.getId(), changes);
+        } else {
+            auditService.record(resource.getOrganizationId(), user.userId(), "UPDATE", "RESOURCE", resource.getId());
         }
-        auditService.record(resource.getOrganizationId(), user.userId(), "UPDATE", "RESOURCE", resource.getId());
         return toResponse(resource);
     }
 
-    private ResourceResponse toResponse(Resource resource) {
+    /** Values whose changes are written to the audit trail (rates, status, capacity, engagement, type). */
+    private record Snapshot(
+            String status,
+            String resourceType,
+            BigDecimal costRate,
+            BigDecimal billingRate,
+            String rateUnit,
+            BigDecimal capacity,
+            LocalDate engagementStart,
+            LocalDate engagementEnd,
+            UUID vendorId,
+            UUID managerId,
+            UUID departmentId,
+            String designation,
+            boolean billable) {
+
+        static Snapshot of(Resource r) {
+            return new Snapshot(
+                    r.getStatus(), r.getResourceType(), r.getCostRate(), r.getBillingRate(), r.getRateUnit(),
+                    r.getCapacityHoursPerWeek(), r.getEngagementStartDate(), r.getEngagementEndDate(),
+                    r.getVendorId(), r.getManagerId(), r.getDepartmentId(), r.getDesignation(), r.isBillable());
+        }
+
+        String diff(Resource r) {
+            Snapshot after = of(r);
+            return AuditFieldChanges.builder()
+                    .addIfChanged("status", "Status", status, after.status)
+                    .addIfChanged("resourceType", "Resource type", resourceType, after.resourceType)
+                    .addIfChanged("costRate", "Cost rate", costRate, after.costRate)
+                    .addIfChanged("billingRate", "Billing rate", billingRate, after.billingRate)
+                    .addIfChanged("rateUnit", "Rate unit", rateUnit, after.rateUnit)
+                    .addIfChanged("capacityHoursPerWeek", "Capacity (hrs/week)", capacity, after.capacity)
+                    .addIfChanged("engagementStartDate", "Engagement start", engagementStart, after.engagementStart)
+                    .addIfChanged("engagementEndDate", "Engagement end", engagementEnd, after.engagementEnd)
+                    .addIfChanged("vendorId", "Vendor", vendorId, after.vendorId)
+                    .addIfChanged("managerId", "Manager", managerId, after.managerId)
+                    .addIfChanged("departmentId", "Department", departmentId, after.departmentId)
+                    .addIfChanged("designation", "Designation", designation, after.designation)
+                    .addIfChanged("billable", "Billable", billable, after.billable)
+                    .toJson();
+        }
+    }
+
+    ResourceResponse toResponse(Resource resource) {
         return ResourceResponse.from(
                 resource, canViewCostRate(), canViewBillingRate(),
                 namesFor(resource.getOrganizationId(), List.of(resource)));
@@ -260,13 +396,34 @@ public class ResourceService {
                 }
             }
         }
-        return new ResourceNames(users, departments, logins);
+        Set<UUID> vendorIds = new HashSet<>();
+        for (Resource resource : resources) {
+            if (resource.getVendorId() != null) vendorIds.add(resource.getVendorId());
+        }
+        Map<UUID, String> vendors = new HashMap<>();
+        if (!vendorIds.isEmpty()) {
+            for (var vendor : vendorRepository.findAllById(vendorIds)) {
+                if (organizationId.equals(vendor.getOrganizationId())) {
+                    vendors.put(vendor.getId(), vendor.getName());
+                }
+            }
+        }
+        Map<String, String> categories = new HashMap<>();
+        for (ResourceType type : typeCatalog.all()) {
+            categories.put(type.getCode(), type.getCategory());
+        }
+        return new ResourceNames(users, departments, logins, vendors, categories);
     }
 
     @Transactional
     public void softDelete(UUID id) {
         CurrentUser user = tenantAccess.requirePermission("RESOURCE_MANAGE");
         Resource resource = requireVisibleResource(id);
+        if (resourceRepository.hasWorkHistory(resource.getId())) {
+            throw new BusinessException(
+                    "HAS_HISTORY",
+                    "This resource has allocations or timesheets. Deactivate it instead so its history is kept.");
+        }
         resource.markDeleted();
         auditService.record(resource.getOrganizationId(), user.userId(), "DELETE", "RESOURCE", resource.getId());
     }
@@ -285,7 +442,12 @@ public class ResourceService {
                 throw new ResourceNotFoundException("Resource not found");
             }
             resourceSkillRepository.save(ResourceSkill.create(
-                    resourceId, item.skillId(), item.proficiency().trim(), item.yearsOfExperience()));
+                    resourceId,
+                    item.skillId(),
+                    item.proficiency().trim().toUpperCase(Locale.ROOT),
+                    item.yearsOfExperience(),
+                    Boolean.TRUE.equals(item.primary()),
+                    item.certification()));
         }
         auditService.record(resource.getOrganizationId(), user.userId(), "UPDATE", "RESOURCE_SKILLS", resourceId);
         return resourceSkillRepository.findByIdResourceId(resourceId).stream()
@@ -310,25 +472,25 @@ public class ResourceService {
         return resource;
     }
 
+    /**
+     * Keeps the stored allocation status in step with today's allocations (for list filters and imports).
+     * Lifecycle states set by a person are left alone; the board classifies live via {@link ResourceMetrics}.
+     */
     public void refreshDerivedStatus(Resource resource) {
-        String current = resource.getStatus();
-        if ("ON_LEAVE".equals(current) || "INACTIVE".equals(current)) {
+        if (Resource.MANUAL_STATUSES.contains(resource.getStatus())) {
             return;
         }
         List<ResourceAllocation> activeNow =
                 allocationRepository.findActiveOverlappingNow(resource.getId(), LocalDate.now());
-        if (activeNow.isEmpty()) {
-            resource.setDerivedStatus("AVAILABLE");
-            return;
-        }
         BigDecimal pctSum = activeNow.stream()
-                .map(a -> a.getAllocationPercentage() != null ? a.getAllocationPercentage() : BigDecimal.ZERO)
+                .map(a -> ResourceMetrics.effectivePercentage(a, resource.getCapacityHoursPerWeek()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        if (pctSum.compareTo(BigDecimal.valueOf(100)) >= 0) {
-            resource.setDerivedStatus("FULLY_ALLOCATED");
-        } else {
-            resource.setDerivedStatus("PARTIALLY_ALLOCATED");
-        }
+        String band = ResourceMetrics.band(pctSum, ResourceMetrics.Thresholds.defaults());
+        resource.setDerivedStatus(switch (band) {
+            case ResourceMetrics.BAND_BENCH -> Resource.STATUS_AVAILABLE;
+            case ResourceMetrics.BAND_PARTIAL -> Resource.STATUS_PARTIALLY_ALLOCATED;
+            default -> Resource.STATUS_FULLY_ALLOCATED;
+        });
     }
 
     private boolean canViewCostRate() {
@@ -355,21 +517,25 @@ public class ResourceService {
         return region;
     }
 
-    private static String normalizeType(String resourceType) {
-        String type = resourceType == null ? "" : resourceType.trim().toUpperCase(Locale.ROOT);
-        if (!Resource.TYPES.contains(type)) {
-            throw new BusinessException(
-                    "INVALID_RESOURCE_TYPE", "Resource type must be one of EMPLOYEE, CONTRACTOR, FREELANCER, CONSULTANT");
-        }
-        return type;
+    private String normalizeType(String resourceType) {
+        return typeCatalog.requireActive(resourceType).getCode();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ResourceTypeResponse> listTypes() {
+        tenantAccess.requirePermission("RESOURCE_VIEW");
+        return typeCatalog.all().stream().map(ResourceTypeResponse::from).toList();
     }
 
     /**
-     * Employees are the company's own staff and must be linked to an internal user account; external resources
-     * (contractors, freelancers, consultants) need at least a name and get a login only through a portal invite.
+     * Internal types marked "requires user" (employees) must be linked to an internal user account; external
+     * resources need at least a name and get a login only through a portal invite.
      */
     private void assertPersonDetails(
             String resourceType, UUID organizationId, UUID userId, String fullName, UUID currentResourceId) {
+        boolean requiresUser = typeCatalog.find(resourceType)
+                .map(ResourceType::isRequiresUser)
+                .orElse(Resource.TYPE_EMPLOYEE.equals(resourceType));
         User user = null;
         if (userId != null) {
             user = userRepository
@@ -383,7 +549,7 @@ public class ResourceService {
                                 + (linked.getEmployeeCode() != null ? linked.getEmployeeCode() : linked.getId()));
                     });
         }
-        if (Resource.TYPE_EMPLOYEE.equals(resourceType)) {
+        if (requiresUser) {
             if (user == null) {
                 throw new BusinessException(
                         "USER_REQUIRED", "Employees must be linked to a user account; add the person under Users first");

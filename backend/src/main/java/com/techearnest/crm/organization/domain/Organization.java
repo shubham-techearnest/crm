@@ -49,6 +49,31 @@ public class Organization {
     @Column(nullable = false)
     private String status;
 
+    @Column(name = "address_line")
+    private String addressLine;
+
+    private String city;
+    private String state;
+    private String country;
+
+    @Column(name = "postal_code")
+    private String postalCode;
+
+    @Column(name = "tax_id")
+    private String taxId;
+
+    @Column(name = "date_format", nullable = false)
+    private String dateFormat = "dd/MM/yyyy";
+
+    @Column(name = "time_format", nullable = false)
+    private String timeFormat = "12h";
+
+    @Column(name = "week_start_day", nullable = false)
+    private String weekStartDay = "MONDAY";
+
+    @Column(name = "fiscal_year_start_month", nullable = false)
+    private Integer fiscalYearStartMonth = 4;
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -120,6 +145,65 @@ public class Organization {
         if (status != null && !status.isBlank()) {
             this.status = status;
         }
+    }
+
+    public void updateAddress(
+            String addressLine, String city, String state, String country, String postalCode, String taxId) {
+        this.addressLine = addressLine;
+        this.city = city;
+        this.state = state;
+        this.country = country;
+        this.postalCode = postalCode;
+        this.taxId = taxId;
+    }
+
+    /** Null values keep the current preference. */
+    public void updatePreferences(
+            String dateFormat, String timeFormat, String weekStartDay, Integer fiscalYearStartMonth) {
+        if (dateFormat != null) this.dateFormat = dateFormat;
+        if (timeFormat != null) this.timeFormat = timeFormat;
+        if (weekStartDay != null) this.weekStartDay = weekStartDay;
+        if (fiscalYearStartMonth != null) this.fiscalYearStartMonth = fiscalYearStartMonth;
+    }
+
+    public String getAddressLine() {
+        return addressLine;
+    }
+
+    public String getCity() {
+        return city;
+    }
+
+    public String getState() {
+        return state;
+    }
+
+    public String getCountry() {
+        return country;
+    }
+
+    public String getPostalCode() {
+        return postalCode;
+    }
+
+    public String getTaxId() {
+        return taxId;
+    }
+
+    public String getDateFormat() {
+        return dateFormat;
+    }
+
+    public String getTimeFormat() {
+        return timeFormat;
+    }
+
+    public String getWeekStartDay() {
+        return weekStartDay;
+    }
+
+    public Integer getFiscalYearStartMonth() {
+        return fiscalYearStartMonth;
     }
 
     public UUID getId() {

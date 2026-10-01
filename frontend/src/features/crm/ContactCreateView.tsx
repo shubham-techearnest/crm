@@ -12,7 +12,6 @@ import {
   type TechEarnestPickerOption,
   type TechEarnestPickerUser,
 } from "@/components/TechEarnestCreate";
-import { ToolbarIcon } from "@/components/ToolbarIcon/ToolbarIcon";
 import { FormLayoutEditorModal } from "@/components/TechEarnestCreate/FormLayoutEditorModal";
 import { TechEarnestCreateField as TechEarnestField } from "@/components/TechEarnestCreate/TechEarnestCreateField";
 import { TechEarnestCreateSection } from "@/components/TechEarnestCreate/TechEarnestCreateSection";
@@ -21,6 +20,7 @@ import { TechEarnestRecordImage } from "@/components/TechEarnestCreate/TechEarne
 import { useTechEarnestRecordPhoto } from "@/components/TechEarnestCreate/useTechEarnestRecordPhoto";
 import { addressPrefix } from "@/components/TechEarnestCreate/techearnestAddressUtils";
 import { attachRecordPhoto } from "@/components/TechEarnestCreate/attachRecordPhoto";
+import { useCustomFieldsForm } from "@/features/customFields/useCustomFieldsForm";
 import { createAccount, createContact, type Contact } from "./crmApi";
 import { LEAD_SALUTATIONS, LEAD_SOURCES, noneLabel } from "./leadFormConstants";
 
@@ -170,11 +170,13 @@ export function ContactCreateView({
     setValue,
     getValues,
     control,
-    formState: { errors, isSubmitting, isDirty },
+    formState: { errors, isSubmitting, isDirty: formDirty },
   } = useForm<ContactFormValues>({
     resolver: zodResolver(contactSchema),
     defaultValues: defaults,
   });
+  const customFields = useCustomFieldsForm("contact");
+  const isDirty = formDirty || customFields.dirty;
 
   const accountOptions = useMemo(
     () =>
@@ -222,6 +224,7 @@ export function ContactCreateView({
   }
 
   function submit(values: ContactFormValues) {
+    if (!customFields.prepareSave()) return;
     createMutation.mutate(buildCreateBody(values));
   }
 
@@ -431,12 +434,7 @@ export function ContactCreateView({
                   </TechEarnestField>
 
                   <TechEarnestField label="Reporting To">
-                    <div className="input-group input-group-sm">
-                      <input type="text" className="form-control" {...register("reportingTo")} />
-                      <button type="button" className="btn btn-light techearnest-lookup-btn" tabIndex={-1} aria-hidden="true">
-                        <ToolbarIcon name="users" />
-                      </button>
-                    </div>
+                    <input type="text" className="form-control form-control-sm" {...register("reportingTo")} />
                   </TechEarnestField>
                 </div>
               </div>
@@ -472,6 +470,7 @@ export function ContactCreateView({
                 <textarea className="form-control form-control-sm" rows={5} {...register("description")} />
               </TechEarnestField>
             </TechEarnestCreateSection>
+            {customFields.section}
           </div>
         </div>
       </form>

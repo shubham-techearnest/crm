@@ -40,7 +40,13 @@ public final class TimesheetDtos {
             String entrySource,
             UUID enteredBy,
             String resourceName,
-            String notes) {
+            String notes,
+            String visibility) {
+
+        /** The viewer sees every entry. */
+        public static final String VISIBILITY_ALL = "ALL";
+        /** The viewer is a project manager and sees only the entries of projects they manage. */
+        public static final String VISIBILITY_MY_PROJECTS = "MY_PROJECTS";
 
         public static TimesheetResponse from(
                 Timesheet timesheet, List<TimeEntry> entries, String warning, boolean includeRates) {
@@ -66,7 +72,8 @@ public final class TimesheetDtos {
                     timesheet.getEntrySource(),
                     timesheet.getEnteredBy(),
                     null,
-                    timesheet.getNotes());
+                    timesheet.getNotes(),
+                    VISIBILITY_ALL);
         }
 
         public static TimesheetResponse from(
@@ -94,14 +101,22 @@ public final class TimesheetDtos {
                     timesheet.getEntrySource(),
                     timesheet.getEnteredBy(),
                     null,
-                    timesheet.getNotes());
+                    timesheet.getNotes(),
+                    VISIBILITY_ALL);
         }
 
         public TimesheetResponse withResourceName(String name) {
             return new TimesheetResponse(
                     id, organizationId, resourceId, regionId, weekStartDate, status, submittedAt, approvedAt,
                     approvedBy, rejectionReason, totalHours, warning, entries, createdAt, updatedAt, entrySource,
-                    enteredBy, name, notes);
+                    enteredBy, name, notes, visibility);
+        }
+
+        public TimesheetResponse withVisibility(String value) {
+            return new TimesheetResponse(
+                    id, organizationId, resourceId, regionId, weekStartDate, status, submittedAt, approvedAt,
+                    approvedBy, rejectionReason, totalHours, warning, entries, createdAt, updatedAt, entrySource,
+                    enteredBy, resourceName, notes, value);
         }
     }
 
@@ -116,7 +131,9 @@ public final class TimesheetDtos {
             boolean billable,
             BigDecimal billingRate,
             Instant createdAt,
-            Instant updatedAt) {
+            Instant updatedAt,
+            UUID approvedBy,
+            Instant approvedAt) {
 
         public static TimeEntryResponse from(TimeEntry entry, boolean includeRates) {
             return new TimeEntryResponse(
@@ -130,7 +147,9 @@ public final class TimesheetDtos {
                     entry.isBillable(),
                     includeRates ? entry.getBillingRate() : null,
                     entry.getCreatedAt(),
-                    entry.getUpdatedAt());
+                    entry.getUpdatedAt(),
+                    entry.getApprovedBy(),
+                    entry.getApprovedAt());
         }
 
         public static TimeEntryResponse from(TimeEntry entry) {
@@ -141,22 +160,25 @@ public final class TimesheetDtos {
     public static final String START_BLANK = "BLANK";
     public static final String START_COPY_PREVIOUS = "COPY_PREVIOUS";
     public static final String START_QUICK_FILL = "QUICK_FILL";
+    public static final String START_CUSTOM = "CUSTOM";
 
     /**
-     * {@code startWith} is BLANK (default), COPY_PREVIOUS (last week's entries) or QUICK_FILL (the same hours on
-     * the chosen days for one project, from {@code quickFill}).
+     * {@code startWith} is BLANK (default), COPY_PREVIOUS (last week's entries), QUICK_FILL (the same hours on
+     * the chosen days for one project, from {@code quickFill}) or CUSTOM (the day-by-day {@code entries} filled in
+     * on the create form).
      */
     public record CreateTimesheetRequest(
             UUID organizationId,
             UUID resourceId,
             @NotNull LocalDate weekStartDate,
             @Size(max = 2000) String notes,
-            @Pattern(regexp = "BLANK|COPY_PREVIOUS|QUICK_FILL") String startWith,
+            @Pattern(regexp = "BLANK|COPY_PREVIOUS|QUICK_FILL|CUSTOM") String startWith,
             @Valid QuickFillRequest quickFill,
-            Boolean submitAfterCreate) {
+            Boolean submitAfterCreate,
+            @Size(max = 200) List<@Valid LinkEntryRequest> entries) {
 
         public CreateTimesheetRequest(UUID organizationId, UUID resourceId, LocalDate weekStartDate) {
-            this(organizationId, resourceId, weekStartDate, null, null, null, null);
+            this(organizationId, resourceId, weekStartDate, null, null, null, null, null);
         }
     }
 

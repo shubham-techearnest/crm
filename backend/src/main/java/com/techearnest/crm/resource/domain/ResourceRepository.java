@@ -51,6 +51,42 @@ public interface ResourceRepository extends JpaRepository<Resource, UUID> {
 
     boolean existsByOrganizationIdAndEmployeeCodeAndDeletedAtIsNull(UUID organizationId, String employeeCode);
 
+    @Query(
+            """
+            select case when (
+                exists (select 1 from ResourceAllocation a where a.resourceId = :resourceId and a.deletedAt is null)
+                or exists (select 1 from Timesheet t where t.resourceId = :resourceId and t.deletedAt is null)
+            ) then true else false end
+            from Resource r where r.id = :resourceId
+            """)
+    boolean hasWorkHistory(@Param("resourceId") UUID resourceId);
+
+    /**
+     * Every live resource of an organization within the caller's scope, for the resource board. Team / own scope
+     * sees the people they manage, themselves, and everyone allocated to a project they manage.
+     */
+    @Query(
+            """
+            select r from Resource r
+            where r.organizationId = :organizationId
+              and r.deletedAt is null
+              and (:regionIds is null or r.regionId in :regionIds)
+              and (:ownerId is null
+                   or r.managerId = :ownerId
+                   or r.userId = :ownerId
+                   or exists (
+                        select 1 from ResourceAllocation a, Project p
+                        where a.resourceId = r.id
+                          and p.id = a.projectId
+                          and a.deletedAt is null
+                          and p.deletedAt is null
+                          and p.projectManagerId = :ownerId))
+            """)
+    java.util.List<Resource> findForBoard(
+            @Param("organizationId") UUID organizationId,
+            @Param("regionIds") Collection<UUID> regionIds,
+            @Param("ownerId") UUID ownerId);
+
     /** Resources without a login that can receive emailed timesheet links for the given week. */
     @Query(
             """

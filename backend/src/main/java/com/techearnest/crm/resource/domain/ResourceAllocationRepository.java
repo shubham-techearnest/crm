@@ -94,4 +94,40 @@ public interface ResourceAllocationRepository extends JpaRepository<ResourceAllo
             """)
     boolean existsActiveOrPlannedForResourceAndProject(
             @Param("resourceId") UUID resourceId, @Param("projectId") UUID projectId);
+
+    /** Every non-cancelled allocation (including history) of a resource on a project. */
+    @Query(
+            """
+            select a from ResourceAllocation a
+            where a.resourceId = :resourceId
+              and a.projectId = :projectId
+              and a.deletedAt is null
+              and a.status <> 'CANCELLED'
+            order by a.startDate asc
+            """)
+    List<ResourceAllocation> findHistoryForResourceAndProject(
+            @Param("resourceId") UUID resourceId, @Param("projectId") UUID projectId);
+
+    @Query(
+            """
+            select a from ResourceAllocation a
+            where a.resourceId in :resourceIds
+              and a.deletedAt is null
+              and a.status <> 'CANCELLED'
+              and a.startDate <= :periodEnd
+              and a.endDate >= :periodStart
+            """)
+    List<ResourceAllocation> findForResourcesInWindow(
+            @Param("resourceIds") Collection<UUID> resourceIds,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("periodEnd") LocalDate periodEnd);
+
+    @Query(
+            """
+            select a from ResourceAllocation a
+            where a.resourceId = :resourceId
+              and a.deletedAt is null
+            order by a.startDate desc
+            """)
+    List<ResourceAllocation> findAllByResource(@Param("resourceId") UUID resourceId);
 }

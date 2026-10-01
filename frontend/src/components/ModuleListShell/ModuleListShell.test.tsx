@@ -1,7 +1,9 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { ModuleListShell } from "./ModuleListShell";
+import { ModuleListTable } from "./ModuleListTable";
 
 function renderShell(props: { activeFilterCount: number; onClearFilters?: () => void; onCloseFilters?: () => void }) {
   render(
@@ -63,5 +65,57 @@ describe("ModuleListShell filter panel", () => {
     fireEvent.keyDown(saveView, { key: "Enter" });
     expect(saveView).toHaveAttribute("aria-expanded", "true");
     expect(saveView.parentElement).not.toHaveClass("is-collapsed");
+  });
+});
+
+describe("ModuleListShell bulk menu", () => {
+  it("lists the table's bulk options in the ⋯ menu next to page items", () => {
+    const rows = [
+      { id: "a", name: "Alpha", status: "ACTIVE" },
+      { id: "b", name: "Beta", status: "INACTIVE" },
+    ];
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <MemoryRouter>
+          <ModuleListShell
+            title="Contacts"
+            filterOpen={false}
+            showSortButton={false}
+            moreMenuItems={[{ id: "import", label: "Import Contacts" }]}
+          >
+            <ModuleListTable
+              tableCode="contact"
+              enabled={false}
+              defaultColumns={[{ field: "name", label: "Name" }]}
+              rows={rows}
+              rowKey={(row) => row.id}
+              renderCell={(row, field) => String((row as Record<string, unknown>)[field] ?? "")}
+              bulk={{
+                noun: "contacts",
+                actions: [
+                  {
+                    id: "status",
+                    label: "Change status",
+                    applies: (row) => row.status === "ACTIVE",
+                    run: async () => undefined,
+                  },
+                ],
+              }}
+            />
+          </ModuleListShell>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    expect(screen.getByRole("menuitem", { name: "Import Contacts" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Export all 2 contacts" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Change status" })).toBeDisabled();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Select all 2 contacts" }));
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    expect(screen.getByRole("menuitem", { name: "Export selected (2)" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Change status (1)" }));
+    expect(screen.getByRole("dialog", { name: "Change status" })).toHaveTextContent("1 of 2 selected contacts");
   });
 });

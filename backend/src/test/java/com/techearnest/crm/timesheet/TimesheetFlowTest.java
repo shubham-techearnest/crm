@@ -358,6 +358,34 @@ class TimesheetFlowTest {
                 .andExpect(jsonPath("$.data.length()").value(0));
     }
 
+    @Test
+    void createWithCustomDailyEntriesAndSubmitInOneStep() throws Exception {
+        String token = login("employee@example.com");
+        LocalDate monday = uniqueMonday();
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("weekStartDate", monday.toString());
+        body.put("startWith", "CUSTOM");
+        body.put("submitAfterCreate", true);
+        ArrayNode entries = body.putArray("entries");
+        ObjectNode first = gridEntry(monday, 8, true);
+        first.put("description", "Sprint planning");
+        entries.add(first);
+        ObjectNode second = gridEntry(monday.plusDays(2), 3, false);
+        second.put("description", "Code review");
+        entries.add(second);
+
+        mockMvc.perform(post("/api/v1/timesheets")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("SUBMITTED"))
+                .andExpect(jsonPath("$.data.totalHours").value(11))
+                .andExpect(jsonPath("$.data.entries[0].description").value("Sprint planning"))
+                .andExpect(jsonPath("$.data.entries[1].workDate").value(monday.plusDays(2).toString()))
+                .andExpect(jsonPath("$.data.entries[1].description").value("Code review"));
+    }
+
     private String createTimesheet(String token, LocalDate monday) throws Exception {
         ObjectNode createBody = objectMapper.createObjectNode();
         createBody.put("weekStartDate", monday.toString());

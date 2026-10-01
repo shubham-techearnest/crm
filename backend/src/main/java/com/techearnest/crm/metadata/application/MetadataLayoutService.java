@@ -162,7 +162,7 @@ public class MetadataLayoutService {
                 .orElseThrow(() -> new BusinessException("NO_DRAFT", "Save a draft before publishing"));
         formLayoutRepository.findOrgPublished(orgId, baseTableId, key).ifPresent(existing -> {
             existing.markSuperseded(user.userId());
-            formLayoutRepository.save(existing);
+            formLayoutRepository.saveAndFlush(existing);
         });
         draft.publish(user.userId());
         formLayoutRepository.save(draft);
@@ -254,7 +254,7 @@ public class MetadataLayoutService {
                 .orElseThrow(() -> new BusinessException("NO_DRAFT", "Save a draft before publishing"));
         listLayoutRepository.findOrgPublished(orgId, baseTableId, roleId).ifPresent(existing -> {
             existing.markSuperseded(user.userId());
-            listLayoutRepository.save(existing);
+            listLayoutRepository.saveAndFlush(existing);
         });
         draft.publish(user.userId());
         listLayoutRepository.save(draft);

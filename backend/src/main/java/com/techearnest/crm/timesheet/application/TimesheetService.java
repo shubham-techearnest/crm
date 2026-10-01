@@ -12,6 +12,7 @@ import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.TenantAccess;
 import com.techearnest.crm.metadata.application.FieldAclEvaluator;
 import com.techearnest.crm.notification.application.NotificationService;
+import com.techearnest.crm.organization.domain.OrganizationRepository;
 import com.techearnest.crm.project.domain.Project;
 import com.techearnest.crm.project.domain.ProjectRepository;
 import com.techearnest.crm.project.domain.ProjectTask;
@@ -20,9 +21,11 @@ import com.techearnest.crm.resource.application.ResourceDisplayNames;
 import com.techearnest.crm.resource.domain.Resource;
 import com.techearnest.crm.resource.domain.ResourceAllocation;
 import com.techearnest.crm.resource.domain.ResourceAllocationRepository;
+import com.techearnest.crm.resource.domain.ResourceMetrics;
 import com.techearnest.crm.resource.domain.ResourceRepository;
 import static com.techearnest.crm.timesheet.api.dto.TimesheetDtos.START_BLANK;
 import static com.techearnest.crm.timesheet.api.dto.TimesheetDtos.START_COPY_PREVIOUS;
+import static com.techearnest.crm.timesheet.api.dto.TimesheetDtos.START_CUSTOM;
 import static com.techearnest.crm.timesheet.api.dto.TimesheetDtos.START_QUICK_FILL;
 
 import com.techearnest.crm.timesheet.api.dto.TimesheetDtos.CreateTimeEntryRequest;
@@ -45,8 +48,10 @@ import com.techearnest.crm.timesheet.event.TimesheetApprovedEvent;
 import com.techearnest.crm.timesheet.event.TimesheetRejectedEvent;
 import com.techearnest.crm.timesheet.event.TimesheetSubmittedEvent;
 import java.math.BigDecimal;
+import java.time.DateTimeException;
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
@@ -58,6 +63,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -88,6 +94,8 @@ public class TimesheetService {
     private final ApprovalService approvalService;
     private final ResourceDisplayNames resourceNames;
     private final MailGateway mailGateway;
+    private final OrganizationRepository organizationRepository;
+    private final boolean allowFutureSubmission;
 
     public TimesheetService(
             TimesheetRepository timesheetRepository,
@@ -103,7 +111,9 @@ public class TimesheetService {
             FieldAclEvaluator fieldAclEvaluator,
             ApprovalService approvalService,
             ResourceDisplayNames resourceNames,
-            MailGateway mailGateway) {
+            MailGateway mailGateway,
+            OrganizationRepository organizationRepository,
+            @Value("${crm.timesheet.allow-future-submission:false}") boolean allowFutureSubmission) {
         this.timesheetRepository = timesheetRepository;
         this.timeEntryRepository = timeEntryRepository;
         this.resourceRepository = resourceRepository;
@@ -118,6 +128,8 @@ public class TimesheetService {
         this.approvalService = approvalService;
         this.resourceNames = resourceNames;
         this.mailGateway = mailGateway;
+        this.organizationRepository = organizationRepository;
+        this.allowFutureSubmission = allowFutureSubmission;
     }
 
     @Transactional(readOnly = true)
@@ -133,6 +145,11 @@ public class TimesheetService {
         UUID orgId = tenantAccess.resolveOrganizationId(organizationId);
         Collection<UUID> regionIds = tenantAccess.regionFilterOrNull();
         UUID ownerId = tenantAccess.ownerFilterOrNull();
+        boolean projectScoped = isProjectScopedViewer(orgId, user);
+        if (projectScoped) {
+            // Project managers reach other people's timesheets through their projects, not their data scope.
+            ownerId = null;
+        }
         Page<Timesheet> page = timesheetRepository.search(
                 orgId,
                 blankToNull(status),
@@ -142,10 +159,16 @@ public class TimesheetService {
                 regionIds,
                 ownerId,
                 awaitingMyApproval ? user.userId() : null,
+                projectScoped ? user.userId() : null,
                 pageable);
 
-        Map<UUID, BigDecimal> totals = totalsByTimesheet(
-                page.getContent().stream().map(Timesheet::getId).toList());
+        Map<UUID, BigDecimal> totals = new HashMap<>();
+        for (Map.Entry<UUID, List<TimeEntry>> sheet :
+                visibleEntriesBySheet(page.getContent(), user, projectScoped).entrySet()) {
+            totals.put(sheet.getKey(), sheet.getValue().stream()
+                    .map(TimeEntry::getHours)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add));
+        }
         Map<UUID, String> names = resourceNames.byResourceIds(
                 page.getContent().stream().map(Timesheet::getResourceId).toList());
         List<TimesheetResponse> data = page.getContent().stream()
@@ -157,18 +180,31 @@ public class TimesheetService {
 
     @Transactional(readOnly = true)
     public TimesheetResponse get(UUID id) {
-        tenantAccess.requirePermission("TIMESHEET_VIEW");
+        CurrentUser user = tenantAccess.requirePermission("TIMESHEET_VIEW");
         Timesheet timesheet = requireVisibleTimesheet(id);
         List<TimeEntry> entries = timeEntryRepository.findActiveByTimesheetId(id);
-        return detail(timesheet, entries, capacityWarning(timesheet, entries));
+        Set<UUID> projectScope = projectScope(timesheet, requireResource(timesheet.getResourceId()), entries, user);
+        if (projectScope == null) {
+            return detail(timesheet, entries, capacityWarning(timesheet, entries));
+        }
+        return scopedDetail(timesheet, entries, projectScope);
     }
 
     /** Projects the timesheet's resource is allocated to, with open tasks; used by the entry picker. */
     @Transactional(readOnly = true)
     public List<EntryProjectOption> entryProjects(UUID timesheetId) {
-        tenantAccess.requirePermission("TIMESHEET_VIEW");
+        CurrentUser user = tenantAccess.requirePermission("TIMESHEET_VIEW");
         Timesheet timesheet = requireVisibleTimesheet(timesheetId);
-        return allocatedProjectOptions(timesheet.getOrganizationId(), timesheet.getResourceId());
+        List<EntryProjectOption> options =
+                allocatedProjectOptions(timesheet.getOrganizationId(), timesheet.getResourceId());
+        Set<UUID> projectScope = projectScope(
+                timesheet,
+                requireResource(timesheet.getResourceId()),
+                timeEntryRepository.findActiveByTimesheetId(timesheetId),
+                user);
+        return projectScope == null
+                ? options
+                : options.stream().filter(option -> projectScope.contains(option.projectId())).toList();
     }
 
     /** Projects a resource can log time against, for pre-filling a timesheet before it exists. */
@@ -221,11 +257,44 @@ public class TimesheetService {
                 throw new BusinessException("QUICK_FILL_REQUIRED", "Choose a project and hours to pre-fill the week");
             }
             result = saveEntries(timesheet.getId(), quickFillEntries(weekStart, request.quickFill()));
+        } else if (START_CUSTOM.equals(startWith) && request.entries() != null && !request.entries().isEmpty()) {
+            result = saveEntries(timesheet.getId(), request.entries());
         }
         if (Boolean.TRUE.equals(request.submitAfterCreate())) {
             result = submit(timesheet.getId());
         }
         return result;
+    }
+
+    /** Today in the organization's time zone; hours after this date can be saved as a draft but not submitted. */
+    public LocalDate todayFor(UUID organizationId) {
+        ZoneId zone = organizationRepository.findById(organizationId)
+                .map(org -> {
+                    try {
+                        return org.getTimezone() == null ? null : ZoneId.of(org.getTimezone());
+                    } catch (DateTimeException ex) {
+                        return null;
+                    }
+                })
+                .orElse(null);
+        return LocalDate.now(zone != null ? zone : ZoneId.systemDefault());
+    }
+
+    private void assertNoFutureEntries(UUID organizationId, Collection<LocalDate> workDates) {
+        if (allowFutureSubmission) {
+            return;
+        }
+        LocalDate today = todayFor(organizationId);
+        workDates.stream()
+                .filter(Objects::nonNull)
+                .filter(date -> date.isAfter(today))
+                .min(LocalDate::compareTo)
+                .ifPresent(date -> {
+                    throw new BusinessException(
+                            "FUTURE_ENTRIES",
+                            "Hours are logged for a future date (" + date.format(WEEK_LABEL)
+                                    + "). Save the week as a draft and submit it once those days have passed.");
+                });
     }
 
     private static List<LinkEntryRequest> quickFillEntries(LocalDate weekStart, QuickFillRequest fill) {
@@ -500,6 +569,7 @@ public class TimesheetService {
         if (entries.isEmpty()) {
             throw new BusinessException("NO_ENTRIES", "Add at least one time entry before submitting");
         }
+        assertNoFutureEntries(timesheet.getOrganizationId(), entries.stream().map(TimeEntry::getWorkDate).toList());
 
         timesheet.submit();
         auditService.record(timesheet.getOrganizationId(), user.userId(), "UPDATE", "TIMESHEET", timesheet.getId());
@@ -553,8 +623,9 @@ public class TimesheetService {
         for (ResourceAllocation allocation : allocationRepository.findActiveOrPlannedByResource(resource.getId())) {
             allocatedProjects.add(allocation.getProjectId());
         }
+        assertNoFutureEntries(resource.getOrganizationId(), requests.stream().map(LinkEntryRequest::workDate).toList());
         clearReplaceableEntries(timesheet.getId());
-        BigDecimal billingRate = resource.getBillingRate();
+        BigDecimal billingRate = ResourceMetrics.hourlyBillingRate(resource);
         for (LinkEntryRequest request : requests) {
             assertWorkDateInWeek(timesheet, request.workDate());
             validateHours(request.hours());
@@ -609,11 +680,23 @@ public class TimesheetService {
         Resource resource = requireResource(timesheet.getResourceId());
         assertNotSelfApprove(user, resource);
 
-        timesheet.approve(user.userId());
-        auditService.record(timesheet.getOrganizationId(), user.userId(), "APPROVE", "TIMESHEET", timesheet.getId());
-
-        timesheetRepository.saveAndFlush(timesheet);
         List<TimeEntry> entries = timeEntryRepository.findActiveByTimesheetId(id);
+        Set<UUID> projectScope = projectScope(timesheet, resource, entries, user);
+        List<TimeEntry> approvable = inScope(entries, projectScope);
+        if (projectScope != null && approvable.isEmpty()) {
+            throw new ForbiddenException("You can only approve hours on projects you manage");
+        }
+        approvable.stream().filter(entry -> !entry.isApproved()).forEach(entry -> entry.approve(user.userId()));
+        auditService.record(timesheet.getOrganizationId(), user.userId(), "APPROVE", "TIMESHEET", timesheet.getId());
+        if (!entries.stream().allMatch(TimeEntry::isApproved)) {
+            // Other project managers still have to approve the hours on their projects.
+            timeEntryRepository.saveAll(approvable);
+            return scopedDetail(timesheet, entries, projectScope);
+        }
+
+        timesheet.approve(user.userId());
+        timesheetRepository.saveAndFlush(timesheet);
+        stampRates(resource, entries);
         recomputeActualHours(entries);
 
         String weekLabel = timesheet.getWeekStartDate().format(WEEK_LABEL);
@@ -636,7 +719,29 @@ public class TimesheetService {
                 user.userId(),
                 null);
 
-        return detail(timesheet, entries, null);
+        return scopedDetail(timesheet, entries, projectScope);
+    }
+
+    /**
+     * Freezes the allocation and rates each approved hour was worked under, so later rate changes
+     * never rewrite historical cost or revenue.
+     */
+    private void stampRates(Resource resource, List<TimeEntry> entries) {
+        Map<UUID, List<ResourceAllocation>> byProject = new HashMap<>();
+        for (TimeEntry entry : entries) {
+            if (entry.getProjectId() == null) {
+                entry.stampRates(null, ResourceMetrics.hourlyCostRate(resource), null);
+                continue;
+            }
+            List<ResourceAllocation> allocations = byProject.computeIfAbsent(
+                    entry.getProjectId(),
+                    projectId -> allocationRepository.findHistoryForResourceAndProject(resource.getId(), projectId));
+            ResourceAllocation allocation = ResourceMetrics.allocationCovering(allocations, entry.getWorkDate());
+            entry.stampRates(
+                    allocation == null ? null : allocation.getId(),
+                    ResourceMetrics.costRateFor(allocation, resource),
+                    ResourceMetrics.billingRateFor(allocation, resource));
+        }
     }
 
     @Transactional
@@ -648,6 +753,13 @@ public class TimesheetService {
         }
         Resource resource = requireResource(timesheet.getResourceId());
         assertNotSelfApprove(user, resource);
+        List<TimeEntry> entries = timeEntryRepository.findActiveByTimesheetId(id);
+        Set<UUID> projectScope = projectScope(timesheet, resource, entries, user);
+        if (projectScope != null && inScope(entries, projectScope).isEmpty()) {
+            throw new ForbiddenException("You can only reject hours on projects you manage");
+        }
+        // The resource corrects and resubmits the whole week, so every project is approved again.
+        entries.forEach(TimeEntry::clearApproval);
 
         String reason = request.reason().trim();
         timesheet.reject(user.userId(), reason);
@@ -676,23 +788,20 @@ public class TimesheetService {
                 user.userId(),
                 reason);
 
-        List<TimeEntry> entries = timeEntryRepository.findActiveByTimesheetId(id);
-        return detail(timesheet, entries, null);
+        return scopedDetail(timesheet, entries, projectScope);
     }
 
     @Transactional(readOnly = true)
     public String exportCsv(UUID organizationId) {
-        tenantAccess.requirePermission("TIMESHEET_EXPORT");
+        CurrentUser user = tenantAccess.requirePermission("TIMESHEET_EXPORT");
         UUID orgId = tenantAccess.resolveOrganizationId(organizationId);
         Collection<UUID> regionIds = tenantAccess.regionFilterOrNull();
-        UUID ownerId = tenantAccess.ownerFilterOrNull();
+        boolean projectScoped = isProjectScopedViewer(orgId, user);
+        UUID ownerId = projectScoped ? null : tenantAccess.ownerFilterOrNull();
         List<Timesheet> timesheets = timesheetRepository.findAllForExport(orgId, regionIds, ownerId);
-        List<UUID> ids = timesheets.stream().map(Timesheet::getId).toList();
-        Map<UUID, List<TimeEntry>> entriesBySheet = new HashMap<>();
-        if (!ids.isEmpty()) {
-            for (TimeEntry entry : timeEntryRepository.findActiveByTimesheetIdIn(ids)) {
-                entriesBySheet.computeIfAbsent(entry.getTimesheetId(), ignored -> new ArrayList<>()).add(entry);
-            }
+        Map<UUID, List<TimeEntry>> entriesBySheet = visibleEntriesBySheet(timesheets, user, projectScoped);
+        if (projectScoped) {
+            timesheets = timesheets.stream().filter(t -> entriesBySheet.containsKey(t.getId())).toList();
         }
 
         StringBuilder csv = new StringBuilder();
@@ -798,8 +907,118 @@ public class TimesheetService {
                 .findActiveById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
         Resource resource = requireResource(timesheet.getResourceId());
-        tenantAccess.assertRecordVisible(TimesheetScope.of(timesheet, resource));
+        try {
+            tenantAccess.assertRecordVisible(TimesheetScope.of(timesheet, resource));
+        } catch (ResourceNotFoundException outsideScope) {
+            // A project manager may open any timesheet with hours on their projects; get() limits what they see.
+            CurrentUser user = tenantAccess.currentUser();
+            if (managedProjectIds(timeEntryRepository.findActiveByTimesheetId(id), user).isEmpty()) {
+                throw outsideScope;
+            }
+        }
         return timesheet;
+    }
+
+    /**
+     * Users who manage projects see other people's timesheets project by project: only the hours on projects they
+     * manage. Approval admins are exempt.
+     */
+    private boolean isProjectScopedViewer(UUID organizationId, CurrentUser user) {
+        return user.userId() != null
+                && !user.hasPermission("APPROVAL_ADMIN")
+                && projectRepository.existsByOrganizationIdAndProjectManagerIdAndDeletedAtIsNull(
+                        organizationId, user.userId());
+    }
+
+    /**
+     * Projects whose entries the user may see and act on in this timesheet, or {@code null} when they see every entry
+     * (their own timesheet, the resource's reporting manager, or a viewer who manages no projects).
+     */
+    private Set<UUID> projectScope(Timesheet timesheet, Resource resource, List<TimeEntry> entries, CurrentUser user) {
+        if (isOwnResource(resource, user)
+                || Objects.equals(resource.getManagerId(), user.userId())
+                || !isProjectScopedViewer(timesheet.getOrganizationId(), user)) {
+            return null;
+        }
+        return managedProjectIds(entries, user);
+    }
+
+    private Set<UUID> managedProjectIds(Collection<TimeEntry> entries, CurrentUser user) {
+        Set<UUID> projectIds = new LinkedHashSet<>();
+        entries.forEach(entry -> projectIds.add(entry.getProjectId()));
+        Set<UUID> managed = new LinkedHashSet<>();
+        if (projectIds.isEmpty() || user.userId() == null) {
+            return managed;
+        }
+        for (Project project : projectRepository.findAllById(projectIds)) {
+            if (Objects.equals(project.getProjectManagerId(), user.userId())) {
+                managed.add(project.getId());
+            }
+        }
+        return managed;
+    }
+
+    private static List<TimeEntry> inScope(List<TimeEntry> entries, Set<UUID> projectScope) {
+        return projectScope == null
+                ? entries
+                : entries.stream().filter(entry -> projectScope.contains(entry.getProjectId())).toList();
+    }
+
+    private TimesheetResponse scopedDetail(Timesheet timesheet, List<TimeEntry> entries, Set<UUID> projectScope) {
+        if (projectScope == null) {
+            return detail(timesheet, entries, null);
+        }
+        return detail(timesheet, inScope(entries, projectScope), null)
+                .withVisibility(TimesheetResponse.VISIBILITY_MY_PROJECTS);
+    }
+
+    /** Entries per timesheet that the user may see; project-scoped viewers lose sheets with nothing visible. */
+    private Map<UUID, List<TimeEntry>> visibleEntriesBySheet(
+            List<Timesheet> timesheets, CurrentUser user, boolean projectScoped) {
+        Map<UUID, List<TimeEntry>> bySheet = new HashMap<>();
+        List<UUID> ids = timesheets.stream().map(Timesheet::getId).toList();
+        if (ids.isEmpty()) {
+            return bySheet;
+        }
+        List<TimeEntry> entries = timeEntryRepository.findActiveByTimesheetIdIn(ids);
+        Set<UUID> managed = projectScoped ? managedProjectIds(entries, user) : Set.of();
+        Set<UUID> fullSheets = new LinkedHashSet<>();
+        if (projectScoped) {
+            Map<UUID, Resource> resources = new HashMap<>();
+            resourceRepository.findAllById(timesheets.stream().map(Timesheet::getResourceId).toList())
+                    .forEach(resource -> resources.put(resource.getId(), resource));
+            for (Timesheet timesheet : timesheets) {
+                Resource resource = resources.get(timesheet.getResourceId());
+                if (resource != null
+                        && (isOwnResource(resource, user) || Objects.equals(resource.getManagerId(), user.userId()))) {
+                    fullSheets.add(timesheet.getId());
+                }
+            }
+        }
+        for (TimeEntry entry : entries) {
+            if (!projectScoped || fullSheets.contains(entry.getTimesheetId()) || managed.contains(entry.getProjectId())) {
+                bySheet.computeIfAbsent(entry.getTimesheetId(), ignored -> new ArrayList<>()).add(entry);
+            }
+        }
+        if (!projectScoped) {
+            return bySheet;
+        }
+        fullSheets.forEach(id -> bySheet.putIfAbsent(id, new ArrayList<>()));
+        return bySheet;
+    }
+
+    /** Whether the user should see this timesheet's pending approval request in their inbox. */
+    @Transactional(readOnly = true)
+    public boolean canReviewTimesheet(Timesheet timesheet, Resource resource, CurrentUser user) {
+        if (user.hasPermission("APPROVAL_ADMIN") || Objects.equals(resource.getManagerId(), user.userId())) {
+            return true;
+        }
+        if (!isProjectScopedViewer(timesheet.getOrganizationId(), user)) {
+            return user.hasPermission("APPROVAL_VIEW");
+        }
+        List<TimeEntry> entries = timeEntryRepository.findActiveByTimesheetId(timesheet.getId());
+        Set<UUID> managed = managedProjectIds(entries, user);
+        return entries.stream().anyMatch(entry -> !entry.isApproved() && managed.contains(entry.getProjectId()));
     }
 
     private Resource resolveWritableResource(UUID requestedResourceId, UUID orgId, CurrentUser user) {
@@ -948,8 +1167,7 @@ public class TimesheetService {
     }
 
     private BigDecimal snapshotBillingRate(UUID resourceId) {
-        Resource resource = requireResource(resourceId);
-        return resource.getBillingRate();
+        return ResourceMetrics.hourlyBillingRate(requireResource(resourceId));
     }
 
     private String capacityWarning(Timesheet timesheet, List<TimeEntry> entries) {

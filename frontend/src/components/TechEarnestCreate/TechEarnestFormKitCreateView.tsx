@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { TechEarnestCreateShell } from "./TechEarnestCreateShell";
+import { TechEarnestCreateShell, type TechEarnestCreateExtraAction } from "./TechEarnestCreateShell";
 import { TechEarnestRecordImage } from "./TechEarnestRecordImage";
 import type { useTechEarnestRecordPhoto } from "./useTechEarnestRecordPhoto";
 
@@ -8,6 +8,8 @@ type PhotoState = ReturnType<typeof useTechEarnestRecordPhoto>;
 export interface TechEarnestFormKitCreateViewProps {
   title: string;
   tableCode?: string;
+  /** Id of the record being edited; leave empty when creating. */
+  recordId?: string | null;
   entityLabel?: string;
   pending?: boolean;
   isDirty?: boolean;
@@ -20,12 +22,15 @@ export interface TechEarnestFormKitCreateViewProps {
   photo?: PhotoState;
   imageLabel?: string;
   showRecordImage?: boolean;
+  saveLabel?: string;
+  extraAction?: TechEarnestCreateExtraAction;
   children: ReactNode;
 }
 
 export function TechEarnestFormKitCreateView({
   title,
   tableCode,
+  recordId,
   entityLabel,
   pending = false,
   isDirty = false,
@@ -38,6 +43,8 @@ export function TechEarnestFormKitCreateView({
   photo,
   imageLabel,
   showRecordImage = true,
+  saveLabel,
+  extraAction,
   children,
 }: TechEarnestFormKitCreateViewProps) {
   const label = entityLabel ?? title.replace(/^Create\s+/i, "");
@@ -46,6 +53,7 @@ export function TechEarnestFormKitCreateView({
     <TechEarnestCreateShell
       title={title}
       tableCode={tableCode}
+      recordId={recordId}
       entityLabel={label}
       pending={pending}
       isDirty={isDirty}
@@ -59,6 +67,8 @@ export function TechEarnestFormKitCreateView({
         onSubmit?.();
       }}
       showRecordImage={showRecordImage}
+      saveLabel={saveLabel}
+      extraAction={extraAction}
       recordImage={showRecordImage && photo ? (
         <TechEarnestRecordImage
           photoInputRef={photo.photoInputRef}

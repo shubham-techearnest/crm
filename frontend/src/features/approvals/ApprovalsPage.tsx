@@ -154,6 +154,41 @@ export function ApprovalsPage() {
           ]}
           rows={rows}
           rowKey={(row) => row.id}
+          bulk={{
+            noun: "approval requests",
+            exportFileName: "approvals",
+            rowLabel: (row) => `${row.targetType} · ${entityName(row.targetType, row.targetId)}`,
+            csvValue: (row, field) => (field === "comment" ? commentById[row.id] ?? "" : undefined),
+            onComplete: () => {
+              void queryClient.invalidateQueries({ queryKey: ["approvals"] });
+              void queryClient.invalidateQueries({ queryKey: ["timesheets"] });
+              void queryClient.invalidateQueries({ queryKey: ["expenses"] });
+              void queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+              void queryClient.invalidateQueries({ queryKey: ["crm", "deals"] });
+            },
+            actions: [
+              {
+                id: "approve",
+                label: "Approve",
+                tone: "success",
+                visible: canAct,
+                doneLabel: "approved",
+                applies: (row) => row.status === "PENDING",
+                input: { kind: "text", label: "Comment", optional: true },
+                run: (row, comment) => actOnApproval(row.id, { action: "APPROVE", comment: comment || undefined }),
+              },
+              {
+                id: "reject",
+                label: "Reject",
+                tone: "danger",
+                visible: canAct,
+                doneLabel: "rejected",
+                applies: (row) => row.status === "PENDING",
+                input: { kind: "text", label: "Reason", multiline: true },
+                run: (row, comment) => actOnApproval(row.id, { action: "REJECT", comment }),
+              },
+            ],
+          }}
           renderCell={(row, field) => {
             if (field === "targetId")
               return (

@@ -39,6 +39,9 @@ public final class ProjectDtos {
             BigDecimal hourlyRate,
             BigDecimal monthlyFee,
             BigDecimal contractValue,
+            String projectType,
+            String contractReference,
+            LocalDate contractSignedDate,
             BigDecimal progressPercent,
             String health,
             Long version,
@@ -67,6 +70,9 @@ public final class ProjectDtos {
                     project.getHourlyRate(),
                     project.getMonthlyFee(),
                     project.getContractValue(),
+                    project.getProjectType(),
+                    project.getContractReference(),
+                    project.getContractSignedDate(),
                     progressPercent,
                     health,
                     project.getVersion(),
@@ -75,14 +81,18 @@ public final class ProjectDtos {
         }
     }
 
+    /**
+     * {@code accountId} is required unless {@code projectType} is IN_HOUSE (defaults to B2B). A blank
+     * {@code projectCode} is generated as {@code <ACCOUNT>-<PROJECT>-<NNN>}.
+     */
     public record CreateProjectRequest(
             UUID organizationId,
             @NotNull UUID regionId,
-            @NotNull UUID accountId,
+            UUID accountId,
             UUID dealId,
             UUID projectManagerId,
             @NotBlank @Size(max = 255) String name,
-            @NotBlank @Size(max = 64) String projectCode,
+            @Size(max = 64) String projectCode,
             String description,
             @Size(max = 32) String status,
             @Size(max = 16) String priority,
@@ -93,9 +103,15 @@ public final class ProjectDtos {
             @NotBlank @Size(max = 32) String billingType,
             @PositiveOrZero BigDecimal hourlyRate,
             @PositiveOrZero BigDecimal monthlyFee,
-            @PositiveOrZero BigDecimal contractValue) {}
+            @PositiveOrZero BigDecimal contractValue,
+            @Size(max = 32) String projectType,
+            @Size(max = 128) String contractReference,
+            LocalDate contractSignedDate) {}
 
-    /** Billing amounts are left unchanged when the type is unchanged and none of them is sent. */
+    /**
+     * Billing amounts are left unchanged when the type is unchanged and none of them is sent.
+     * A null {@code projectType} keeps the current type; contract details are replaced as sent.
+     */
     public record UpdateProjectRequest(
             UUID regionId,
             UUID accountId,
@@ -111,7 +127,10 @@ public final class ProjectDtos {
             @Size(max = 32) String billingType,
             @PositiveOrZero BigDecimal hourlyRate,
             @PositiveOrZero BigDecimal monthlyFee,
-            @PositiveOrZero BigDecimal contractValue) {}
+            @PositiveOrZero BigDecimal contractValue,
+            @Size(max = 32) String projectType,
+            @Size(max = 128) String contractReference,
+            LocalDate contractSignedDate) {}
 
     public record CreateProjectFromDealRequest(
             @Size(max = 255) String name,

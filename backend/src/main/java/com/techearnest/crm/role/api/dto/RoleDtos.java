@@ -23,7 +23,8 @@ public final class RoleDtos {
             boolean system,
             List<String> permissionCodes,
             Instant createdAt,
-            Instant updatedAt) {
+            Instant updatedAt,
+            String description) {
 
         public static RoleResponse from(Role role) {
             List<String> permissionCodes =
@@ -37,7 +38,8 @@ public final class RoleDtos {
                     role.isSystem(),
                     permissionCodes,
                     role.getCreatedAt(),
-                    role.getUpdatedAt());
+                    role.getUpdatedAt(),
+                    role.getDescription());
         }
     }
 
@@ -50,12 +52,16 @@ public final class RoleDtos {
     }
 
     public record CreateRoleRequest(
-            @NotBlank @Size(max = 100) String code,
-            @NotBlank @Size(max = 255) String name,
+            @NotBlank @Size(max = 64) String code,
+            @NotBlank @Size(max = 128) String name,
             @NotNull DataScope dataScope,
             List<String> permissionCodes,
-            UUID organizationId) {}
+            UUID organizationId,
+            @Size(max = 2000) String description) {}
 
     public record UpdateRoleRequest(
-            @NotBlank @Size(max = 255) String name, DataScope dataScope, List<String> permissionCodes) {}
+            @NotBlank @Size(max = 128) String name,
+            DataScope dataScope,
+            List<String> permissionCodes,
+            @Size(max = 2000) String description) {}
 }

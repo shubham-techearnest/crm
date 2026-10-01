@@ -246,6 +246,23 @@ export function DocumentsPage() {
           ]}
           rows={rows}
           rowKey={(doc) => doc.id}
+          bulk={{
+            noun: "documents",
+            exportFileName: "documents",
+            rowLabel: (doc) => doc.fileName,
+            onComplete: () => void queryClient.invalidateQueries({ queryKey: ["crm", "documents"] }),
+            actions: [
+              {
+                id: "delete",
+                label: "Delete",
+                tone: "danger",
+                visible: canDelete,
+                doneLabel: "deleted",
+                confirm: "Deleted files can no longer be downloaded.",
+                run: (doc) => deleteDocument(doc.id),
+              },
+            ],
+          }}
           onRowClick={(doc) => void openDownload(doc.id, doc.fileName)}
           renderCell={(doc, field) => {
             if (field === "entityId")

@@ -1800,6 +1800,12 @@
   z-index: 1;
 }
 
+// Bootstrap reserves 2.25rem–3rem on .form-select for its background arrow; the picker draws its own caret.
+.techearnest-picker-trigger,
+.input-group > .techearnest-picker-trigger.form-select {
+  padding-right: 0.625rem;
+}
+
 .techearnest-picker-trigger {
   display: flex !important;
   align-items: center;
@@ -1836,10 +1842,6 @@
   width: 0.75rem;
   height: 0.75rem;
   color: #6b7280;
-  flex-shrink: 0;
-}
-
-.techearnest-picker-lookup {
   flex-shrink: 0;
 }
 
@@ -2002,7 +2004,6 @@
   flex: 0 0 5.5rem;
 }
 
-.techearnest-lookup-btn,
 .techearnest-info-btn {
   border-color: #d1d5db !important;
   color: #6b7280;
@@ -2303,6 +2304,25 @@
     min-width: 2rem;
     padding: 0.15rem $te-space-2;
   }
+}
+
+.bulk-action-region {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+
+.bulk-action-result {
+  margin: $te-space-2 $te-space-3;
+  padding: $te-space-2 $te-space-3;
+  font-size: 0.8125rem;
+}
+
+.bulk-action-result__failures {
+  margin: $te-space-2 0 0;
+  padding-left: 1.1rem;
+  max-height: 12rem;
+  overflow-y: auto;
 }
 
 .manage-columns-backdrop {
@@ -4147,4 +4167,456 @@
 .resource-type-option__hint {
   color: $te-text-secondary;
   font-size: 0.75rem;
+}
+
+// ——— Dashboard team allocation ———
+
+.team-snapshot__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: $te-space-2;
+  margin-bottom: $te-space-3;
+}
+
+.team-snapshot__tools {
+  display: flex;
+  align-items: center;
+  gap: $te-space-2;
+  min-width: 0;
+
+  .module-search-field {
+    min-width: 0;
+    width: 240px;
+  }
+}
+
+.team-snapshot__region {
+  width: 170px;
+}
+
+.team-snapshot__project {
+  overflow-wrap: anywhere;
+}
+
+.team-snapshot__tiles {
+  padding: 0;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+}
+
+@media (max-width: 767.98px) {
+  .team-snapshot__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .team-snapshot__toolbar .module-view-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  .team-snapshot__tools {
+    width: 100%;
+    flex-wrap: wrap;
+
+    .team-snapshot__region {
+      flex: 1 1 100%;
+      width: auto;
+    }
+
+    .module-search-field {
+      flex: 1;
+      width: auto;
+    }
+  }
+
+  // Rows become stacked cards so nothing needs horizontal scrolling on phones.
+  .team-snapshot__table {
+    thead {
+      display: none;
+    }
+
+    tbody,
+    tr,
+    td {
+      display: block;
+      width: 100%;
+    }
+
+    tr {
+      border: 1px solid $te-border-light;
+      border-radius: 0.5rem;
+      padding: $te-space-2 $te-space-3;
+      margin-bottom: $te-space-2;
+      background: $te-surface;
+    }
+
+    td {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: $te-space-3;
+      border: none;
+      padding: $te-space-1 0;
+      text-align: right;
+
+      &::before {
+        content: attr(data-label);
+        flex-shrink: 0;
+        color: $te-text-secondary;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-align: left;
+      }
+    }
+  }
+}
+
+// ——— Resource board ———
+
+.rb-page {
+  padding: $te-space-4 $te-space-5;
+  display: flex;
+  flex-direction: column;
+  gap: $te-space-4;
+}
+
+.rb-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: $te-space-3;
+
+  h1 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+    color: $te-text;
+  }
+}
+
+.rb-subtitle {
+  color: $te-text-secondary;
+  font-size: 0.8rem;
+}
+
+.rb-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: $te-space-3;
+}
+
+.rb-tile {
+  background: $te-surface;
+  border: 1px solid $te-border-light;
+  border-radius: 0.6rem;
+  padding: $te-space-3 $te-space-4;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+
+  &:hover {
+    border-color: $te-primary;
+  }
+
+  &.is-active {
+    border-color: $te-primary;
+    box-shadow: 0 0 0 2px $te-primary-light;
+  }
+
+  &.is-static {
+    cursor: default;
+
+    &:hover {
+      border-color: $te-border-light;
+    }
+  }
+}
+
+.rb-tile__label {
+  color: $te-text-secondary;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.rb-tile__value {
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: $te-text;
+  line-height: 1.3;
+}
+
+.rb-tile__hint {
+  color: $te-muted;
+  font-size: 0.72rem;
+}
+
+.rb-tile--bench .rb-tile__value { color: #0d9488; }
+.rb-tile--over .rb-tile__value { color: $te-danger; }
+.rb-tile--ending .rb-tile__value { color: #d97706; }
+.rb-tile--available .rb-tile__value { color: #16a34a; }
+
+.rb-panel {
+  background: $te-surface;
+  border: 1px solid $te-border-light;
+  border-radius: 0.6rem;
+}
+
+.rb-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $te-space-2;
+  align-items: flex-end;
+  padding: $te-space-3 $te-space-4;
+  border-bottom: 1px solid $te-border-light;
+
+  label {
+    display: block;
+    font-size: 0.7rem;
+    color: $te-text-secondary;
+    margin-bottom: 2px;
+  }
+
+  .form-control,
+  .form-select {
+    min-width: 130px;
+  }
+}
+
+.rb-tabs {
+  display: flex;
+  gap: $te-space-1;
+  padding: 0 $te-space-4;
+  border-bottom: 1px solid $te-border-light;
+  overflow-x: auto;
+
+  button {
+    border: none;
+    background: none;
+    padding: $te-space-3 $te-space-3;
+    font-size: 0.85rem;
+    color: $te-text-secondary;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+
+    &.is-active {
+      color: $te-primary;
+      border-bottom-color: $te-primary;
+      font-weight: 600;
+    }
+  }
+}
+
+.rb-table {
+  width: 100%;
+  font-size: 0.82rem;
+
+  th {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: $te-text-secondary;
+    font-weight: 600;
+    padding: $te-space-2 $te-space-3;
+    border-bottom: 1px solid $te-border-light;
+    background: $te-surface-muted;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: $te-space-2 $te-space-3;
+    border-bottom: 1px solid $te-border-light;
+    vertical-align: middle;
+  }
+
+  tbody tr.is-clickable {
+    cursor: pointer;
+
+    &:hover {
+      background: $te-surface-subtle;
+    }
+  }
+}
+
+.rb-status {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: $te-surface-subtle;
+  color: $te-text-secondary;
+
+  &--BENCH { background: #ccfbf1; color: #0f766e; }
+  &--PARTIALLY_ALLOCATED { background: #dbeafe; color: #1d4ed8; }
+  &--FULLY_ALLOCATED { background: #e0e7ff; color: #4338ca; }
+  &--OVERALLOCATED { background: #fee2e2; color: #b91c1c; }
+  &--ENDING_SOON { background: #fef3c7; color: #b45309; }
+  &--ON_LEAVE, &--UNAVAILABLE, &--NOT_STARTED { background: #f1f5f9; color: #475569; }
+  &--INACTIVE, &--CONTRACT_EXPIRED, &--TERMINATED { background: #e5e7eb; color: #374151; }
+}
+
+.rb-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: $te-border-light;
+  overflow: hidden;
+  min-width: 80px;
+
+  span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: 3px;
+    background: $te-primary;
+  }
+
+  &.is-over span { background: $te-danger; }
+  &.is-full span { background: #6366f1; }
+  &.is-low span { background: #14b8a6; }
+}
+
+.rb-timeline {
+  overflow-x: auto;
+
+  table {
+    border-collapse: separate;
+    border-spacing: 2px;
+    font-size: 0.75rem;
+  }
+
+  th {
+    font-weight: 500;
+    color: $te-text-secondary;
+    padding: 2px 4px;
+    white-space: nowrap;
+    text-align: center;
+  }
+
+  td.rb-timeline__name {
+    min-width: 180px;
+    padding-right: $te-space-3;
+    white-space: nowrap;
+  }
+}
+
+.rb-cell {
+  width: 46px;
+  height: 26px;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 26px;
+  color: #0f172a;
+
+  &--bench { background: #ccfbf1; color: #0f766e; }
+  &--partial { background: #bfdbfe; }
+  &--full { background: #a5b4fc; }
+  &--over { background: #fca5a5; color: #7f1d1d; }
+}
+
+.rb-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  margin: 1px 2px 1px 0;
+  border-radius: 4px;
+  background: $te-surface-subtle;
+  border: 1px solid $te-border-light;
+  font-size: 0.7rem;
+  color: $te-text;
+
+  &.is-primary {
+    border-color: $te-primary;
+    color: $te-primary-dark;
+  }
+}
+
+.rb-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $te-space-3;
+  font-size: 0.72rem;
+  color: $te-text-secondary;
+  padding: $te-space-2 $te-space-4;
+
+  span::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: -1px;
+    background: var(--rb-legend-color);
+  }
+}
+
+.rb-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(720px, 100%);
+  z-index: 1060;
+  background: $te-surface;
+  border-left: 1px solid $te-border;
+  box-shadow: -12px 0 40px rgba(15, 23, 42, 0.15);
+  display: flex;
+  flex-direction: column;
+}
+
+.rb-drawer__header {
+  padding: $te-space-4 $te-space-5;
+  border-bottom: 1px solid $te-border-light;
+  display: flex;
+  justify-content: space-between;
+  gap: $te-space-3;
+}
+
+.rb-drawer__body {
+  padding: $te-space-4 $te-space-5;
+  overflow-y: auto;
+  flex: 1;
+
+  h3 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: $te-text-secondary;
+    margin: $te-space-4 0 $te-space-2;
+  }
+}
+
+.rb-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: $te-space-2 $te-space-4;
+  font-size: 0.8rem;
+
+  dt {
+    font-weight: 400;
+    color: $te-text-secondary;
+    font-size: 0.7rem;
+  }
+
+  dd {
+    margin: 0;
+    color: $te-text;
+    font-weight: 500;
+  }
+}
+
+.rb-signal {
+  font-size: 0.7rem;
+  font-weight: 600;
+
+  &--OK { color: #16a34a; }
+  &--UNSTAFFED, &--OVERDUE, &--UNDER_RESOURCED, &--OVERLOADED { color: $te-danger; }
+  &--ROLL_OFF_RISK { color: #d97706; }
+  &--OVER_RESOURCED { color: #6366f1; }
 }

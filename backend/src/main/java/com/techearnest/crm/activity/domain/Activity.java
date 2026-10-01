@@ -164,6 +164,10 @@ public class Activity implements SecuredRecord {
         this.completedAt = Instant.now();
     }
 
+    public void reassign(UUID assignedTo) {
+        this.assignedTo = assignedTo;
+    }
+
     public void markDeleted() {
         this.deletedAt = Instant.now();
     }

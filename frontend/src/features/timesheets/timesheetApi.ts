@@ -20,6 +20,9 @@ export interface TimeEntry {
   billingRate: number | null;
   createdAt: string;
   updatedAt: string;
+  /** Set once the project's manager approved these hours. */
+  approvedAt?: string | null;
+  approvedBy?: string | null;
 }
 
 export interface Timesheet {
@@ -43,6 +46,8 @@ export interface Timesheet {
   enteredBy: string | null;
   resourceName: string | null;
   notes: string | null;
+  /** MY_PROJECTS when the viewer is a project manager and only sees hours on projects they manage. */
+  visibility?: "ALL" | "MY_PROJECTS";
 }
 
 export interface EntryTaskOption {
@@ -65,7 +70,7 @@ export function closedProjectLabel(status: string | null | undefined): string {
   return status === "CANCELLED" ? "Cancelled" : "Completed";
 }
 
-export type TimesheetStartWith = "BLANK" | "COPY_PREVIOUS" | "QUICK_FILL";
+export type TimesheetStartWith = "BLANK" | "COPY_PREVIOUS" | "QUICK_FILL" | "CUSTOM";
 
 export interface QuickFillBody {
   projectId: string;
@@ -85,6 +90,8 @@ export interface CreateTimesheetBody {
   startWith?: TimesheetStartWith;
   quickFill?: QuickFillBody | null;
   submitAfterCreate?: boolean;
+  /** Day-by-day entries filled in on the create form; used with startWith CUSTOM. */
+  entries?: GridEntryBody[];
 }
 
 export interface CreateTimeEntryBody {
@@ -265,6 +272,12 @@ export async function rejectTimesheet(id: string, reason: string): Promise<Times
 export async function exportTimesheetsCsv(): Promise<Blob> {
   const { data } = await api.get<Blob>("/timesheets/export", { responseType: "blob" });
   return data;
+}
+
+/** Today's local date as yyyy-mm-dd; hours after it can be saved as a draft but not submitted. */
+export function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 /** ISO date (yyyy-mm-dd) for the Monday of the given local date. */

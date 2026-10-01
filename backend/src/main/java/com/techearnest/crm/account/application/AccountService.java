@@ -10,6 +10,10 @@ import com.techearnest.crm.activity.domain.Activity;
 import com.techearnest.crm.activity.domain.ActivityRepository;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkAssignOwnerRequest;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkResult;
+import com.techearnest.crm.common.bulk.BulkExecutor;
+import com.techearnest.crm.user.application.OwnerValidator;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.TenantAccess;
@@ -43,6 +47,7 @@ public class AccountService {
     private final ProjectRepository projectRepository;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
+    private final OwnerValidator ownerValidator;
 
     public AccountService(
             AccountRepository accountRepository,
@@ -52,7 +57,9 @@ public class AccountService {
             RegionRepository regionRepository,
             ProjectRepository projectRepository,
             TenantAccess tenantAccess,
-            AuditService auditService) {
+            AuditService auditService,
+            OwnerValidator ownerValidator) {
+        this.ownerValidator = ownerValidator;
         this.accountRepository = accountRepository;
         this.contactRepository = contactRepository;
         this.dealRepository = dealRepository;
@@ -155,6 +162,24 @@ public class AccountService {
         Account account = requireVisibleAccount(id);
         account.markDeleted();
         auditService.record(account.getOrganizationId(), user.userId(), "DELETE", "ACCOUNT", account.getId());
+    }
+
+    @Transactional
+    public BulkResult bulkAssign(BulkAssignOwnerRequest request) {
+        CurrentUser user = tenantAccess.requirePermission("ACCOUNT_UPDATE");
+        UUID ownerOrgId = ownerValidator.requireActiveOwner(request.ownerId());
+        return BulkExecutor.run(request.ids(), "account", id -> {
+            Account account = requireVisibleAccount(id);
+            OwnerValidator.requireSameOrganization(ownerOrgId, account.getOrganizationId());
+            account.reassignOwner(request.ownerId());
+            auditService.recordWithSummary(
+                    account.getOrganizationId(),
+                    user.userId(),
+                    "ASSIGN",
+                    "ACCOUNT",
+                    account.getId(),
+                    "{\"bulk\":true,\"ownerId\":\"" + request.ownerId() + "\"}");
+        });
     }
 
     @Transactional(readOnly = true)

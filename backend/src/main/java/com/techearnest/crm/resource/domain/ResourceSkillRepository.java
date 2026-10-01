@@ -11,6 +11,9 @@ public interface ResourceSkillRepository extends JpaRepository<ResourceSkill, Re
 
     List<ResourceSkill> findByIdResourceId(UUID resourceId);
 
+    @Query("select rs from ResourceSkill rs where rs.id.resourceId in :resourceIds")
+    List<ResourceSkill> findByResourceIds(@Param("resourceIds") java.util.Collection<UUID> resourceIds);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from ResourceSkill rs where rs.id.resourceId = :resourceId")
     void deleteByResourceId(@Param("resourceId") UUID resourceId);

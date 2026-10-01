@@ -26,8 +26,28 @@ public class Resource implements SecuredRecord {
     public static final String TYPE_CONTRACTOR = "CONTRACTOR";
     public static final String TYPE_FREELANCER = "FREELANCER";
     public static final String TYPE_CONSULTANT = "CONSULTANT";
-    public static final java.util.Set<String> TYPES =
-            java.util.Set.of(TYPE_EMPLOYEE, TYPE_CONTRACTOR, TYPE_FREELANCER, TYPE_CONSULTANT);
+    public static final String TYPE_OTHER_EXTERNAL = "OTHER_EXTERNAL";
+
+    public static final String STATUS_AVAILABLE = "AVAILABLE";
+    public static final String STATUS_PARTIALLY_ALLOCATED = "PARTIALLY_ALLOCATED";
+    public static final String STATUS_FULLY_ALLOCATED = "FULLY_ALLOCATED";
+    public static final String STATUS_ON_LEAVE = "ON_LEAVE";
+    public static final String STATUS_UNAVAILABLE = "UNAVAILABLE";
+    public static final String STATUS_INACTIVE = "INACTIVE";
+    public static final String STATUS_CONTRACT_EXPIRED = "CONTRACT_EXPIRED";
+    public static final String STATUS_TERMINATED = "TERMINATED";
+
+    /** Statuses a person sets; allocation-driven statuses are never stored over them. */
+    public static final java.util.Set<String> MANUAL_STATUSES = java.util.Set.of(
+            STATUS_ON_LEAVE, STATUS_UNAVAILABLE, STATUS_INACTIVE, STATUS_CONTRACT_EXPIRED, STATUS_TERMINATED);
+    /** Statuses of people who are no longer part of the active workforce. */
+    public static final java.util.Set<String> ENDED_STATUSES =
+            java.util.Set.of(STATUS_INACTIVE, STATUS_CONTRACT_EXPIRED, STATUS_TERMINATED);
+
+    public static final String RATE_HOURLY = "HOURLY";
+    public static final String RATE_DAILY = "DAILY";
+    public static final String RATE_MONTHLY = "MONTHLY";
+    public static final java.util.Set<String> RATE_UNITS = java.util.Set.of(RATE_HOURLY, RATE_DAILY, RATE_MONTHLY);
 
     @Id
     private UUID id;
@@ -79,6 +99,45 @@ public class Resource implements SecuredRecord {
 
     @Column(name = "engagement_end_date")
     private LocalDate engagementEndDate;
+
+    @Column(name = "engagement_start_date")
+    private LocalDate engagementStartDate;
+
+    @Column(name = "contract_reference")
+    private String contractReference;
+
+    @Column(name = "vendor_id")
+    private UUID vendorId;
+
+    @Column(name = "working_hours_per_day", nullable = false)
+    private BigDecimal workingHoursPerDay = BigDecimal.valueOf(8);
+
+    @Column(name = "working_days_per_week", nullable = false)
+    private BigDecimal workingDaysPerWeek = BigDecimal.valueOf(5);
+
+    @Column(name = "experience_years")
+    private BigDecimal experienceYears;
+
+    private String location;
+
+    @Column(name = "available_from")
+    private LocalDate availableFrom;
+
+    @Column(nullable = false)
+    private boolean billable = true;
+
+    @Column(name = "rate_unit", nullable = false)
+    private String rateUnit = RATE_HOURLY;
+
+    @Column(name = "deactivated_at")
+    private Instant deactivatedAt;
+
+    @Column(name = "deactivation_reason")
+    private String deactivationReason;
+
+    /** INTERNAL / EXTERNAL from the resource_types catalogue; null until the entity is reloaded after insert. */
+    @org.hibernate.annotations.Formula("(select t.category from resource_types t where t.code = resource_type)")
+    private String typeCategory;
 
     @Column(name = "deleted_at")
     private Instant deletedAt;
@@ -180,6 +239,14 @@ public class Resource implements SecuredRecord {
         }
         if (status != null && !status.isBlank()) {
             this.status = status;
+            if (ENDED_STATUSES.contains(status)) {
+                if (this.deactivatedAt == null) {
+                    this.deactivatedAt = Instant.now();
+                }
+            } else {
+                this.deactivatedAt = null;
+                this.deactivationReason = null;
+            }
         }
     }
 
@@ -201,6 +268,98 @@ public class Resource implements SecuredRecord {
 
     public void clearEngagementEndDate() {
         this.engagementEndDate = null;
+    }
+
+    /**
+     * Profile, capacity and engagement terms. Null leaves a value unchanged; blank strings clear text values.
+     * When both working hours per day and days per week are known the weekly capacity follows from them.
+     */
+    public void updateProfile(
+            LocalDate engagementStartDate,
+            String contractReference,
+            UUID vendorId,
+            BigDecimal workingHoursPerDay,
+            BigDecimal workingDaysPerWeek,
+            BigDecimal experienceYears,
+            String location,
+            LocalDate availableFrom,
+            Boolean billable,
+            String rateUnit) {
+        if (engagementStartDate != null) {
+            this.engagementStartDate = engagementStartDate;
+        }
+        if (contractReference != null) {
+            this.contractReference = contractReference.isBlank() ? null : contractReference.trim();
+        }
+        if (vendorId != null) {
+            this.vendorId = vendorId;
+        }
+        if (experienceYears != null) {
+            this.experienceYears = experienceYears;
+        }
+        if (location != null) {
+            this.location = location.isBlank() ? null : location.trim();
+        }
+        if (availableFrom != null) {
+            this.availableFrom = availableFrom;
+        }
+        if (billable != null) {
+            this.billable = billable;
+        }
+        if (rateUnit != null && !rateUnit.isBlank()) {
+            this.rateUnit = rateUnit.trim().toUpperCase(java.util.Locale.ROOT);
+        }
+        if (workingHoursPerDay != null) {
+            this.workingHoursPerDay = workingHoursPerDay;
+        }
+        if (workingDaysPerWeek != null) {
+            this.workingDaysPerWeek = workingDaysPerWeek;
+        }
+        if (workingHoursPerDay != null || workingDaysPerWeek != null) {
+            this.capacityHoursPerWeek = this.workingHoursPerDay
+                    .multiply(this.workingDaysPerWeek)
+                    .setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+    }
+
+    /** Keeps hours per day consistent when only the weekly capacity is edited. */
+    public void syncWorkingHoursFromCapacity() {
+        if (capacityHoursPerWeek != null && workingDaysPerWeek != null && workingDaysPerWeek.signum() > 0) {
+            BigDecimal perDay = capacityHoursPerWeek.divide(workingDaysPerWeek, 2, java.math.RoundingMode.HALF_UP);
+            this.workingHoursPerDay = perDay.min(BigDecimal.valueOf(24)).max(new BigDecimal("0.5"));
+        }
+    }
+
+    public void clearVendor() {
+        this.vendorId = null;
+    }
+
+    public void clearAvailableFrom() {
+        this.availableFrom = null;
+    }
+
+    public void clearEngagementStartDate() {
+        this.engagementStartDate = null;
+    }
+
+    public void deactivate(String status, String reason) {
+        this.status = status;
+        this.deactivatedAt = Instant.now();
+        this.deactivationReason = reason == null || reason.isBlank() ? null : reason.trim();
+    }
+
+    public void reactivate(LocalDate engagementStartDate, LocalDate engagementEndDate) {
+        this.status = STATUS_AVAILABLE;
+        this.deactivatedAt = null;
+        this.deactivationReason = null;
+        if (engagementStartDate != null) {
+            this.engagementStartDate = engagementStartDate;
+        }
+        this.engagementEndDate = engagementEndDate;
+    }
+
+    public boolean isActiveWorkforce() {
+        return deletedAt == null && !ENDED_STATUSES.contains(status);
     }
 
     public void linkUser(UUID userId) {
@@ -264,9 +423,60 @@ public class Resource implements SecuredRecord {
         return resourceType;
     }
 
-    /** Contractors, freelancers and consultants: people outside the company's payroll. */
+    /** Contractors, freelancers, consultants and other external people outside the company's payroll. */
     public boolean isExternal() {
+        if (typeCategory != null) {
+            return "EXTERNAL".equals(typeCategory);
+        }
         return !TYPE_EMPLOYEE.equals(resourceType);
+    }
+
+    public LocalDate getEngagementStartDate() {
+        return engagementStartDate;
+    }
+
+    public String getContractReference() {
+        return contractReference;
+    }
+
+    public UUID getVendorId() {
+        return vendorId;
+    }
+
+    public BigDecimal getWorkingHoursPerDay() {
+        return workingHoursPerDay;
+    }
+
+    public BigDecimal getWorkingDaysPerWeek() {
+        return workingDaysPerWeek;
+    }
+
+    public BigDecimal getExperienceYears() {
+        return experienceYears;
+    }
+
+    public String getLocation() {
+        return location;
+    }
+
+    public LocalDate getAvailableFrom() {
+        return availableFrom;
+    }
+
+    public boolean isBillable() {
+        return billable;
+    }
+
+    public String getRateUnit() {
+        return rateUnit;
+    }
+
+    public Instant getDeactivatedAt() {
+        return deactivatedAt;
+    }
+
+    public String getDeactivationReason() {
+        return deactivationReason;
     }
 
     public LocalDate getJoiningDate() {

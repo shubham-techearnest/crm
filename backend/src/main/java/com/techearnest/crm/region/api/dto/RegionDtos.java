@@ -2,6 +2,7 @@ package com.techearnest.crm.region.api.dto;
 
 import com.techearnest.crm.region.domain.Region;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
 import java.util.UUID;
@@ -18,7 +19,11 @@ public final class RegionDtos {
             String code,
             String status,
             Instant createdAt,
-            Instant updatedAt) {
+            Instant updatedAt,
+            String description,
+            UUID managerId,
+            String timezone,
+            String currencyCode) {
 
         public static RegionResponse from(Region region) {
             return new RegionResponse(
@@ -29,16 +34,31 @@ public final class RegionDtos {
                     region.getCode(),
                     region.getStatus(),
                     region.getCreatedAt(),
-                    region.getUpdatedAt());
+                    region.getUpdatedAt(),
+                    region.getDescription(),
+                    region.getManagerId(),
+                    region.getTimezone(),
+                    region.getCurrencyCode());
         }
     }
 
     public record CreateRegionRequest(
-            @NotBlank @Size(max = 255) String name,
-            @NotBlank @Size(max = 50) String code,
+            @NotBlank @Size(max = 128) String name,
+            @NotBlank @Size(max = 32) String code,
             UUID parentId,
-            UUID organizationId) {}
+            UUID organizationId,
+            @Size(max = 2000) String description,
+            UUID managerId,
+            @Size(max = 64) String timezone,
+            @Pattern(regexp = "^$|^[A-Za-z]{3}$", message = "Currency must be a 3-letter code") String currencyCode,
+            @Size(max = 32) String status) {}
 
     public record UpdateRegionRequest(
-            @NotBlank @Size(max = 255) String name, UUID parentId, @Size(max = 32) String status) {}
+            @NotBlank @Size(max = 128) String name,
+            UUID parentId,
+            @Size(max = 32) String status,
+            @Size(max = 2000) String description,
+            UUID managerId,
+            @Size(max = 64) String timezone,
+            @Pattern(regexp = "^$|^[A-Za-z]{3}$", message = "Currency must be a 3-letter code") String currencyCode) {}
 }

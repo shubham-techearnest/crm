@@ -13,6 +13,7 @@ import {
 } from "@/components/TechEarnestCreate";
 import { TechEarnestCreateField as TechEarnestField } from "@/components/TechEarnestCreate/TechEarnestCreateField";
 import { TechEarnestCreateSection } from "@/components/TechEarnestCreate/TechEarnestCreateSection";
+import { useCustomFieldsForm } from "@/features/customFields/useCustomFieldsForm";
 import { updateContact, type Contact } from "./crmApi";
 import type { ApiResponse } from "@/types/api";
 
@@ -76,11 +77,13 @@ export function ContactEditView({ contact, accountName, users, onCancel, onUpdat
     register,
     handleSubmit,
     control,
-    formState: { errors, isSubmitting, isDirty },
+    formState: { errors, isSubmitting, isDirty: formDirty },
   } = useForm<ContactEditFormValues>({
     resolver: zodResolver(contactEditSchema),
     defaultValues: defaults,
   });
+  const customFields = useCustomFieldsForm("contact", contact.id);
+  const isDirty = formDirty || customFields.dirty;
 
   const updateMutation = useMutation({
     mutationFn: (values: ContactEditFormValues) =>
@@ -126,7 +129,7 @@ export function ContactEditView({ contact, accountName, users, onCancel, onUpdat
             type="button"
             className="btn btn-primary btn-sm techearnest-create-btn techearnest-create-btn--save"
             disabled={pending}
-            onClick={() => void handleSubmit((values) => updateMutation.mutate(values))()}
+            onClick={() => void handleSubmit((values) => customFields.prepareSave() && updateMutation.mutate(values))()}
           >
             {pending ? "Saving…" : "Save"}
           </button>
@@ -137,7 +140,7 @@ export function ContactEditView({ contact, accountName, users, onCancel, onUpdat
         className="techearnest-create-form"
         onSubmit={(event) => {
           event.preventDefault();
-          void handleSubmit((values) => updateMutation.mutate(values))();
+          void handleSubmit((values) => customFields.prepareSave() && updateMutation.mutate(values))();
         }}
       >
         <UnsavedGuard when={isDirty} />
@@ -191,6 +194,7 @@ export function ContactEditView({ contact, accountName, users, onCancel, onUpdat
                 <textarea className="form-control form-control-sm" rows={5} {...register("notes")} />
               </TechEarnestField>
             </TechEarnestCreateSection>
+            {customFields.section}
           </div>
         </div>
       </form>

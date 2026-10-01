@@ -4,6 +4,10 @@ import com.techearnest.crm.account.domain.Account;
 import com.techearnest.crm.account.domain.AccountRepository;
 import com.techearnest.crm.audit.application.AuditService;
 import com.techearnest.crm.common.api.PaginationMeta;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkAssignOwnerRequest;
+import com.techearnest.crm.common.bulk.BulkDtos.BulkResult;
+import com.techearnest.crm.common.bulk.BulkExecutor;
+import com.techearnest.crm.user.application.OwnerValidator;
 import com.techearnest.crm.common.exception.ResourceNotFoundException;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.TenantAccess;
@@ -27,12 +31,15 @@ public class ContactService {
     private final AccountRepository accountRepository;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
+    private final OwnerValidator ownerValidator;
 
     public ContactService(
             ContactRepository contactRepository,
             AccountRepository accountRepository,
             TenantAccess tenantAccess,
-            AuditService auditService) {
+            AuditService auditService,
+            OwnerValidator ownerValidator) {
+        this.ownerValidator = ownerValidator;
         this.contactRepository = contactRepository;
         this.accountRepository = accountRepository;
         this.tenantAccess = tenantAccess;
@@ -132,6 +139,24 @@ public class ContactService {
         Contact contact = requireVisibleContact(id);
         contact.markDeleted();
         auditService.record(contact.getOrganizationId(), user.userId(), "DELETE", "CONTACT", contact.getId());
+    }
+
+    @Transactional
+    public BulkResult bulkAssign(BulkAssignOwnerRequest request) {
+        CurrentUser user = tenantAccess.requirePermission("CONTACT_UPDATE");
+        UUID ownerOrgId = ownerValidator.requireActiveOwner(request.ownerId());
+        return BulkExecutor.run(request.ids(), "contact", id -> {
+            Contact contact = requireVisibleContact(id);
+            OwnerValidator.requireSameOrganization(ownerOrgId, contact.getOrganizationId());
+            contact.reassignOwner(request.ownerId());
+            auditService.recordWithSummary(
+                    contact.getOrganizationId(),
+                    user.userId(),
+                    "ASSIGN",
+                    "CONTACT",
+                    contact.getId(),
+                    "{\"bulk\":true,\"ownerId\":\"" + request.ownerId() + "\"}");
+        });
     }
 
     private Contact requireVisibleContact(UUID id) {

@@ -19,6 +19,7 @@ import {
   type DuplicateCheckResult,
   type Lead,
 } from "./crmApi";
+import { useCustomFieldsForm } from "@/features/customFields/useCustomFieldsForm";
 import { uploadDocument } from "./foundationApi";
 import {
   LEAD_COUNTRIES,
@@ -212,11 +213,13 @@ export function LeadCreateView({
     reset,
     setValue,
     control,
-    formState: { errors, isSubmitting, isDirty },
+    formState: { errors, isSubmitting, isDirty: formDirty },
   } = useForm<LeadFormValues>({
     resolver: zodResolver(leadSchema),
     defaultValues: defaults,
   });
+  const customFields = useCustomFieldsForm("lead");
+  const isDirty = formDirty || customFields.dirty;
 
   const createMutation = useMutation({
     mutationFn: async (body: Parameters<typeof createLead>[0]) => {
@@ -280,6 +283,7 @@ export function LeadCreateView({
   }
 
   async function submit(values: LeadFormValues) {
+    if (!customFields.prepareSave()) return;
     const body = buildCreateBody(values);
     try {
       const dup = await checkLeadDuplicates({
@@ -294,6 +298,7 @@ export function LeadCreateView({
     } catch {
       // allow create if duplicate check fails
     }
+    if (!customFields.prepareSave()) return;
     createMutation.mutate(body);
   }
 
@@ -386,7 +391,7 @@ export function LeadCreateView({
               type="button"
               className="btn btn-sm btn-warning me-2"
               onClick={() => {
-                if (pendingCreate) createMutation.mutate(pendingCreate);
+                if (pendingCreate && customFields.prepareSave()) createMutation.mutate(pendingCreate);
               }}
             >
               Create anyway
@@ -668,6 +673,7 @@ export function LeadCreateView({
                 <textarea className="form-control form-control-sm" rows={5} {...register("description")} />
               </TechEarnestField>
             </section>
+            {customFields.section}
           </div>
         </div>
       </form>

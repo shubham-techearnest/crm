@@ -98,6 +98,18 @@ public class OrganizationService {
                 request.locale(),
                 request.currencyCode(),
                 request.status());
+        org.updateAddress(
+                blankToNull(request.addressLine()),
+                blankToNull(request.city()),
+                blankToNull(request.state()),
+                blankToNull(request.country()),
+                blankToNull(request.postalCode()),
+                blankToNull(request.taxId()));
+        org.updatePreferences(
+                blankToNull(request.dateFormat()),
+                blankToNull(request.timeFormat()),
+                blankToNull(request.weekStartDay()),
+                request.fiscalYearStartMonth());
         auditService.record(org.getId(), user.userId(), "UPDATE", "ORGANIZATION", org.getId());
         return OrganizationResponse.from(org);
     }

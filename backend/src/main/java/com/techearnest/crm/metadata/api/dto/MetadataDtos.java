@@ -55,6 +55,7 @@ public final class MetadataDtos {
             boolean mandatory,
             String defaultValue,
             String referenceTableCode,
+            java.util.List<String> options,
             boolean active,
             boolean filterable,
             boolean system,
@@ -73,6 +74,7 @@ public final class MetadataDtos {
                     field.isMandatory(),
                     field.getDefaultValue(),
                     field.getReferenceTableCode(),
+                    field.optionList(),
                     field.isActive(),
                     field.isFilterable(),
                     field.isSystem(),
@@ -91,7 +93,8 @@ public final class MetadataDtos {
             @Size(max = 512) String defaultValue,
             @Size(max = 64) String referenceTableCode,
             Boolean filterable,
-            Integer sortOrder) {}
+            Integer sortOrder,
+            @Size(max = 100) java.util.List<@Size(max = 128) String> options) {}
 
     public record UpdateFieldRequest(
             @Size(max = 128) String label,
@@ -102,7 +105,33 @@ public final class MetadataDtos {
             @Size(max = 64) String referenceTableCode,
             Boolean active,
             Boolean filterable,
-            Integer sortOrder) {}
+            Integer sortOrder,
+            @Size(max = 100) java.util.List<@Size(max = 128) String> options) {}
+
+    public record CustomFieldDefinition(
+            String code,
+            String label,
+            String helpText,
+            String fieldType,
+            boolean mandatory,
+            String defaultValue,
+            String referenceTableCode,
+            java.util.List<String> options,
+            int sortOrder,
+            String access) {}
+
+    public record CustomFieldSection(String id, String title, String disclosure, java.util.List<String> fields) {}
+
+    public record CustomFieldSchemaResponse(
+            String tableCode,
+            java.util.List<CustomFieldDefinition> fields,
+            java.util.List<CustomFieldSection> sections) {}
+
+    public record CustomFieldValuesResponse(UUID recordId, java.util.Map<String, Object> values) {}
+
+    public record SaveCustomFieldValuesRequest(@NotNull java.util.Map<String, Object> values) {}
+
+    public record CustomFieldValuesQuery(@NotNull @Size(max = 500) java.util.List<UUID> recordIds) {}
 
     public record FilterFieldCatalogItem(String code, String label, String fieldType, String referenceTableCode) {}
 

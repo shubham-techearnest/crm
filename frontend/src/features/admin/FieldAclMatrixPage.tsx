@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { EmptyState } from "@/components/EmptyState/EmptyState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { useHasPermission } from "@/features/auth/AuthContext";
 import { listRoles } from "@/features/admin/adminApi";
+import { adminErrorMessage } from "@/features/admin/adminKit";
 import {
   listFieldAcls,
   listSysFields,
@@ -21,6 +22,13 @@ export function FieldAclMatrixPage() {
   const [tableId, setTableId] = useState<string>("");
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingCell, setPendingCell] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const handle = window.setTimeout(() => setToast(null), 2500);
+    return () => window.clearTimeout(handle);
+  }, [toast]);
 
   const tablesQuery = useQuery({ queryKey: ["metadata", "tables"], queryFn: listSysTables });
   const rolesQuery = useQuery({ queryKey: ["admin", "roles"], queryFn: listRoles });
@@ -29,7 +37,7 @@ export function FieldAclMatrixPage() {
     () =>
       (tablesQuery.data ?? [])
         .filter((t) => t.organizationId == null)
-        .sort((a, b) => a.code.localeCompare(b.code)),
+        .sort((a, b) => a.plural.localeCompare(b.plural)),
     [tablesQuery.data],
   );
 
@@ -48,10 +56,10 @@ export function FieldAclMatrixPage() {
   });
 
   const roles = useMemo(
-    () => (rolesQuery.data ?? []).filter((r) => r.code !== "SUPER_ADMIN"),
+    () => (rolesQuery.data ?? []).filter((r) => r.code !== "SUPER_ADMIN" && !!r.organizationId),
     [rolesQuery.data],
   );
-  const fields = fieldsQuery.data ?? [];
+  const fields = (fieldsQuery.data ?? []).filter((field) => field.active);
 
   const aclMap = useMemo(() => {
     const map = new Map<string, FieldAclRow>();
@@ -63,12 +71,17 @@ export function FieldAclMatrixPage() {
 
   const upsertMutation = useMutation({
     mutationFn: upsertFieldAcl,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["metadata", "field-acls", selectedTableId] });
-      setToast("Field ACL updated");
+    onMutate: (body) => setPendingCell(`${body.roleId}:${body.fieldId}`),
+    onSuccess: (saved) => {
+      queryClient.setQueryData<FieldAclRow[]>(["metadata", "field-acls", selectedTableId], (current = []) => {
+        const others = current.filter((row) => !(row.roleId === saved.roleId && row.fieldId === saved.fieldId));
+        return [...others, saved];
+      });
+      setToast(`${saved.roleCode}: ${saved.fieldCode} set to ${saved.accessLevel}`);
       setError(null);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err) => setError(adminErrorMessage(err, "Could not update the field ACL.")),
+    onSettled: () => setPendingCell(null),
   });
 
   if (tablesQuery.isLoading || rolesQuery.isLoading) {
@@ -83,7 +96,10 @@ export function FieldAclMatrixPage() {
       <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <div>
           <h1 className="h4 mb-0">Field ACL (FLS)</h1>
-          <p className="text-muted small mb-0">Hidden / Read / Write by role — audited on change</p>
+          <p className="text-muted small mb-0">
+            Hidden / Read / Write per role. Fields without a rule are writable. Changes save immediately and are audited.
+            {canManage ? "" : " You have view-only access."}
+          </p>
         </div>
         <select
           className="form-select form-select-sm w-auto"
@@ -99,7 +115,12 @@ export function FieldAclMatrixPage() {
         </select>
       </div>
       {toast ? <div className="alert alert-success py-2">{toast}</div> : null}
-      {error ? <div className="alert alert-danger py-2">{error}</div> : null}
+      {error ? (
+        <div className="alert alert-danger py-2 d-flex justify-content-between align-items-center">
+          <span>{error}</span>
+          <button type="button" className="btn-close" aria-label="Dismiss" onClick={() => setError(null)} />
+        </div>
+      ) : null}
       {fieldsQuery.isLoading || aclsQuery.isLoading ? (
         <LoadingState label="Loading fields..." />
       ) : fields.length === 0 ? (
@@ -109,7 +130,7 @@ export function FieldAclMatrixPage() {
           <table className="table table-sm table-bordered align-middle">
             <thead>
               <tr>
-                <th>Role \\ Field</th>
+                <th>Role / Field</th>
                 {fields.map((f) => (
                   <th key={f.id} className="text-center">
                     <div>{f.label}</div>
@@ -133,7 +154,8 @@ export function FieldAclMatrixPage() {
                         <select
                           className="form-select form-select-sm"
                           value={level}
-                          disabled={!canManage || upsertMutation.isPending}
+                          aria-label={`${field.label} access for ${role.name}`}
+                          disabled={!canManage || pendingCell === `${role.id}:${field.id}`}
                           onChange={(e) =>
                             upsertMutation.mutate({
                               roleId: role.id,

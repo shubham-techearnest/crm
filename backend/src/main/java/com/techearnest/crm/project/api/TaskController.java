@@ -77,6 +77,12 @@ public class TaskController {
         return ApiResponse.ok(null, "Task deleted successfully");
     }
 
+    @PostMapping("/bulk-status")
+    public ApiResponse<com.techearnest.crm.common.bulk.BulkDtos.BulkResult> bulkStatus(
+            @Valid @RequestBody com.techearnest.crm.common.bulk.BulkDtos.BulkStatusRequest request) {
+        return ApiResponse.ok(taskService.bulkStatus(request), "Bulk status update completed");
+    }
+
     @PostMapping("/{id}/assign")
     public ApiResponse<TaskResponse> assign(
             @PathVariable UUID id, @Valid @RequestBody AssignTaskRequest request) {

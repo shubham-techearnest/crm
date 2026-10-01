@@ -171,6 +171,13 @@ public class ProjectTask implements Persistable<UUID> {
         this.assignedResourceId = assignedResourceId;
     }
 
+    public void changeStatus(String status) {
+        this.status = status;
+        if ("COMPLETED".equals(status)) {
+            this.completionPercentage = new BigDecimal("100");
+        }
+    }
+
     public void addActualHours(BigDecimal hours) {
         if (hours == null) {
             return;

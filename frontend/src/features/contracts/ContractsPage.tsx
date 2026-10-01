@@ -18,6 +18,7 @@ import {
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
 import { ModuleFilterField, ModuleListShell } from "@/components/ModuleListShell/ModuleListShell";
 import { ModuleListTable } from "@/components/ModuleListShell/ModuleListTable";
+import { deleteRecord } from "@/components/BulkActions/bulkActions";
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { useHasPermission } from "@/features/auth/AuthContext";
@@ -209,6 +210,7 @@ export function ContractsPage() {
       {showForm && canManage ? (
         <TechEarnestFormKitCreateView
           title="Create Contract"
+          tableCode="contract"
           entityLabel="Contract"
           pending={isSubmitting || createMutation.isPending}
           isDirty={isDirty}
@@ -451,6 +453,22 @@ export function ContractsPage() {
           ]}
           rows={rows}
           rowKey={(contract) => contract.id}
+          bulk={{
+            noun: "contracts",
+            exportFileName: "contracts",
+            onComplete: () => void queryClient.invalidateQueries({ queryKey: ["contracts"] }),
+            actions: [
+              {
+                id: "delete",
+                label: "Delete",
+                tone: "danger",
+                visible: canManage,
+                doneLabel: "deleted",
+                confirm: "Deleted contracts disappear from account and project records.",
+                run: (contract) => deleteRecord(`/contracts/${contract.id}`),
+              },
+            ],
+          }}
           selectedRowKey={selectedId}
           onRowClick={(contract) => setSelectedId(contract.id)}
           renderCell={(contract, field) => {

@@ -196,7 +196,7 @@ export function FormLayoutEditorModal({
           {!canManage ? (
             <div className="alert alert-warning py-2 mb-3">
               You need <strong>METADATA_MANAGE</strong> permission to edit layouts.{" "}
-              <Link to="/admin/studio">Open Metadata Studio</Link> if you have view-only access.
+              <Link to={`/admin/studio?table=${tableCode}&tab=form`}>Open Metadata Studio</Link> if you have view-only access.
             </div>
           ) : null}
 
@@ -302,7 +302,7 @@ export function FormLayoutEditorModal({
         </div>
 
         <div className="module-modal-footer">
-          <Link to="/admin/studio" className="btn btn-link btn-sm me-auto" onClick={onClose}>
+          <Link to={`/admin/studio?table=${tableCode}&tab=form`} className="btn btn-link btn-sm me-auto" onClick={onClose}>
             Open full Studio
           </Link>
           <button type="button" className="btn btn-outline-secondary btn-sm" onClick={onClose}>

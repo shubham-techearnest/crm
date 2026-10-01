@@ -181,6 +181,10 @@ public class Account implements SecuredRecord, Persistable<UUID> {
         }
     }
 
+    public void reassignOwner(UUID ownerId) {
+        this.ownerId = ownerId;
+    }
+
     public void markDeleted() {
         this.deletedAt = Instant.now();
         this.status = "INACTIVE";

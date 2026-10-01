@@ -33,6 +33,13 @@ public class Team {
     @Column(nullable = false)
     private String name;
 
+    private String description;
+
+    private String email;
+
+    @Column(nullable = false)
+    private String status = "ACTIVE";
+
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
@@ -68,6 +75,26 @@ public class Team {
             this.departmentId = departmentId;
         }
         this.managerId = managerId;
+    }
+
+    public void updateDetails(String description, String email, String status) {
+        this.description = description;
+        this.email = email;
+        if (status != null) {
+            this.status = status;
+        }
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public String getStatus() {
+        return status;
     }
 
     public void markDeleted() {

@@ -23,8 +23,9 @@ public class ProjectImporter implements ModuleImporter {
     private static final Set<String> BILLING = Set.copyOf(Project.BILLING_TYPES);
     /** Older import files may still use the pre-V39 names; the service maps them. */
     private static final Set<String> ACCEPTED_BILLING = Set.of(
-            "STAFF_AUGMENTATION", "TIME_AND_MATERIAL", "FIXED_MONTHLY", "FIXED_BID",
+            "STAFF_AUGMENTATION", "TIME_AND_MATERIAL", "FIXED_MONTHLY", "FIXED_BID", "NON_BILLABLE",
             "FIXED_PRICE", "HOURLY", "MILESTONE", "RETAINER");
+    private static final Set<String> PROJECT_TYPES = Set.copyOf(Project.PROJECT_TYPES);
 
     private final ProjectService projectService;
     private final BulkImportService bulkImportService;
@@ -53,8 +54,12 @@ public class ProjectImporter implements ModuleImporter {
     public List<ImportFieldSpec> fields() {
         return List.of(
                 ImportFieldSpec.text("name", "Project name", 255).mandatory().aliases("project", "project title"),
-                ImportFieldSpec.text("projectCode", "Project code", 64).mandatory().aliases("code", "project id", "project no"),
-                ImportFieldSpec.reference("accountName", "Account", "Account name", "accountId").mandatory()
+                ImportFieldSpec.text("projectCode", "Project code (blank = auto-generated)", 64)
+                        .aliases("code", "project id", "project no"),
+                ImportFieldSpec.enumeration("projectType", "Project type", PROJECT_TYPES.stream().sorted().toList(),
+                                Project.TYPE_B2B)
+                        .aliases("type", "project category"),
+                ImportFieldSpec.reference("accountName", "Account", "Account name (not needed for IN_HOUSE)", "accountId")
                         .aliases("client", "customer", "company", "company name"),
                 ImportFieldSpec.enumeration("billingType", "Billing type", BILLING.stream().sorted().toList(),
                                 Project.BILLING_FIXED_BID)
@@ -62,6 +67,9 @@ public class ProjectImporter implements ModuleImporter {
                 ImportFieldSpec.of("hourlyRate", "Hourly rate", "DECIMAL").aliases("rate", "bill rate"),
                 ImportFieldSpec.of("monthlyFee", "Monthly fee", "DECIMAL").aliases("monthly amount", "retainer"),
                 ImportFieldSpec.of("contractValue", "Contract value", "DECIMAL").aliases("fixed bid", "contract amount"),
+                ImportFieldSpec.text("contractReference", "Contract reference", 128)
+                        .aliases("contract no", "contract number", "po number"),
+                ImportFieldSpec.of("contractSignedDate", "Contract signed date", "DATE").aliases("signed date"),
                 ImportFieldSpec.enumeration("status", "Status", STATUSES.stream().sorted().toList(), "ACTIVE")
                         .aliases("project status"),
                 ImportFieldSpec.enumeration("priority", "Priority", PRIORITIES.stream().sorted().toList(), null),
@@ -93,28 +101,32 @@ public class ProjectImporter implements ModuleImporter {
     @Override
     public String importGroup(Context context, List<ImportRow> rows) {
         ImportRow row = rows.get(0);
-        String code = row.required("projectCode", "Project code");
-        String key = code.toLowerCase(Locale.ROOT);
-        if (!context.firstInFile("project-code", key)) {
-            return "Same project code appears earlier in the file";
-        }
-        if (context.lookups().exists(
-                "select count(p) from Project p where p.organizationId = :org and lower(p.projectCode) = :code",
-                "code", key)) {
-            if (context.skipDuplicates()) {
-                return "A project with this code already exists";
+        String code = row.text("projectCode");
+        if (code != null) {
+            String key = code.toLowerCase(Locale.ROOT);
+            if (!context.firstInFile("project-code", key)) {
+                return "Same project code appears earlier in the file";
             }
-            throw new RowRejected("Project code '" + code + "' already exists");
+            if (context.lookups().exists(
+                    "select count(p) from Project p where p.organizationId = :org and lower(p.projectCode) = :code",
+                    "code", key)) {
+                if (context.skipDuplicates()) {
+                    return "A project with this code already exists";
+                }
+                throw new RowRejected("Project code '" + code + "' already exists");
+            }
         }
         LocalDate start = row.date("startDate", "Start date");
         LocalDate end = row.date("endDate", "End date");
         if (start != null && end != null && end.isBefore(start)) {
             throw new RowRejected("End date cannot be before start date");
         }
+        String projectType = row.code("projectType", "Project type", PROJECT_TYPES, Project.TYPE_B2B);
+        boolean inHouse = Project.TYPE_IN_HOUSE.equals(projectType);
         projectService.create(bulkImportService.validated(new CreateProjectRequest(
                 context.lookups().organizationId(),
                 context.regionOrDefault(row, "region"),
-                context.lookups().account(row.required("accountName", "Account")),
+                inHouse ? null : context.lookups().account(row.required("accountName", "Account")),
                 null,
                 context.lookups().userByEmail(row.text("projectManagerEmail")),
                 row.required("name", "Project name"),
@@ -126,10 +138,14 @@ public class ProjectImporter implements ModuleImporter {
                 end,
                 row.decimal("budget", "Budget"),
                 row.decimal("estimatedHours", "Estimated hours"),
-                row.code("billingType", "Billing type", ACCEPTED_BILLING, Project.BILLING_FIXED_BID),
+                row.code("billingType", "Billing type", ACCEPTED_BILLING,
+                        inHouse ? Project.BILLING_NON_BILLABLE : Project.BILLING_FIXED_BID),
                 row.decimal("hourlyRate", "Hourly rate"),
                 row.decimal("monthlyFee", "Monthly fee"),
-                row.decimal("contractValue", "Contract value"))));
+                row.decimal("contractValue", "Contract value"),
+                projectType,
+                row.text("contractReference"),
+                row.date("contractSignedDate", "Contract signed date"))));
         return null;
     }
 }

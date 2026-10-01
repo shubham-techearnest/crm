@@ -151,11 +151,8 @@ public class MetadataStudioService {
         CurrentUser user = requireTenantMetadataManage();
         SysTable table = requireVisibleTable(tableId);
         UUID orgId = tenantAccess.resolveOrganizationId(null);
-        UUID targetTableId = table.getOrganizationId() == null ? table.getId() : table.getId();
+        UUID targetTableId = resolveBaseTableId(table);
         long customCount = sysFieldRepository.countActiveCustomFields(orgId, targetTableId);
-        if (table.getOrganizationId() == null) {
-            customCount += sysFieldRepository.countActiveCustomFields(orgId, table.getId());
-        }
         if (customCount >= MAX_CUSTOM_FIELDS_PER_TABLE) {
             throw new BusinessException(
                     "CUSTOM_FIELD_LIMIT", "Maximum " + MAX_CUSTOM_FIELDS_PER_TABLE + " custom fields per table");
@@ -168,9 +165,12 @@ public class MetadataStudioService {
         if (!FIELD_TYPES.contains(type)) {
             throw new BusinessException("INVALID_TYPE", "Unsupported field type");
         }
-        if (sysFieldRepository.existsByOrganizationIdAndTableIdAndCode(orgId, targetTableId, code)) {
-            throw new ConflictException("Field code already exists");
+        boolean clashesWithSystem = sysFieldRepository.findEffectiveForTable(orgId, targetTableId).stream()
+                .anyMatch(existing -> existing.getCode().equals(code));
+        if (clashesWithSystem) {
+            throw new ConflictException("A field with code '" + code + "' already exists on this table");
         }
+        String options = normalizeOptions(type, request.options());
         SysField field = SysField.createCustom(
                 orgId,
                 targetTableId,
@@ -186,6 +186,7 @@ public class MetadataStudioService {
         if (Boolean.TRUE.equals(request.filterable())) {
             field.setFilterable(true, user.userId());
         }
+        field.setOptions(options, user.userId());
         sysFieldRepository.save(field);
         auditService.recordWithSummary(                orgId,
                 user.userId(),
@@ -236,23 +237,30 @@ public class MetadataStudioService {
                 field.setFilterable(request.filterable(), user.userId());
             }
         } else {
+            String type = field.getFieldType();
             if (request.fieldType() != null) {
-                String type = request.fieldType().trim().toUpperCase(Locale.ROOT);
+                type = request.fieldType().trim().toUpperCase(Locale.ROOT);
                 if (!FIELD_TYPES.contains(type)) {
                     throw new BusinessException("INVALID_TYPE", "Unsupported field type");
                 }
             }
             field.updateCustom(
                     request.label(),
-                    request.helpText(),
-                    request.fieldType(),
+                    request.helpText() != null ? blankToNull(request.helpText()) : field.getHelpText(),
+                    request.fieldType() != null ? type : null,
                     request.mandatory(),
-                    request.defaultValue(),
-                    request.referenceTableCode(),
+                    request.defaultValue() != null ? blankToNull(request.defaultValue()) : field.getDefaultValue(),
+                    request.referenceTableCode() != null
+                            ? blankToNull(request.referenceTableCode())
+                            : field.getReferenceTableCode(),
                     request.active(),
                     request.filterable(),
                     request.sortOrder(),
                     user.userId());
+            if (request.options() != null || request.fieldType() != null) {
+                List<String> requested = request.options() != null ? request.options() : field.optionList();
+                field.setOptions(normalizeOptions(type, requested), user.userId());
+            }
         }
         auditService.recordWithSummary(                orgId,
                 user.userId(),
@@ -330,6 +338,24 @@ public class MetadataStudioService {
         if (user.dataScope() == DataScope.PLATFORM) {
             throw new ForbiddenException("Metadata Studio is for Organization Admins only");
         }
+    }
+
+    private static String normalizeOptions(String fieldType, List<String> options) {
+        if (!"ENUM".equals(fieldType)) {
+            return null;
+        }
+        List<String> cleaned = options == null
+                ? List.of()
+                : options.stream()
+                        .filter(java.util.Objects::nonNull)
+                        .map(String::trim)
+                        .filter(option -> !option.isEmpty())
+                        .distinct()
+                        .toList();
+        if (cleaned.isEmpty()) {
+            throw new BusinessException("OPTIONS_REQUIRED", "A picklist field needs at least one option");
+        }
+        return String.join("\n", cleaned);
     }
 
     private static String blankToNull(String value) {

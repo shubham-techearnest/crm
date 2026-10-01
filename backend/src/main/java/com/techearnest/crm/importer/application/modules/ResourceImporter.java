@@ -18,8 +18,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class ResourceImporter implements ModuleImporter {
 
-    private static final Set<String> TYPES = Set.of("EMPLOYEE", "CONTRACTOR", "FREELANCER", "CONSULTANT");
-    private static final Set<String> STATUSES = Set.of("AVAILABLE", "ON_LEAVE", "INACTIVE");
+    private static final Set<String> TYPES =
+            Set.of("EMPLOYEE", "CONTRACTOR", "FREELANCER", "CONSULTANT", "OTHER_EXTERNAL");
+    private static final Set<String> STATUSES = Set.of("AVAILABLE", "ON_LEAVE", "UNAVAILABLE", "INACTIVE");
 
     private final ResourceService resourceService;
     private final BulkImportService bulkImportService;

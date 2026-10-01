@@ -175,7 +175,7 @@ public class DashboardService {
         List<Timesheet> timesheets = resourceId == null
                 ? List.of()
                 : timesheetRepository
-                        .search(orgId, null, resourceId, null, false, null, null, null, Pageable.unpaged())
+                        .search(orgId, null, resourceId, null, false, null, null, null, null, Pageable.unpaged())
                         .getContent();
         Map<UUID, BigDecimal> hoursBySheet = hoursByTimesheet(timesheets);
         BigDecimal submittedHours = timesheets.stream()

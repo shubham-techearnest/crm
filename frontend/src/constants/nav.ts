@@ -66,6 +66,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Documents", to: "/documents", icon: "documents", permissions: ["DOCUMENT_VIEW"], tableCode: "document" },
       { label: "Project Tasks", to: "/tasks", icon: "ptasks", permissions: ["TASK_VIEW"], tableCode: "project_task" },
       { label: "Milestones", to: "/milestones", icon: "milestones", permissions: ["MILESTONE_VIEW"], tableCode: "milestone" },
+      { label: "Resource Board", to: "/resource-board", icon: "allocation", permissions: ["RESOURCE_BOARD_VIEW"] },
       { label: "Allocation", to: "/allocations", icon: "allocation", permissions: ["ALLOCATION_VIEW"], tableCode: "allocation" },
       { label: "Skills", to: "/skills", icon: "skills", permissions: ["SKILL_VIEW"], tableCode: "skill" },
       {

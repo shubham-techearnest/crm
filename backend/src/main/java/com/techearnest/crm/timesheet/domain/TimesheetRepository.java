@@ -64,10 +64,24 @@ public interface TimesheetRepository extends JpaRepository<Timesheet, UUID> {
                             select 1 from TimeEntry pe, Project p
                             where pe.timesheetId = t.id
                               and pe.deletedAt is null
+                              and pe.approvedAt is null
                               and p.id = pe.projectId
                               and p.projectManagerId = :approverId
                          ))
                   ))
+              and (:projectViewerId is null
+                   or exists (
+                        select 1 from Resource vr
+                        where vr.id = t.resourceId
+                          and (vr.userId = :projectViewerId or vr.managerId = :projectViewerId)
+                   )
+                   or exists (
+                        select 1 from TimeEntry ve, Project vp
+                        where ve.timesheetId = t.id
+                          and ve.deletedAt is null
+                          and vp.id = ve.projectId
+                          and vp.projectManagerId = :projectViewerId
+                   ))
             """)
     Page<Timesheet> search(
             @Param("organizationId") UUID organizationId,
@@ -78,6 +92,7 @@ public interface TimesheetRepository extends JpaRepository<Timesheet, UUID> {
             @Param("regionIds") Collection<UUID> regionIds,
             @Param("ownerId") UUID ownerId,
             @Param("approverId") UUID approverId,
+            @Param("projectViewerId") UUID projectViewerId,
             Pageable pageable);
 
     @Query(

@@ -71,6 +71,8 @@ crm:
     invite-ttl: ${INVITE_TTL:7d}
     timesheet-link-ttl: ${TIMESHEET_LINK_TTL:10d}
     weekly-timesheet-links: ${WEEKLY_TIMESHEET_LINKS:true}
+  timesheet:
+    allow-future-submission: ${TIMESHEET_ALLOW_FUTURE_SUBMISSION:false}
 
 logging:
   pattern:

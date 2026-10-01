@@ -8,6 +8,7 @@ import {
   type ListLayoutColumn,
   type SysField,
 } from "@/features/admin/studio/metadataApi";
+import { customFieldKeys, getCustomFieldSchema } from "@/features/customFields/customFieldsApi";
 
 function mergeAvailableColumns(
   fields: SysField[] | undefined,
@@ -71,6 +72,18 @@ export function useModuleListColumns(
     retry: false,
   });
 
+  const customFieldsQuery = useQuery({
+    queryKey: customFieldKeys.schema(tableCode, "CREATE"),
+    queryFn: () => getCustomFieldSchema(tableCode, "CREATE"),
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+  });
+  const customColumns = useMemo<ListLayoutColumn[]>(
+    () => (customFieldsQuery.data?.fields ?? []).map((field) => ({ field: field.code, label: field.label })),
+    [customFieldsQuery.data],
+  );
+
   const publishedColumns = useMemo(() => {
     const columns = listLayoutQuery.data?.layout?.columns;
     if (columns?.length) return columns;
@@ -78,9 +91,10 @@ export function useModuleListColumns(
   }, [listLayoutQuery.data, defaultColumns]);
 
   const optionalColumns = options?.optionalColumns ?? NO_COLUMNS;
+  const extraColumns = useMemo(() => [...optionalColumns, ...customColumns], [optionalColumns, customColumns]);
   const availableColumns = useMemo(
-    () => mergeAvailableColumns(fieldCatalogQuery.data?.fields, publishedColumns, defaultColumns, optionalColumns),
-    [fieldCatalogQuery.data?.fields, publishedColumns, defaultColumns, optionalColumns],
+    () => mergeAvailableColumns(fieldCatalogQuery.data?.fields, publishedColumns, defaultColumns, extraColumns),
+    [fieldCatalogQuery.data?.fields, publishedColumns, defaultColumns, extraColumns],
   );
 
   const mandatoryFields = useMemo(() => {

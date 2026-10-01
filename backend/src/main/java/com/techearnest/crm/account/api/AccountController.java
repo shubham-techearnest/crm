@@ -76,6 +76,12 @@ public class AccountController {
         return ApiResponse.ok(null, "Account deleted successfully");
     }
 
+    @PostMapping("/bulk-assign")
+    public ApiResponse<com.techearnest.crm.common.bulk.BulkDtos.BulkResult> bulkAssign(
+            @Valid @RequestBody com.techearnest.crm.common.bulk.BulkDtos.BulkAssignOwnerRequest request) {
+        return ApiResponse.ok(accountService.bulkAssign(request), "Bulk assign completed");
+    }
+
     @GetMapping("/{id}/contacts")
     public ApiResponse<List<ContactResponse>> contacts(
             @PathVariable UUID id,

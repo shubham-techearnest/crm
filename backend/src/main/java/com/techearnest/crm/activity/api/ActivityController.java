@@ -85,6 +85,12 @@ public class ActivityController {
         return ApiResponse.ok(null, "Activity deleted successfully");
     }
 
+    @PostMapping("/bulk-assign")
+    public ApiResponse<com.techearnest.crm.common.bulk.BulkDtos.BulkResult> bulkAssign(
+            @Valid @RequestBody com.techearnest.crm.common.bulk.BulkDtos.BulkAssignOwnerRequest request) {
+        return ApiResponse.ok(activityService.bulkAssign(request), "Bulk assign completed");
+    }
+
     @PostMapping("/{id}/complete")
     public ApiResponse<ActivityResponse> complete(@PathVariable UUID id) {
         return ApiResponse.ok(activityService.complete(id), "Activity completed successfully");

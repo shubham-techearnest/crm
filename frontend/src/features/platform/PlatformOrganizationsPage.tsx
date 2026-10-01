@@ -5,11 +5,12 @@ import { ModuleFilterField, ModuleListShell } from "@/components/ModuleListShell
 import { LoadingState } from "@/components/LoadingState/LoadingState";
 import { ErrorState } from "@/components/ErrorState/ErrorState";
 import { StatusBadge } from "@/components/StatusBadge/StatusBadge";
+import { formatDate } from "@/features/admin/adminKit";
 import { listPlatformOrganizations } from "./platformOrgApi";
 
 export function PlatformOrganizationsPage() {
   const navigate = useNavigate();
-  const [filterOpen, setFilterOpen] = useState(true);
+  const [filterOpen, setFilterOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
@@ -34,7 +35,7 @@ export function PlatformOrganizationsPage() {
       filterToggle={{ onToggle: () => setFilterOpen((open) => !open) }}
       primaryAction={
         <Link to="/platform/organizations/new" className="btn btn-primary btn-sm">
-          Create organization
+          Register organization
         </Link>
       }
       filterPanel={
@@ -86,14 +87,15 @@ export function PlatformOrganizationsPage() {
       {query.isError ? <ErrorState title="Could not load organizations" message="Try again in a moment." /> : null}
       {!query.isLoading && !query.isError ? (
         <div className="table-responsive">
-          <table className="table table-sm table-hover align-middle mb-0">
+          <table className="table table-hover align-middle mb-0 platform-org-table">
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Slug</th>
+                <th>Organization</th>
                 <th>Status</th>
-                <th>Timezone</th>
-                <th>Currency</th>
+                <th className="text-end">Users</th>
+                <th>Modules</th>
+                <th>Locale</th>
+                <th>Created</th>
                 <th />
               </tr>
             </thead>
@@ -105,28 +107,61 @@ export function PlatformOrganizationsPage() {
                   onClick={() => navigate(`/platform/organizations/${org.id}`)}
                   style={{ cursor: "pointer" }}
                 >
-                  <td className="fw-medium">{org.name}</td>
-                  <td className="text-muted">{org.slug}</td>
+                  <td>
+                    <div className="d-flex align-items-center gap-2">
+                      <span className="platform-org-avatar platform-org-avatar--sm" aria-hidden>
+                        {org.name.slice(0, 2).toUpperCase()}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="fw-semibold text-truncate">{org.name}</div>
+                        <div className="small text-muted text-truncate">{org.slug}</div>
+                      </div>
+                    </div>
+                  </td>
                   <td>
                     <StatusBadge status={org.status} />
                   </td>
-                  <td>{org.timezone}</td>
-                  <td>{org.currencyCode}</td>
-                  <td className="text-end">
+                  <td className="text-end">{org.userCount ?? "—"}</td>
+                  <td>
+                    {org.enabledModuleCount != null ? (
+                      <span className="platform-module-count">{org.enabledModuleCount} enabled</span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="small text-muted">
+                    {org.timezone} · {org.currencyCode}
+                  </td>
+                  <td className="small text-muted">{formatDate(org.createdAt)}</td>
+                  <td className="text-end text-nowrap">
                     <Link
-                      to={`/platform/organizations/${org.id}`}
-                      className="btn btn-outline-secondary btn-sm"
+                      to={`/platform/organizations/${org.id}?section=modules`}
+                      className="btn btn-light border btn-sm me-1"
                       onClick={(e) => e.stopPropagation()}
                     >
-                      Open
+                      Modules
+                    </Link>
+                    <Link
+                      to={`/platform/organizations/${org.id}`}
+                      className="btn btn-outline-primary btn-sm"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      Manage
                     </Link>
                   </td>
                 </tr>
               ))}
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-muted text-center py-4">
-                    No organizations match the filters.
+                  <td colSpan={7} className="text-muted text-center py-5">
+                    {appliedSearch || appliedStatus ? (
+                      "No organizations match the filters."
+                    ) : (
+                      <>
+                        No organizations yet.{" "}
+                        <Link to="/platform/organizations/new">Register the first one</Link>.
+                      </>
+                    )}
                   </td>
                 </tr>
               ) : null}

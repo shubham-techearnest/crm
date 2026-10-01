@@ -95,6 +95,69 @@ class PlatformOrganizationTest {
     }
 
     @Test
+    void modulesLimitTenantAccessAndPlatformManagesAclForOrg() throws Exception {
+        String superToken = login("superadmin@example.com");
+        String slug = "qa-mod-" + UUID.randomUUID().toString().substring(0, 8);
+        String adminEmail = "admin-" + slug + "@example.com";
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("name", "QA Modules " + slug);
+        body.put("slug", slug);
+        body.put("timezone", "Asia/Kolkata");
+        body.put("locale", "en-IN");
+        body.put("currencyCode", "INR");
+        body.put("defaultRegionName", "Head Office");
+        body.put("defaultRegionCode", "HQ");
+        body.put("adminEmail", adminEmail);
+        body.put("adminPassword", "ChangeMe!123");
+        body.put("adminFirstName", "Org");
+        body.put("adminLastName", "Admin");
+        body.putArray("modules").add("LEADS").add("USERS").add("ROLES");
+
+        MvcResult created = mockMvc.perform(post("/api/v1/platform/organizations")
+                        .header("Authorization", "Bearer " + superToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String orgId = objectMapper.readTree(created.getResponse().getContentAsString()).at("/data/id").asText();
+
+        String adminToken = login(adminEmail);
+        JsonNode me = objectMapper.readTree(mockMvc.perform(get("/api/v1/auth/me")
+                        .header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString());
+        assertThat(me.at("/data/permissions").toString()).contains("LEAD_VIEW").doesNotContain("PROJECT_VIEW", "ACL_VIEW");
+
+        mockMvc.perform(get("/api/v1/projects").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/metadata/table-acls").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(get("/api/v1/metadata/table-acls")
+                        .header("Authorization", "Bearer " + superToken)
+                        .header("X-Organization-Id", orgId))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/leads")
+                        .header("Authorization", "Bearer " + superToken)
+                        .header("X-Organization-Id", orgId))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(put("/api/v1/platform/organizations/" + orgId + "/modules")
+                        .header("Authorization", "Bearer " + superToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabledModules\":[\"USERS\",\"ROLES\",\"PROJECTS\"]}"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/v1/leads").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/projects").header("Authorization", "Bearer " + adminToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void orgAdminCannotProvisionOrganization() throws Exception {
         String token = login("orgadmin@example.com");
         ObjectNode body = objectMapper.createObjectNode();

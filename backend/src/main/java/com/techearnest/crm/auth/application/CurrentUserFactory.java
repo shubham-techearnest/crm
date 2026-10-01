@@ -24,6 +24,10 @@ public class CurrentUserFactory {
         this.resourceRepository = resourceRepository;
     }
 
+    /**
+     * Carries every role permission; JwtAuthenticationFilter removes those of modules the organization
+     * is not entitled to on each request, so module changes apply without re-login.
+     */
     public CurrentUser from(User user) {
         Set<String> permissions = user.getRoles().stream()
                 .flatMap(role -> role.getPermissions().stream())

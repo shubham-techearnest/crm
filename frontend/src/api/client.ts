@@ -13,6 +13,15 @@ interface RetryConfig extends InternalAxiosRequestConfig {
 
 let refreshInFlight: Promise<string> | null = null;
 
+export const TARGET_ORGANIZATION_HEADER = "X-Organization-Id";
+
+/** Organization a Super Admin is currently administering from the platform console. */
+let targetOrganizationId: string | null = null;
+
+export function setTargetOrganizationId(organizationId: string | null) {
+  targetOrganizationId = organizationId;
+}
+
 /** `crypto.randomUUID` only exists in secure contexts (HTTPS or localhost). */
 export function newRequestId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -37,6 +46,9 @@ api.interceptors.request.use((config) => {
   const token = window.localStorage.getItem(ACCESS_TOKEN_KEY);
   if (token) {
     config.headers.set("Authorization", `Bearer ${token}`);
+  }
+  if (targetOrganizationId) {
+    config.headers.set(TARGET_ORGANIZATION_HEADER, targetOrganizationId);
   }
   return config;
 });

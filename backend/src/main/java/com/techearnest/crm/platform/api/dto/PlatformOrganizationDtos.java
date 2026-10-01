@@ -3,8 +3,10 @@ package com.techearnest.crm.platform.api.dto;
 import com.techearnest.crm.organization.domain.Organization;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public final class PlatformOrganizationDtos {
@@ -26,13 +28,19 @@ public final class PlatformOrganizationDtos {
             Instant createdAt,
             Instant updatedAt,
             Long userCount,
-            Long regionCount) {
+            Long regionCount,
+            Integer enabledModuleCount) {
 
         public static PlatformOrganizationResponse from(Organization org) {
             return from(org, null, null);
         }
 
         public static PlatformOrganizationResponse from(Organization org, Long userCount, Long regionCount) {
+            return from(org, userCount, regionCount, null);
+        }
+
+        public static PlatformOrganizationResponse from(
+                Organization org, Long userCount, Long regionCount, Integer enabledModuleCount) {
             return new PlatformOrganizationResponse(
                     org.getId(),
                     org.getName(),
@@ -48,7 +56,8 @@ public final class PlatformOrganizationDtos {
                     org.getCreatedAt(),
                     org.getUpdatedAt(),
                     userCount,
-                    regionCount);
+                    regionCount,
+                    enabledModuleCount);
         }
     }
 
@@ -67,7 +76,14 @@ public final class PlatformOrganizationDtos {
             @NotBlank @Email @Size(max = 255) String adminEmail,
             @NotBlank @Size(min = 8, max = 100) String adminPassword,
             @NotBlank @Size(max = 100) String adminFirstName,
-            @NotBlank @Size(max = 100) String adminLastName) {}
+            @NotBlank @Size(max = 100) String adminLastName,
+            /** Module codes the organization may use; null enables every module. */
+            List<@NotBlank String> modules) {}
 
     public record SetOrganizationStatusRequest(@NotBlank @Size(max = 32) String status) {}
+
+    public record UpdateOrganizationModulesRequest(@NotNull List<@NotBlank String> enabledModules) {}
+
+    public record OrganizationAdminResponse(
+            UUID id, String email, String firstName, String lastName, String status, Instant lastLoginAt) {}
 }

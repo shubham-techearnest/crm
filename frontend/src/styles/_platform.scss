@@ -1,0 +1,663 @@
+@use "tokens" as *;
+
+// Super Admin console: page chrome, organization management and module entitlements.
+
+.min-w-0 {
+  min-width: 0;
+}
+
+.platform-page {
+  display: flex;
+  flex-direction: column;
+  gap: $te-space-4;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-bottom: $te-space-6;
+}
+
+.platform-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: $te-space-3;
+}
+
+.platform-back {
+  display: inline-block;
+  margin-bottom: $te-space-2;
+  font-size: 0.8125rem;
+  color: $te-text-secondary;
+
+  &:hover {
+    color: $te-primary;
+  }
+}
+
+.platform-page-title {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 650;
+  color: $te-text;
+}
+
+.platform-page-subtitle {
+  margin: 0.15rem 0 0;
+  font-size: 0.875rem;
+  color: $te-text-secondary;
+}
+
+.platform-org-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(135deg, $te-primary, #7c5cf5);
+  color: #fff;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+  box-shadow: 0 6px 16px -8px rgba($te-primary, 0.7);
+
+  &--sm {
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 0.6rem;
+    font-size: 0.8125rem;
+    box-shadow: none;
+  }
+}
+
+.platform-card {
+  background: $te-surface;
+  border: 1px solid $te-border-light;
+  border-radius: 0.75rem;
+  padding: $te-space-4 $te-space-5;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.platform-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $te-space-3;
+  margin-bottom: $te-space-3;
+}
+
+.platform-card-title {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  color: $te-text;
+  margin-bottom: $te-space-3;
+}
+
+// KPI tiles
+.platform-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: $te-space-3;
+}
+
+.platform-stat {
+  display: flex;
+  align-items: center;
+  gap: $te-space-3;
+  background: $te-surface;
+  border: 1px solid $te-border-light;
+  border-radius: 0.75rem;
+  padding: $te-space-3 $te-space-4;
+
+  .nav-link-icon-tile {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.65rem;
+
+    .nav-link-icon {
+      width: 1.35rem;
+      height: 1.35rem;
+    }
+  }
+}
+
+.platform-stat-value {
+  font-size: 1.375rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: $te-text;
+}
+
+.platform-stat-label {
+  font-size: 0.75rem;
+  color: $te-text-secondary;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+// Section tabs on the organization page
+.platform-tabs {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  border-bottom: 1px solid $te-border;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+.platform-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.85rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: $te-text-secondary;
+  font-size: 0.875rem;
+  font-weight: 550;
+  white-space: nowrap;
+  transition: color 0.15s ease, border-color 0.15s ease;
+
+  &:hover {
+    color: $te-text;
+  }
+
+  &.is-active {
+    color: $te-primary;
+    border-bottom-color: $te-primary;
+  }
+}
+
+.platform-tab-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.platform-scope-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: $te-space-2;
+  padding: $te-space-2 $te-space-3;
+  border-radius: 0.6rem;
+  background: $te-primary-light;
+  color: $te-primary-dark;
+  font-size: 0.8125rem;
+}
+
+.platform-scope-pill {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: rgba($te-warning, 0.16);
+  color: #92400e;
+  font-size: 0.75rem;
+  font-weight: 600;
+
+  &.is-on {
+    background: rgba($te-success, 0.16);
+    color: #166534;
+  }
+}
+
+// Embedded tenant admin screens (users, roles, ACL, Studio)
+.platform-tenant-frame {
+  display: flex;
+  flex-direction: column;
+  min-height: 560px;
+  background: $te-surface;
+  border: 1px solid $te-border-light;
+  border-radius: 0.75rem;
+  overflow: hidden;
+
+  > .module-list-shell {
+    flex: 1 1 auto;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+// Overview
+.platform-admin-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: $te-space-3;
+    padding: $te-space-2 0;
+
+    & + li {
+      border-top: 1px solid $te-border-light;
+    }
+  }
+}
+
+.platform-admin-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: $te-primary-light;
+  color: $te-primary-dark;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.platform-dl {
+  display: grid;
+  grid-template-columns: minmax(7rem, 35%) 1fr;
+  gap: 0.45rem $te-space-3;
+  margin: 0;
+  font-size: 0.875rem;
+
+  dt {
+    font-weight: 500;
+    color: $te-text-secondary;
+  }
+
+  dd {
+    margin: 0;
+    color: $te-text;
+    word-break: break-word;
+  }
+}
+
+.platform-module-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.platform-module-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid $te-border-light;
+  border-radius: 999px;
+  background: $te-surface-subtle;
+  font-size: 0.8125rem;
+  color: $te-text;
+}
+
+.platform-module-chip-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  color: $te-text-secondary;
+}
+
+// Module entitlement picker
+.platform-modules {
+  display: flex;
+  flex-direction: column;
+  gap: $te-space-4;
+}
+
+.platform-modules-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $te-space-3;
+}
+
+.platform-modules-search {
+  flex: 1 1 220px;
+  max-width: 320px;
+  margin-bottom: 0;
+}
+
+.platform-modules-count {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: $te-text-secondary;
+}
+
+.platform-modules-group-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $te-space-3;
+  margin-bottom: $te-space-2;
+
+  h3 {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: $te-text-secondary;
+  }
+
+  p {
+    margin: 0.15rem 0 0;
+    font-size: 0.75rem;
+    color: $te-muted;
+  }
+}
+
+.platform-modules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: $te-space-2;
+}
+
+.platform-module-card {
+  display: flex;
+  align-items: center;
+  gap: $te-space-3;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid $te-border-light;
+  border-radius: 0.65rem;
+  background: $te-surface;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    border-color: $te-border;
+    box-shadow: 0 2px 8px -4px rgba(15, 23, 42, 0.18);
+  }
+
+  &:not(.is-on) {
+    background: $te-surface-subtle;
+
+    .nav-link-icon-tile {
+      filter: grayscale(1);
+      opacity: 0.55;
+    }
+
+    .platform-module-label {
+      color: $te-text-secondary;
+    }
+  }
+
+  &.is-on {
+    border-color: rgba($te-primary, 0.35);
+  }
+
+  &.is-disabled {
+    cursor: default;
+    opacity: 0.7;
+  }
+
+  .form-check-input {
+    cursor: pointer;
+  }
+}
+
+.platform-module-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.platform-module-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: $te-text;
+}
+
+.platform-module-desc {
+  font-size: 0.75rem;
+  color: $te-muted;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.platform-savebar {
+  position: sticky;
+  bottom: 0;
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: $te-space-3;
+  margin: $te-space-4 (-$te-space-5) (-$te-space-4);
+  padding: $te-space-3 $te-space-5;
+  border-top: 1px solid $te-border;
+  border-radius: 0 0 0.75rem 0.75rem;
+  background: rgba($te-surface, 0.96);
+  backdrop-filter: blur(4px);
+  font-size: 0.875rem;
+  font-weight: 550;
+
+  &.is-visible {
+    display: flex;
+  }
+}
+
+// Organizations list
+.platform-org-table {
+  th {
+    font-size: 0.75rem;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: $te-text-secondary;
+    white-space: nowrap;
+  }
+
+  td {
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+  }
+}
+
+.platform-module-count {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: $te-primary-light;
+  color: $te-primary-dark;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+// Dashboard
+.platform-recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  a {
+    display: flex;
+    align-items: center;
+    gap: $te-space-3;
+    padding: 0.6rem $te-space-2;
+    border-radius: 0.6rem;
+    color: inherit;
+
+    &:hover {
+      background: $te-surface-subtle;
+    }
+  }
+}
+
+.platform-steps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: $te-space-3;
+
+  li {
+    display: flex;
+    gap: $te-space-3;
+  }
+}
+
+.platform-steps-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: $te-primary-light;
+  color: $te-primary-dark;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+// Create wizard
+.platform-create {
+  max-width: 980px;
+}
+
+.platform-stepper {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: $te-space-2;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+
+  button {
+    display: flex;
+    align-items: center;
+    gap: $te-space-2;
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border: 1px solid $te-border-light;
+    border-radius: 0.65rem;
+    background: $te-surface;
+    text-align: left;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+
+    &:hover {
+      border-color: $te-border;
+    }
+  }
+}
+
+.platform-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: $te-surface-subtle;
+  border: 1px solid $te-border;
+  color: $te-text-secondary;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+.platform-step-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.platform-step-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: $te-text;
+}
+
+.platform-step-hint {
+  font-size: 0.75rem;
+  color: $te-muted;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.platform-step.is-current button {
+  border-color: $te-primary;
+  background: $te-primary-light;
+
+  .platform-step-index {
+    background: $te-primary;
+    border-color: $te-primary;
+    color: #fff;
+  }
+}
+
+.platform-step.is-done .platform-step-index {
+  background: rgba($te-success, 0.15);
+  border-color: rgba($te-success, 0.4);
+  color: #15803d;
+}
+
+.platform-create-card {
+  padding: $te-space-5;
+}
+
+.platform-create-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: $te-space-2;
+  margin-top: $te-space-4;
+  padding-top: $te-space-4;
+  border-top: 1px solid $te-border-light;
+}
+
+.platform-review {
+  margin-top: $te-space-5;
+  padding: $te-space-3 $te-space-4;
+  border-radius: 0.65rem;
+  background: $te-surface-subtle;
+  border: 1px dashed $te-border;
+
+  h3 {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: $te-text-secondary;
+    margin-bottom: $te-space-2;
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: 8rem 1fr;
+    gap: 0.3rem $te-space-3;
+    margin: 0;
+    font-size: 0.875rem;
+  }
+
+  dt {
+    color: $te-text-secondary;
+    font-weight: 500;
+  }
+
+  dd {
+    margin: 0;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .platform-stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .platform-card,
+  .platform-create-card {
+    padding: $te-space-3;
+  }
+
+  .platform-savebar {
+    margin-inline: -$te-space-3;
+    padding-inline: $te-space-3;
+  }
+}

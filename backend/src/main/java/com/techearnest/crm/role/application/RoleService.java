@@ -7,6 +7,7 @@ import com.techearnest.crm.common.exception.ResourceNotFoundException;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.common.security.DataScope;
 import com.techearnest.crm.common.security.TenantAccess;
+import com.techearnest.crm.organization.module.OrganizationModuleService;
 import com.techearnest.crm.permission.domain.Permission;
 import com.techearnest.crm.permission.domain.PermissionRepository;
 import com.techearnest.crm.role.api.dto.RoleDtos.CreateRoleRequest;
@@ -31,16 +32,19 @@ public class RoleService {
     private final PermissionRepository permissionRepository;
     private final TenantAccess tenantAccess;
     private final AuditService auditService;
+    private final OrganizationModuleService organizationModuleService;
 
     public RoleService(
             RoleRepository roleRepository,
             PermissionRepository permissionRepository,
             TenantAccess tenantAccess,
-            AuditService auditService) {
+            AuditService auditService,
+            OrganizationModuleService organizationModuleService) {
         this.roleRepository = roleRepository;
         this.permissionRepository = permissionRepository;
         this.tenantAccess = tenantAccess;
         this.auditService = auditService;
+        this.organizationModuleService = organizationModuleService;
     }
 
     @Transactional(readOnly = true)
@@ -60,8 +64,11 @@ public class RoleService {
 
     @Transactional(readOnly = true)
     public List<PermissionResponse> listPermissions() {
-        tenantAccess.requirePermission("ROLE_VIEW");
-        return permissionRepository.findAllOrdered().stream().map(PermissionResponse::from).toList();
+        CurrentUser user = tenantAccess.requirePermission("ROLE_VIEW");
+        return permissionRepository.findAllOrdered().stream()
+                .filter(p -> organizationModuleService.isPermissionAllowed(user.organizationId(), p.getCode()))
+                .map(PermissionResponse::from)
+                .toList();
     }
 
     @Transactional
@@ -96,7 +103,7 @@ public class RoleService {
                 throw new BusinessException("SYSTEM_ROLE", "Cannot change name or scope of system roles");
             }
             if (request.permissionCodes() != null) {
-                role.replacePermissions(resolvePermissions(request.permissionCodes()));
+                role.replacePermissions(withHiddenModulePermissions(role, resolvePermissions(request.permissionCodes())));
             }
         } else {
             DataScope scope = request.dataScope() != null ? request.dataScope() : role.getDataScope();
@@ -105,7 +112,7 @@ public class RoleService {
             }
             role.update(request.name().trim(), scope);
             if (request.permissionCodes() != null) {
-                role.replacePermissions(resolvePermissions(request.permissionCodes()));
+                role.replacePermissions(withHiddenModulePermissions(role, resolvePermissions(request.permissionCodes())));
             }
         }
         role.describe(blankToNullText(request.description()));
@@ -132,6 +139,26 @@ public class RoleService {
             throw new ResourceNotFoundException("Resource not found");
         }
         return new HashSet<>(permissions);
+    }
+
+    /**
+     * The role editor only lists permissions of modules the organization is entitled to, so keep the
+     * role's permissions for disabled modules; they come back if the platform re-enables the module.
+     */
+    private Set<Permission> withHiddenModulePermissions(Role role, Set<Permission> requested) {
+        UUID orgId = role.getOrganizationId();
+        Set<Permission> result = new HashSet<>();
+        for (Permission permission : requested) {
+            if (organizationModuleService.isPermissionAllowed(orgId, permission.getCode())) {
+                result.add(permission);
+            }
+        }
+        for (Permission permission : role.getPermissions()) {
+            if (!organizationModuleService.isPermissionAllowed(orgId, permission.getCode())) {
+                result.add(permission);
+            }
+        }
+        return result;
     }
 
     private static String blankToNullText(String value) {

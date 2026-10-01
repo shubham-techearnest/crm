@@ -8,6 +8,8 @@ import com.techearnest.crm.metadata.domain.SysTable;
 import com.techearnest.crm.metadata.domain.SysTableAcl;
 import com.techearnest.crm.metadata.domain.SysTableAclRepository;
 import com.techearnest.crm.metadata.domain.SysTableRepository;
+import com.techearnest.crm.organization.module.ModuleCatalog;
+import com.techearnest.crm.organization.module.OrganizationModuleService;
 import com.techearnest.crm.role.domain.Role;
 import com.techearnest.crm.user.domain.User;
 import com.techearnest.crm.user.domain.UserRepository;
@@ -67,16 +69,19 @@ public class TableAclEvaluator {
     private final SysTableRepository tableRepository;
     private final UserRepository userRepository;
     private final TenantAccess tenantAccess;
+    private final OrganizationModuleService organizationModuleService;
 
     public TableAclEvaluator(
             SysTableAclRepository aclRepository,
             SysTableRepository tableRepository,
             UserRepository userRepository,
-            TenantAccess tenantAccess) {
+            TenantAccess tenantAccess,
+            OrganizationModuleService organizationModuleService) {
         this.aclRepository = aclRepository;
         this.tableRepository = tableRepository;
         this.userRepository = userRepository;
         this.tenantAccess = tenantAccess;
+        this.organizationModuleService = organizationModuleService;
     }
 
     public CurrentUser requireTableAccess(String tableCode, CrudOp op) {
@@ -104,6 +109,9 @@ public class TableAclEvaluator {
 
     private boolean evaluate(CurrentUser user, String tableCode, CrudOp op, boolean openWhenUnconfigured) {
         String code = tableCode.trim().toLowerCase(Locale.ROOT);
+        if (!organizationModuleService.isTableAllowed(user.organizationId(), code)) {
+            return false;
+        }
         boolean fallbackOpen = openWhenUnconfigured && !LEGACY.containsKey(code);
         Optional<SysTable> table = tableRepository.findByCodePreferringOrg(user.organizationId(), code).stream()
                 .filter(t -> t.getOrganizationId() == null)
@@ -153,10 +161,22 @@ public class TableAclEvaluator {
     private boolean legacyAllowed(CurrentUser user, String tableCode, CrudOp op) {
         Map<CrudOp, String> map = LEGACY.get(tableCode);
         if (map == null) {
-            return user.hasPermission("METADATA_MANAGE") || user.hasPermission("ACL_MANAGE");
+            return user.hasPermission("METADATA_MANAGE")
+                    || user.hasPermission("ACL_MANAGE")
+                    || modulePermissionAllows(user, tableCode, op);
         }
         String permission = map.get(op);
         return permission != null && user.hasPermission(permission);
+    }
+
+    /** Reads need any permission of the table's module; writes need one beyond its *_VIEW permissions. */
+    private static boolean modulePermissionAllows(CurrentUser user, String tableCode, CrudOp op) {
+        return ModuleCatalog.moduleForTable(tableCode)
+                .flatMap(ModuleCatalog::find)
+                .map(module -> module.permissions().stream()
+                        .filter(code -> op == CrudOp.READ || !code.endsWith("_VIEW"))
+                        .anyMatch(user::hasPermission))
+                .orElse(false);
     }
 
     private Set<UUID> loadRoleIds(UUID userId) {

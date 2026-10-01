@@ -17,6 +17,7 @@ export interface PlatformOrganization {
   updatedAt: string;
   userCount?: number | null;
   regionCount?: number | null;
+  enabledModuleCount?: number | null;
 }
 
 export interface ProvisionOrganizationBody {
@@ -35,6 +36,26 @@ export interface ProvisionOrganizationBody {
   adminPassword: string;
   adminFirstName: string;
   adminLastName: string;
+  /** Module codes the organization may use; omit to enable every module. */
+  modules?: string[];
+}
+
+export interface OrganizationModule {
+  code: string;
+  label: string;
+  group: string;
+  description: string;
+  enabled: boolean;
+  permissions: string[];
+}
+
+export interface OrganizationAdmin {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  status: string;
+  lastLoginAt: string | null;
 }
 
 function unwrap<T>(response: ApiResponse<T>, fallback = "Request failed"): T {
@@ -78,5 +99,27 @@ export async function setPlatformOrganizationStatus(
   const { data } = await api.put<ApiResponse<PlatformOrganization>>(`/platform/organizations/${id}/status`, {
     status,
   });
+  return unwrap(data);
+}
+
+export async function getModuleCatalog(): Promise<OrganizationModule[]> {
+  const { data } = await api.get<ApiResponse<OrganizationModule[]>>("/platform/organizations/module-catalog");
+  return unwrap(data);
+}
+
+export async function getOrganizationModules(id: string): Promise<OrganizationModule[]> {
+  const { data } = await api.get<ApiResponse<OrganizationModule[]>>(`/platform/organizations/${id}/modules`);
+  return unwrap(data);
+}
+
+export async function updateOrganizationModules(id: string, enabledModules: string[]): Promise<OrganizationModule[]> {
+  const { data } = await api.put<ApiResponse<OrganizationModule[]>>(`/platform/organizations/${id}/modules`, {
+    enabledModules,
+  });
+  return unwrap(data);
+}
+
+export async function listOrganizationAdmins(id: string): Promise<OrganizationAdmin[]> {
+  const { data } = await api.get<ApiResponse<OrganizationAdmin[]>>(`/platform/organizations/${id}/admins`);
   return unwrap(data);
 }

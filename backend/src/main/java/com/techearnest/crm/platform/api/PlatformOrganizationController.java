@@ -1,9 +1,13 @@
 package com.techearnest.crm.platform.api;
 
 import com.techearnest.crm.common.api.ApiResponse;
+import com.techearnest.crm.organization.module.OrganizationModuleService;
+import com.techearnest.crm.organization.module.OrganizationModuleService.ModuleState;
+import com.techearnest.crm.platform.api.dto.PlatformOrganizationDtos.OrganizationAdminResponse;
 import com.techearnest.crm.platform.api.dto.PlatformOrganizationDtos.PlatformOrganizationResponse;
 import com.techearnest.crm.platform.api.dto.PlatformOrganizationDtos.ProvisionOrganizationRequest;
 import com.techearnest.crm.platform.api.dto.PlatformOrganizationDtos.SetOrganizationStatusRequest;
+import com.techearnest.crm.platform.api.dto.PlatformOrganizationDtos.UpdateOrganizationModulesRequest;
 import com.techearnest.crm.platform.application.PlatformOrganizationService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -56,5 +60,28 @@ public class PlatformOrganizationController {
             @PathVariable UUID id, @Valid @RequestBody SetOrganizationStatusRequest request) {
         return ApiResponse.ok(
                 platformOrganizationService.setStatus(id, request.status()), "Organization status updated");
+    }
+
+    @GetMapping("/module-catalog")
+    public ApiResponse<List<ModuleState>> moduleCatalog() {
+        platformOrganizationService.requirePlatform();
+        return ApiResponse.ok(OrganizationModuleService.catalog());
+    }
+
+    @GetMapping("/{id}/modules")
+    public ApiResponse<List<ModuleState>> modules(@PathVariable UUID id) {
+        return ApiResponse.ok(platformOrganizationService.modules(id));
+    }
+
+    @PutMapping("/{id}/modules")
+    public ApiResponse<List<ModuleState>> updateModules(
+            @PathVariable UUID id, @Valid @RequestBody UpdateOrganizationModulesRequest request) {
+        return ApiResponse.ok(
+                platformOrganizationService.updateModules(id, request.enabledModules()), "Modules updated");
+    }
+
+    @GetMapping("/{id}/admins")
+    public ApiResponse<List<OrganizationAdminResponse>> admins(@PathVariable UUID id) {
+        return ApiResponse.ok(platformOrganizationService.admins(id));
     }
 }

@@ -9,6 +9,10 @@ import com.techearnest.crm.common.security.AccessGuard;
 import com.techearnest.crm.common.security.CurrentUser;
 import com.techearnest.crm.organization.domain.Organization;
 import com.techearnest.crm.organization.domain.OrganizationRepository;
+import com.techearnest.crm.organization.module.ModuleCatalog;
+import com.techearnest.crm.organization.module.OrganizationModuleService;
+import com.techearnest.crm.organization.module.OrganizationModuleService.ModuleState;
+import com.techearnest.crm.platform.api.dto.PlatformOrganizationDtos.OrganizationAdminResponse;
 import com.techearnest.crm.platform.api.dto.PlatformOrganizationDtos.PlatformOrganizationResponse;
 import com.techearnest.crm.platform.api.dto.PlatformOrganizationDtos.ProvisionOrganizationRequest;
 import com.techearnest.crm.region.domain.Region;
@@ -22,6 +26,7 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,6 +41,8 @@ public class PlatformOrganizationService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
+    private final OrganizationModuleService organizationModuleService;
+    private final JdbcTemplate jdbcTemplate;
 
     public PlatformOrganizationService(
             AccessGuard accessGuard,
@@ -44,7 +51,9 @@ public class PlatformOrganizationService {
             RoleRepository roleRepository,
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            AuditService auditService) {
+            AuditService auditService,
+            OrganizationModuleService organizationModuleService,
+            JdbcTemplate jdbcTemplate) {
         this.accessGuard = accessGuard;
         this.organizationRepository = organizationRepository;
         this.regionRepository = regionRepository;
@@ -52,6 +61,8 @@ public class PlatformOrganizationService {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
+        this.organizationModuleService = organizationModuleService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Transactional(readOnly = true)
@@ -59,9 +70,18 @@ public class PlatformOrganizationService {
         accessGuard.requirePlatform();
         Page<Organization> page =
                 organizationRepository.searchActive(blankToNull(search), blankToNull(status), pageable);
-        List<PlatformOrganizationResponse> data =
-                page.getContent().stream().map(PlatformOrganizationResponse::from).toList();
+        List<PlatformOrganizationResponse> data = page.getContent().stream()
+                .map(org -> PlatformOrganizationResponse.from(
+                        org,
+                        userRepository.countByOrganizationIdAndDeletedAtIsNull(org.getId()),
+                        null,
+                        enabledModuleCount(org.getId())))
+                .toList();
         return new PageResult(data, PaginationMeta.from(page));
+    }
+
+    private int enabledModuleCount(UUID organizationId) {
+        return ModuleCatalog.MODULES.size() - organizationModuleService.disabledModules(organizationId).size();
     }
 
     @Transactional(readOnly = true)
@@ -72,7 +92,7 @@ public class PlatformOrganizationService {
                 .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
         long users = userRepository.countByOrganizationIdAndDeletedAtIsNull(id);
         long regions = regionRepository.findAllActiveByOrganization(id).size();
-        return PlatformOrganizationResponse.from(org, users, regions);
+        return PlatformOrganizationResponse.from(org, users, regions, enabledModuleCount(id));
     }
 
     @Transactional
@@ -103,7 +123,7 @@ public class PlatformOrganizationService {
                 request.defaultRegionCode().trim().toUpperCase());
         regionRepository.save(region);
 
-        seedRolesFromTemplate(org.getId());
+        UUID templateOrgId = seedRolesFromTemplate(org.getId());
 
         Role orgAdminRole = roleRepository
                 .findByOrganizationIdAndCode(org.getId(), "ORGANIZATION_ADMIN")
@@ -131,9 +151,67 @@ public class PlatformOrganizationService {
         admin.getAssignedRegions().add(region);
         userRepository.save(admin);
 
+        List<String> modules = request.modules() == null
+                ? ModuleCatalog.MODULES.stream().map(ModuleCatalog.ModuleDefinition::code).toList()
+                : request.modules();
+        organizationRepository.flush();
+        organizationModuleService.replaceEnabled(org.getId(), modules, actor.userId());
+        copyAclsFromTemplate(templateOrgId, org.getId(), actor.userId());
+
         auditService.record(org.getId(), actor.userId(), "CREATE", "ORGANIZATION", org.getId());
         auditService.record(org.getId(), actor.userId(), "CREATE", "USER", admin.getId());
         return PlatformOrganizationResponse.from(org, 1L, 1L);
+    }
+
+    public void requirePlatform() {
+        accessGuard.requirePlatform();
+    }
+
+    @Transactional(readOnly = true)
+    public List<ModuleState> modules(UUID id) {
+        accessGuard.requirePlatform();
+        requireOrganization(id);
+        return organizationModuleService.list(id);
+    }
+
+    @Transactional
+    public List<ModuleState> updateModules(UUID id, List<String> enabledModules) {
+        CurrentUser actor = accessGuard.requirePlatform();
+        requireOrganization(id);
+        List<ModuleState> result = organizationModuleService.replaceEnabled(id, enabledModules, actor.userId());
+        auditService.record(id, actor.userId(), "UPDATE", "ORGANIZATION", id);
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrganizationAdminResponse> admins(UUID id) {
+        accessGuard.requirePlatform();
+        requireOrganization(id);
+        return jdbcTemplate.query(
+                """
+                SELECT DISTINCT u.id, u.email, u.first_name, u.last_name, u.status, u.last_login_at
+                FROM users u
+                JOIN user_roles ur ON ur.user_id = u.id
+                JOIN roles r ON r.id = ur.role_id
+                WHERE u.organization_id = ? AND u.deleted_at IS NULL AND r.code = 'ORGANIZATION_ADMIN'
+                ORDER BY u.email
+                """,
+                (rs, rowNum) -> new OrganizationAdminResponse(
+                        rs.getObject("id", UUID.class),
+                        rs.getString("email"),
+                        rs.getString("first_name"),
+                        rs.getString("last_name"),
+                        rs.getString("status"),
+                        rs.getTimestamp("last_login_at") == null
+                                ? null
+                                : rs.getTimestamp("last_login_at").toInstant()),
+                id);
+    }
+
+    private Organization requireOrganization(UUID id) {
+        return organizationRepository
+                .findActiveById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Resource not found"));
     }
 
     @Transactional
@@ -160,7 +238,36 @@ public class PlatformOrganizationService {
         return get(id);
     }
 
-    private void seedRolesFromTemplate(UUID newOrganizationId) {
+    /** Gives the new organization's system roles the same table and field access as the template's. */
+    private void copyAclsFromTemplate(UUID templateOrgId, UUID newOrganizationId, UUID actorId) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO sys_table_acl
+                    (id, organization_id, role_id, table_id, can_create, can_read, can_update, can_delete, updated_by)
+                SELECT gen_random_uuid(), ?, nr.id, a.table_id, a.can_create, a.can_read, a.can_update, a.can_delete, ?
+                FROM sys_table_acl a
+                JOIN roles tr ON tr.id = a.role_id
+                JOIN roles nr ON nr.organization_id = ? AND nr.code = tr.code AND nr.deleted_at IS NULL
+                JOIN sys_table t ON t.id = a.table_id AND t.organization_id IS NULL
+                WHERE a.organization_id = ?
+                ON CONFLICT (organization_id, role_id, table_id) DO NOTHING
+                """,
+                newOrganizationId, actorId, newOrganizationId, templateOrgId);
+        jdbcTemplate.update(
+                """
+                INSERT INTO sys_field_acl (id, organization_id, role_id, field_id, access_level, updated_by)
+                SELECT gen_random_uuid(), ?, nr.id, a.field_id, a.access_level, ?
+                FROM sys_field_acl a
+                JOIN roles tr ON tr.id = a.role_id
+                JOIN roles nr ON nr.organization_id = ? AND nr.code = tr.code AND nr.deleted_at IS NULL
+                JOIN sys_field f ON f.id = a.field_id AND f.organization_id IS NULL
+                WHERE a.organization_id = ?
+                ON CONFLICT (organization_id, role_id, field_id) DO NOTHING
+                """,
+                newOrganizationId, actorId, newOrganizationId, templateOrgId);
+    }
+
+    private UUID seedRolesFromTemplate(UUID newOrganizationId) {
         List<UUID> templates = organizationRepository.findTemplateOrganizationIds();
         if (templates.isEmpty()) {
             throw new BusinessException("ROLE_TEMPLATE_MISSING", "No template organization with system roles found");
@@ -176,6 +283,7 @@ public class PlatformOrganizationService {
             copy.replacePermissions(new HashSet<>(template.getPermissions()));
             roleRepository.save(copy);
         }
+        return templateOrgId;
     }
 
     private static String blankToNull(String value) {

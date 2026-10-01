@@ -30,6 +30,9 @@ const TONE: Record<string, string> = {
   EXPIRED: "status-badge--danger",
   TERMINATED: "status-badge--neutral",
   RENEWED: "status-badge--info",
+  SUSPENDED: "status-badge--danger",
+  INVITED: "status-badge--info",
+  LOCKED: "status-badge--warning",
 };
 
 export function StatusBadge({ status }: StatusBadgeProps) {

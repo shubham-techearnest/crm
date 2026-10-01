@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { TechEarnestPickerOption } from "./TechEarnestPicker";
 
 export interface TechEarnestLookupQuickCreateField {
@@ -83,9 +84,8 @@ export function TechEarnestLookupModal({
     onAddNew?.();
   }
 
-  async function submitCreate(event: FormEvent) {
-    event.preventDefault();
-    if (!quickCreate) return;
+  async function submitCreate() {
+    if (!quickCreate || submitting) return;
 
     for (const field of quickCreate.fields) {
       if (field.required && !createValues[field.name]?.trim()) {
@@ -107,16 +107,35 @@ export function TechEarnestLookupModal({
     }
   }
 
-  return (
+  // Portalled and form-less: this modal opens from fields inside record forms, and a nested <form>
+  // would submit (and reset) the host record form along with the quick-create.
+  return createPortal(
     <div className="techearnest-lookup-backdrop" role="presentation" onClick={handleClose}>
-      <div className="techearnest-lookup-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="techearnest-lookup-modal"
+        role="dialog"
+        aria-modal="true"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Escape") handleClose();
+        }}
+      >
         <div className="techearnest-lookup-modal-header">
           <h2 className="techearnest-lookup-modal-title">{mode === "create" && quickCreate ? quickCreate.title : title}</h2>
           <button type="button" className="btn-close" aria-label="Close" onClick={handleClose} />
         </div>
 
         {mode === "create" && quickCreate ? (
-          <form className="techearnest-lookup-create-form" onSubmit={(event) => void submitCreate(event)}>
+          <div
+            className="techearnest-lookup-create-form"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.target as HTMLElement).tagName === "INPUT") {
+                event.preventDefault();
+                void submitCreate();
+              }
+            }}
+          >
             {createError ? <div className="alert alert-danger py-2 mx-3 mt-3 mb-0">{createError}</div> : null}
             <div className="techearnest-lookup-create-fields">
               {quickCreate.fields.map((field) => (
@@ -157,11 +176,16 @@ export function TechEarnestLookupModal({
               <button type="button" className="btn btn-light btn-sm" onClick={() => setMode("list")}>
                 Back
               </button>
-              <button type="submit" className="btn btn-primary btn-sm" disabled={submitting}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={submitting}
+                onClick={() => void submitCreate()}
+              >
                 {submitting ? "Saving…" : quickCreate.submitLabel ?? "Save and Select"}
               </button>
             </div>
-          </form>
+          </div>
         ) : (
           <>
             <div className="techearnest-lookup-modal-toolbar">
@@ -205,6 +229,7 @@ export function TechEarnestLookupModal({
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

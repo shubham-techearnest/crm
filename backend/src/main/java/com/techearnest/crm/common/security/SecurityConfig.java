@@ -83,7 +83,7 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(corsProperties.getAllowedOrigins());
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Request-Id", "Cookie"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Request-Id", "Cookie", JwtAuthenticationFilter.TARGET_ORGANIZATION_HEADER));
         configuration.setExposedHeaders(List.of("X-Request-Id", "Set-Cookie"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
